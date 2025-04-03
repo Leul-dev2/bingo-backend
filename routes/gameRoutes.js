@@ -42,19 +42,21 @@ router.post("/join", async (req, res) => {
 
         if (!game) {
             console.log("Game not found. Creating a new game...");
+
+            // If game doesn't exist, create it automatically
             game = new Game({
-                gameId,
+                gameId, 
+                status: "waiting",
                 players: [],
-                totalPrize: 0,
-                gameStatus: "waiting",
+                createdAt: new Date(),
             });
 
-            await game.save();
+            await game.save(); 
             console.log("Game created:", game);
         }
 
-        // Prevent joining if the game is already active
-        if (game.gameStatus === "ongoing") {
+        // Prevent joining if the game is already started
+        if (game.status === "active") {
             return res.status(400).json({ error: "Game already started" });
         }
 
@@ -64,7 +66,7 @@ router.post("/join", async (req, res) => {
         }
 
         // Check if player is already in the game
-        if (game.players.includes(user._id)) {
+        if (game.players.some(player => player.telegramId === telegramId)) {
             return res.status(400).json({ error: "Player already joined" });
         }
 
@@ -72,47 +74,39 @@ router.post("/join", async (req, res) => {
         user.balance -= betAmount;
         await user.save();
 
-        console.log(`User balance deducted. New balance: ${user.balance}`);
+        // Add player to game
+        game.players.push({ telegramId, betAmount });
 
-        // Add player to game (store only ObjectId)
-        game.players.push(user._id);
-        game.totalPrize += betAmount; // Add bet amount to total prize
+        // **Start countdown if this is the first player**
+        if (game.players.length === 1) {
+            console.log("First player joined. Starting 15-second timer...");
+            setTimeout(async () => {
+                let updatedGame = await Game.findOne({ gameId });
 
-        console.log(`Players in game:`, game.players);
-
-        // **If less than 2 players, game remains waiting**
-        if (game.players.length < 2) {
-            await game.save();
-            console.log(`Game ${gameId} is waiting for more players.`);
-            return res.json({
-                message: "Waiting for more players...",
-                gameId: game.gameId,
-                gameStatus: "waiting",
-                players: game.players.length,
-                totalPrize: game.totalPrize,
-            });
+                if (updatedGame && updatedGame.status === "waiting") {
+                    updatedGame.status = "active"; // Start the game
+                    await updatedGame.save();
+                    console.log(`Game ${gameId} started automatically after 15 seconds.`);
+                }
+            }, 15000); // 15 seconds timer
         }
 
-        // **Start the game when 2+ players join**
-        game.gameStatus = "ongoing"; 
         await game.save();
-
-        console.log(`Game ${gameId} is now active with ${game.players.length} players.`);
 
         res.json({
             message: "Joined game successfully",
             newBalance: user.balance,
             gameId: game.gameId,
-            gameStatus: game.gameStatus,
+            gameStatus: game.status,
             players: game.players.length,
-            totalPrize: game.totalPrize,
         });
 
     } catch (error) {
         console.error("Error joining game:", error);
-        res.status(500).json({ error: `Server error: ${error.message}` });
+        res.status(500).json({ error: "Server error" });
     }
 });
+
 
 
 router.get("/status", async (req, res) => {
