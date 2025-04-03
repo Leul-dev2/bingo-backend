@@ -27,67 +27,88 @@ router.post("/create", async (req, res) => {
 
 
 
+const gameTimers = {}; // Store countdown timers for each game
+const countdownValues = {}; // Store remaining countdown time
+
 router.post("/join", async (req, res) => {
     const { telegramId, gameId, betAmount } = req.body;
 
     try {
-        // Find the user by telegramId
+        // Find user
         const user = await User.findOne({ telegramId });
         if (!user) {
             return res.status(404).json({ error: "User not found" });
         }
 
-        // Find the game by gameId
+        // Find game
         let game = await Game.findOne({ gameId });
 
         if (!game) {
             console.log("Game not found. Creating a new game...");
-
-            // If game doesn't exist, create it automatically
             game = new Game({
                 gameId, 
                 status: "waiting",
                 players: [],
             });
-
-            await game.save(); 
-            console.log("Game created:", game);
+            await game.save();
         }
 
-        // Check if user has enough balance
-        if (user.balance < betAmount) {
-            return res.status(400).json({ error: "Insufficient balance" });
-        }
-
-        // Check if player is already in the game
-        if (game.players.some(player => player.telegramId === telegramId)) {
-            return res.status(400).json({ error: "Player already joined" });
-        }
-
-        // Deduct balance
-        user.balance -= betAmount;
-        await user.save();
-
-        // Add player to game
-        game.players.push({ telegramId, betAmount });
-        
-        // If there are at least 2 players, start the game
-        if (game.players.length >= 2) {
-            game.status = "active"; // Start the game
-        }
-
-        await game.save();
-
+        // Prevent joining if game is already active
         if (game.status === "active") {
             return res.status(400).json({ error: "Game already started" });
         }
 
+        // Check balance
+        if (user.balance < betAmount) {
+            return res.status(400).json({ error: "Insufficient balance" });
+        }
+
+        // Prevent duplicate players
+        if (game.players.some(player => player.telegramId === telegramId)) {
+            return res.status(400).json({ error: "Player already joined" });
+        }
+
+        // Deduct balance and save user
+        user.balance -= betAmount;
+        await user.save();
+
+        // Add player
+        game.players.push({ telegramId, betAmount });
+
+        // **Check if it's the 2nd player**
+        if (game.players.length === 2) {
+            game.status = "countdown";
+            await game.save();
+
+            // **Start 10-second countdown**
+            let countdown = 10;
+            countdownValues[gameId] = countdown;
+
+            gameTimers[gameId] = setInterval(async () => {
+                if (countdownValues[gameId] > 0) {
+                    countdownValues[gameId] -= 1;
+                } else {
+                    clearInterval(gameTimers[gameId]);
+                    const updatedGame = await Game.findOne({ gameId });
+
+                    if (updatedGame && updatedGame.players.length >= 2) {
+                        updatedGame.status = "active";
+                        await updatedGame.save();
+                        console.log(`Game ${gameId} started!`);
+                    }
+                }
+            }, 1000);
+        }
+
+        await game.save();
+
         res.json({
-            message: "Joined game successfully",
+            message: game.players.length === 2 ? "Countdown started (10s)!" : "Joined game successfully",
             newBalance: user.balance,
             gameId: game.gameId,
             gameStatus: game.status,
-            players: game.players.length, // Return number of players in the game
+            players: game.players.length,
+            countdown: countdownValues[gameId] || null, // Send remaining countdown time
         });
 
     } catch (error) {
@@ -95,6 +116,18 @@ router.post("/join", async (req, res) => {
         res.status(500).json({ error: "Server error" });
     }
 });
+
+
+router.get("/countdown/:gameId", async (req, res) => {
+    const { gameId } = req.params;
+    
+    if (countdownValues[gameId] !== undefined) {
+        return res.json({ countdown: countdownValues[gameId] });
+    }
+    
+    return res.status(404).json({ error: "No countdown for this game" });
+});
+
 
 
 
