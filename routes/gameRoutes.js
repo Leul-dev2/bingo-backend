@@ -31,36 +31,31 @@ router.post("/join", async (req, res) => {
     const { telegramId, gameId, betAmount } = req.body;
 
     try {
-        console.log("Received request to join game:", { telegramId, gameId, betAmount });
-
         // Find the user by telegramId
         const user = await User.findOne({ telegramId });
         if (!user) {
-            console.log("User not found:", telegramId);
             return res.status(404).json({ error: "User not found" });
         }
 
         // Find the game by gameId
         let game = await Game.findOne({ gameId });
+
         if (!game) {
-            return res.status(404).json({ error: "Game not found" });
-        }
+            console.log("Game not found. Creating a new game...");
 
-        // Check if the game is already in progress or has already finished
-        if (game.status === "in progress" || game.status === "finished") {
-            return res.status(400).json({ error: "Game already started or finished" });
-        }
+            // If game doesn't exist, create it automatically
+            game = new Game({
+                gameId, // Unique game ID
+                status: "waiting", // Initially, the game is waiting for players
+                players: [], // Empty players array initially
+            });
 
-        // Check if the game already has two players
-        if (game.players.length >= 2) {
-            game.status = "in progress"; // Start the game
-            await game.save();
-            console.log("Game started");
+            await game.save(); // Save the new game to the database
+            console.log("Game created:", game);
         }
 
         // Check if the user has enough balance
         if (user.balance < betAmount) {
-            console.log("Insufficient balance. User balance:", user.balance);
             return res.status(400).json({ error: "Insufficient balance" });
         }
 
@@ -72,21 +67,19 @@ router.post("/join", async (req, res) => {
         game.players.push({ telegramId, betAmount });
         await game.save();
 
-        // Return success response
         res.json({
             message: "Joined game successfully",
             newBalance: user.balance,
+            gameId: game.gameId,
             gameStatus: game.status,
         });
+
     } catch (error) {
         console.error("Error joining game:", error);
         res.status(500).json({ error: "Server error" });
     }
 });
 
-
-  
-      
   
 
 // 3. Get Game Details (Fetch the list of players in the game)
