@@ -43,7 +43,7 @@ router.post("/join", async (req, res) => {
         if (!game) {
             console.log("Game not found. Creating a new game...");
 
-            // If game doesn't exist, create it automatically
+            // Create a new game
             game = new Game({
                 gameId, 
                 status: "waiting",
@@ -55,12 +55,12 @@ router.post("/join", async (req, res) => {
             console.log("Game created:", game);
         }
 
-        // Prevent joining if the game is already started
+        // Prevent joining if the game is already active
         if (game.status === "active") {
             return res.status(400).json({ error: "Game already started" });
         }
 
-        // Check if the user has enough balance
+        // Check if user has enough balance
         if (user.balance < betAmount) {
             return res.status(400).json({ error: "Insufficient balance" });
         }
@@ -77,18 +77,24 @@ router.post("/join", async (req, res) => {
         // Add player to game
         game.players.push({ telegramId, betAmount });
 
-        // **Start countdown if this is the first player**
+        // **Start the 15-second countdown if first player**
         if (game.players.length === 1) {
             console.log("First player joined. Starting 15-second timer...");
-            setTimeout(async () => {
-                let updatedGame = await Game.findOne({ gameId });
 
-                if (updatedGame && updatedGame.status === "waiting") {
-                    updatedGame.status = "active"; // Start the game
-                    await updatedGame.save();
-                    console.log(`Game ${gameId} started automatically after 15 seconds.`);
+            setTimeout(async () => {
+                try {
+                    // Fetch the game again inside the timer
+                    let updatedGame = await Game.findOne({ gameId });
+
+                    if (updatedGame && updatedGame.status === "waiting") {
+                        updatedGame.status = "active"; // Start the game
+                        await updatedGame.save();
+                        console.log(`Game ${gameId} started automatically after 15 seconds.`);
+                    }
+                } catch (error) {
+                    console.error("Error updating game status:", error);
                 }
-            }, 15000); // 15 seconds timer
+            }, 15000); // 15 seconds
         }
 
         await game.save();
@@ -106,6 +112,7 @@ router.post("/join", async (req, res) => {
         res.status(500).json({ error: "Server error" });
     }
 });
+
 
 
 
