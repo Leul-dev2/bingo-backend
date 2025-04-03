@@ -31,9 +31,12 @@ router.post("/join", async (req, res) => {
     const { telegramId, gameId, betAmount } = req.body;
 
     try {
+        console.log(`Received request: telegramId=${telegramId}, gameId=${gameId}, betAmount=${betAmount}`);
+
         // Find the user by telegramId
         const user = await User.findOne({ telegramId });
         if (!user) {
+            console.log("User not found:", telegramId);
             return res.status(404).json({ error: "User not found" });
         }
 
@@ -41,12 +44,12 @@ router.post("/join", async (req, res) => {
         let game = await Game.findOne({ gameId });
 
         if (!game) {
-            console.log("Game not found. Creating a new game...");
+            console.log(`Game ${gameId} not found. Creating a new one...`);
 
             // Create a new game
             game = new Game({
                 gameId, 
-                status: "waiting",
+                gameStatus: "waiting",
                 players: [],
                 createdAt: new Date(),
             });
@@ -56,62 +59,70 @@ router.post("/join", async (req, res) => {
         }
 
         // Prevent joining if the game is already active
-        if (game.status === "active") {
+        if (game.gameStatus === "active") {
+            console.log(`Game ${gameId} is already active. Rejecting request.`);
             return res.status(400).json({ error: "Game already started" });
         }
 
         // Check if user has enough balance
         if (user.balance < betAmount) {
+            console.log(`User ${telegramId} has insufficient balance.`);
             return res.status(400).json({ error: "Insufficient balance" });
         }
 
         // Check if player is already in the game
         if (game.players.some(player => player.telegramId === telegramId)) {
+            console.log(`User ${telegramId} is already in game ${gameId}`);
             return res.status(400).json({ error: "Player already joined" });
         }
 
         // Deduct the balance
         user.balance -= betAmount;
         await user.save();
+        console.log(`User ${telegramId} balance deducted. New balance: ${user.balance}`);
 
         // Add player to game
         game.players.push({ telegramId, betAmount });
 
         // **Start the 15-second countdown if first player**
         if (game.players.length === 1) {
-            console.log("First player joined. Starting 15-second timer...");
+            console.log(`First player joined. Starting 15-second timer for game ${gameId}...`);
 
             setTimeout(async () => {
                 try {
                     // Fetch the game again inside the timer
                     let updatedGame = await Game.findOne({ gameId });
 
-                    if (updatedGame && updatedGame.status === "waiting") {
-                        updatedGame.status = "active"; // Start the game
+                    if (updatedGame && updatedGame.gameStatus === "waiting") {
+                        updatedGame.gameStatus = "active"; // Start the game
                         await updatedGame.save();
                         console.log(`Game ${gameId} started automatically after 15 seconds.`);
+                    } else {
+                        console.log(`Game ${gameId} was already active or deleted before the timer finished.`);
                     }
                 } catch (error) {
-                    console.error("Error updating game status:", error);
+                    console.error("Error inside setTimeout function:", error);
                 }
             }, 15000); // 15 seconds
         }
 
         await game.save();
+        console.log(`User ${telegramId} successfully joined game ${gameId}`);
 
         res.json({
             message: "Joined game successfully",
             newBalance: user.balance,
             gameId: game.gameId,
-            gameStatus: game.status,
+            gameStatus: game.gameStatus,
             players: game.players.length,
         });
 
     } catch (error) {
-        console.error("Error joining game:", error);
-        res.status(500).json({ error: "Server error" });
+        console.error("Server error during /join:", error);
+        res.status(500).json({ error: "Server error", details: error.message });
     }
 });
+
 
 
 
