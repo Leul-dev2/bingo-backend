@@ -87,6 +87,8 @@ router.post("/join", async (req, res) => {
         });
     } catch (error) {
         console.error("Error joining game:", error);
+      // Save error to database
+        await ErrorLog.create({ message: error.message, details: error.stack });
         res.status(500).json({ error: "Server error" });
     }
 });
