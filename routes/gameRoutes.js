@@ -131,26 +131,26 @@ router.get("/countdown/:gameId", async (req, res) => {
 
 
 
-// 3. Get Game Details (Fetch the list of players in the game)
-// router.get("/details/:gameId", async (req, res) => {
-//   const { gameId } = req.params;
+//3. Get Game Details (Fetch the list of players in the game)
+router.get("/details/:gameId", async (req, res) => {
+  const { gameId } = req.params;
 
-//   try {
-//     const game = await Game.findOne({ gameId });
-//     if (!game) {
-//       return res.status(404).json({ error: "Game not found" });
-//     }
+  try {
+    const game = await Game.findOne({ gameId });
+    if (!game) {
+      return res.status(404).json({ error: "Game not found" });
+    }
 
-//     res.json({
-//       gameId: game.gameId,
-//       players: game.players,
-//       status: game.status,
-//       startTime: game.startTime,
-//     });
-//   } catch (error) {
-//     console.error("Error fetching game details:", error);
-//     res.status(500).json({ error: "Server error" });
-//   }
-// });
+    res.json({
+      gameId: game.gameId,
+      players: game.players,
+      status: game.status,
+      startTime: game.startTime,
+    });
+  } catch (error) {
+    console.error("Error fetching game details:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 
 module.exports = router;
