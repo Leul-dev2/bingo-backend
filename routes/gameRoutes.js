@@ -107,15 +107,22 @@ router.post("/join", async (req, res) => {
 
 router.get("/status", async (req, res) => {
     const { gameId } = req.query;
+
+    if (!gameId) {
+        return res.status(400).json({ error: "Game ID is required" });
+    }
+
     try {
         const game = await Game.findOne({ gameId });
         if (!game) return res.status(404).json({ error: "Game not found" });
+
         res.json({ gameStatus: game.status, players: game.players.length });
     } catch (error) {
         console.error("Error checking game status:", error);
         res.status(500).json({ error: "Server error" });
     }
 });
+
 
 
 
