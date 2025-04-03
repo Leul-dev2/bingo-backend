@@ -80,7 +80,6 @@ router.post("/join", async (req, res) => {
     }
 });
 
-  
 
 // 3. Get Game Details (Fetch the list of players in the game)
 router.get("/details/:gameId", async (req, res) => {
