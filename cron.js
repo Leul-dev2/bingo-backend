@@ -1,5 +1,5 @@
 const cron = require("node-cron");
-const Game = require("./models/Game");
+const Game = require("./models/game");
 
 // Run every 5 seconds to check for games that need to start
 cron.schedule("*/5 * * * * *", async () => {
