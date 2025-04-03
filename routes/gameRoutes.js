@@ -105,18 +105,17 @@ router.post("/join", async (req, res) => {
     }
 });
 
-
-
-router.get("/countdown/:gameId", async (req, res) => {
-    const { gameId } = req.params;
-    
-    if (countdownValues[gameId] !== undefined) {
-        return res.json({ countdown: countdownValues[gameId] });
+router.get("/status", async (req, res) => {
+    const { gameId } = req.query;
+    try {
+        const game = await Game.findOne({ gameId });
+        if (!game) return res.status(404).json({ error: "Game not found" });
+        res.json({ gameStatus: game.status, players: game.players.length });
+    } catch (error) {
+        console.error("Error checking game status:", error);
+        res.status(500).json({ error: "Server error" });
     }
-    
-    return res.status(404).json({ error: "No countdown for this game" });
 });
-
 
 
 
