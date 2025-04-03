@@ -30,8 +30,7 @@ router.post("/start", async (req, res) => {
   }
 });
 
-// 2. Join a Game (Deduct balance and add the player)
-// 2. Join a Game (Create a game session if it doesn't exist, then deduct balance and add the player)
+
 router.post("/join", async (req, res) => {
     const { telegramId, gameId, betAmount } = req.body;
   
@@ -41,15 +40,6 @@ router.post("/join", async (req, res) => {
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
-  
-      // Check if the user has enough balance
-      if (user.balance < betAmount) {
-        return res.status(400).json({ error: "Insufficient balance" });
-      }
-  
-      // Deduct the balance from the user's account
-      user.balance -= betAmount;
-      await user.save();
   
       // Find the game by gameId
       let game = await Game.findOne({ gameId });
@@ -63,6 +53,15 @@ router.post("/join", async (req, res) => {
         });
         await game.save();
       }
+  
+      // Check if the user has enough balance *after* ensuring the game exists
+      if (user.balance < betAmount) {
+        return res.status(400).json({ error: "Insufficient balance" });
+      }
+  
+      // Deduct the balance from the user's account
+      user.balance -= betAmount;
+      await user.save();
   
       // Add the player to the game
       game.players.push({ telegramId, betAmount });
@@ -79,6 +78,8 @@ router.post("/join", async (req, res) => {
       res.status(500).json({ error: "Server error" });
     }
   });
+  
+      
   
 
 // 3. Get Game Details (Fetch the list of players in the game)
