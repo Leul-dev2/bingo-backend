@@ -46,20 +46,20 @@ router.post("/join", async (req, res) => {
         console.log("User found:", user);
 
         // Find the game by gameId
-        let game = await Game.findOne({ gameId });
+        // let game = await Game.findOne({ gameId });
 
-        if (!game) {
-            console.log("Game not found, creating new game:", gameId);
-            game = new Game({
-                gameId,
-                status: "waiting", // Initially, the game is waiting for players
-                players: [],
-            });
-            await game.save();
-            console.log("Game created successfully:", game);
-        } else {
-            console.log("Game found:", game);
-        }
+        // if (!game) {
+        //     console.log("Game not found, creating new game:", gameId);
+        //     game = new Game({
+        //         gameId,
+        //         status: "waiting", // Initially, the game is waiting for players
+        //         players: [],
+        //     });
+        //     await game.save();
+        //     console.log("Game created successfully:", game);
+        // } else {
+        //     console.log("Game found:", game);
+        // }
 
         // Check if the user has enough balance
         if (user.balance < betAmount) {
@@ -73,17 +73,17 @@ router.post("/join", async (req, res) => {
         await user.save();
         console.log("New user balance:", user.balance);
 
-        // Add the player to the game
-        console.log("Adding player to game:", { telegramId, betAmount });
-        game.players.push({ telegramId, betAmount });
-        await game.save();
-        console.log("Player added successfully");
+        // // Add the player to the game
+        // console.log("Adding player to game:", { telegramId, betAmount });
+        // game.players.push({ telegramId, betAmount });
+        // await game.save();
+        // console.log("Player added successfully");
 
         // Return success response
         res.json({
             message: "Joined game successfully",
             newBalance: user.balance,
-            gameStatus: game.status,
+            // gameStatus: game.status,
         });
     } catch (error) {
         console.error("Error joining game:", error);
