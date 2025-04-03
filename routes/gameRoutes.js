@@ -35,49 +35,62 @@ router.post("/join", async (req, res) => {
     const { telegramId, gameId, betAmount } = req.body;
   
     try {
-      // Find the user by telegramId
-      const user = await User.findOne({ telegramId });
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-  
-      // Find the game by gameId
-      let game = await Game.findOne({ gameId });
-  
-      // If the game doesn't exist, create a new game session
-      if (!game) {
-        game = new Game({
-          gameId,
-          status: "waiting", // Initially, the game is waiting for players
-          players: [], // Add players list
-        });
+        console.log("Received request to join game:", { telegramId, gameId, betAmount });
+
+        // Find the user by telegramId
+        const user = await User.findOne({ telegramId });
+        if (!user) {
+            console.log("User not found:", telegramId);
+            return res.status(404).json({ error: "User not found" });
+        }
+        console.log("User found:", user);
+
+        // Find the game by gameId
+        let game = await Game.findOne({ gameId });
+
+        if (!game) {
+            console.log("Game not found, creating new game:", gameId);
+            game = new Game({
+                gameId,
+                status: "waiting", // Initially, the game is waiting for players
+                players: [],
+            });
+            await game.save();
+            console.log("Game created successfully:", game);
+        } else {
+            console.log("Game found:", game);
+        }
+
+        // Check if the user has enough balance
+        if (user.balance < betAmount) {
+            console.log("Insufficient balance. User balance:", user.balance);
+            return res.status(400).json({ error: "Insufficient balance" });
+        }
+
+        // Deduct the balance
+        console.log(`Deducting ${betAmount} from user balance`);
+        user.balance -= betAmount;
+        await user.save();
+        console.log("New user balance:", user.balance);
+
+        // Add the player to the game
+        console.log("Adding player to game:", { telegramId, betAmount });
+        game.players.push({ telegramId, betAmount });
         await game.save();
-      }
-  
-      // Check if the user has enough balance *after* ensuring the game exists
-      if (user.balance < betAmount) {
-        return res.status(400).json({ error: "Insufficient balance" });
-      }
-  
-      // Deduct the balance from the user's account
-      user.balance -= betAmount;
-      await user.save();
-  
-      // Add the player to the game
-      game.players.push({ telegramId, betAmount });
-      await game.save();
-  
-      // Return success response
-      res.json({
-        message: "Joined game successfully",
-        newBalance: user.balance,
-        gameStatus: game.status,
-      });
+        console.log("Player added successfully");
+
+        // Return success response
+        res.json({
+            message: "Joined game successfully",
+            newBalance: user.balance,
+            gameStatus: game.status,
+        });
     } catch (error) {
-      console.error("Error joining game:", error);
-      res.status(500).json({ error: "Server error" });
+        console.error("Error joining game:", error);
+        res.status(500).json({ error: "Server error" });
     }
-  });
+});
+
   
       
   
