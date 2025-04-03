@@ -45,33 +45,49 @@ router.post("/join", async (req, res) => {
 
             // If game doesn't exist, create it automatically
             game = new Game({
-                gameId, // Unique game ID
-                status: "waiting", // Initially, the game is waiting for players
-                players: [], // Empty players array initially
+                gameId, 
+                status: "waiting",
+                players: [],
             });
 
-            await game.save(); // Save the new game to the database
+            await game.save(); 
             console.log("Game created:", game);
         }
 
-        // Check if the user has enough balance
+        // Check if user has enough balance
         if (user.balance < betAmount) {
             return res.status(400).json({ error: "Insufficient balance" });
         }
 
-        // Deduct the balance
+        // Check if player is already in the game
+        if (game.players.some(player => player.telegramId === telegramId)) {
+            return res.status(400).json({ error: "Player already joined" });
+        }
+
+        // Deduct balance
         user.balance -= betAmount;
         await user.save();
 
-        // Add the player to the game
+        // Add player to game
         game.players.push({ telegramId, betAmount });
+        
+        // If there are at least 2 players, start the game
+        if (game.players.length >= 2) {
+            game.status = "active"; // Start the game
+        }
+
         await game.save();
+
+        if (game.status === "active") {
+            return res.status(400).json({ error: "Game already started" });
+        }
 
         res.json({
             message: "Joined game successfully",
             newBalance: user.balance,
             gameId: game.gameId,
             gameStatus: game.status,
+            players: game.players.length, // Return number of players in the game
         });
 
     } catch (error) {
@@ -79,6 +95,7 @@ router.post("/join", async (req, res) => {
         res.status(500).json({ error: "Server error" });
     }
 });
+
 
 
 // 3. Get Game Details (Fetch the list of players in the game)
