@@ -6,6 +6,13 @@ const router = express.Router();
 
 const { v4: uuidv4 } = require('uuid'); // For unique game ID
 
+// Middleware to handle errors
+const handleError = (res, error, message) => {
+    console.error(message, error);
+    res.status(500).json({ error: message });
+};
+
+// Route to create a game
 router.post("/create", async (req, res) => {
     try {
         const gameId = uuidv4(); // Generate a unique game ID
@@ -13,6 +20,7 @@ router.post("/create", async (req, res) => {
             gameId,
             status: "waiting", // Initially, the game is waiting for players
             players: [], // Empty players array initially
+            totalPrize: 0,
         });
         await newGame.save();
         res.json({
@@ -20,13 +28,11 @@ router.post("/create", async (req, res) => {
             gameId: newGame.gameId,
         });
     } catch (error) {
-        console.error("Error creating game:", error);
-        res.status(500).json({ error: "Server error" });
+        handleError(res, error, "Error creating game:");
     }
 });
 
-
-
+// Route to join a game
 router.post("/join", async (req, res) => {
     const { telegramId, gameId, betAmount } = req.body;
 
@@ -41,20 +47,11 @@ router.post("/join", async (req, res) => {
         let game = await Game.findOne({ gameId });
 
         if (!game) {
-            console.log("Game not found. Creating a new game...");
-            game = new Game({
-                gameId,
-                players: [],
-                totalPrize: 0,
-                gameStatus: "waiting",
-            });
-
-            await game.save();
-            console.log("Game created:", game);
+            return res.status(404).json({ error: "Game not found" });
         }
 
         // Prevent joining if the game is already active
-        if (game.gameStatus === "ongoing") {
+        if (game.status === "ongoing") {
             return res.status(400).json({ error: "Game already started" });
         }
 
@@ -68,57 +65,47 @@ router.post("/join", async (req, res) => {
             return res.status(400).json({ error: "Player already joined" });
         }
 
-        // Deduct the balance
-        user.balance -= betAmount;
-        await user.save();
-
-        console.log(`User balance deducted. New balance: ${user.balance}`);
-
         // Add player to game (store only ObjectId)
         game.players.push(user._id);
         game.totalPrize += betAmount; // Add bet amount to total prize
 
-        console.log(`Players in game:`, game.players);
-
         // **If less than 2 players, game remains waiting**
         if (game.players.length < 2) {
             await game.save();
-            console.log(`Game ${gameId} is waiting for more players.`);
             return res.json({
                 message: "Waiting for more players...",
                 gameId: game.gameId,
-                gameStatus: "waiting",
+                gameStatus: game.status,
                 players: game.players.length,
                 totalPrize: game.totalPrize,
             });
         }
 
-        // **Start the game when 2+ players join**
-        game.gameStatus = "ongoing"; 
-        await game.save();
+        // Deduct the balance only when the player has successfully joined
+        user.balance -= betAmount;
+        await user.save();
 
-        console.log(`Game ${gameId} is now active with ${game.players.length} players.`);
+        // Start the game when 2+ players join
+        game.status = "ongoing"; 
+        await game.save();
 
         res.json({
             message: "Joined game successfully",
             newBalance: user.balance,
             gameId: game.gameId,
-            gameStatus: game.gameStatus,
+            gameStatus: game.status,
             players: game.players.length,
             totalPrize: game.totalPrize,
+            redirectToGamePage: true,  // Add this flag to handle frontend redirection
         });
 
     } catch (error) {
-        console.error("Error joining game:", error);
-        res.status(500).json({ error: `Server error: ${error.message}` });
+        handleError(res, error, "Error joining game:");
     }
 });
 
 
-
-
-
-
+// Route to check game status
 router.get("/status", async (req, res) => {
     const { gameId } = req.query;
 
@@ -130,36 +117,32 @@ router.get("/status", async (req, res) => {
         const game = await Game.findOne({ gameId });
         if (!game) return res.status(404).json({ error: "Game not found" });
 
-        res.json({ gameStatus: game.status, players: game.players.length });
+        res.json({ gameStatus: game.status, players: game.players.length, totalPrize: game.totalPrize });
     } catch (error) {
-        console.error("Error checking game status:", error);
-        res.status(500).json({ error: "Server error" });
+        handleError(res, error, "Error checking game status:");
     }
 });
 
-
-
-
-//3. Get Game Details (Fetch the list of players in the game)
+// Route to get game details (players, status, prize)
 router.get("/details/:gameId", async (req, res) => {
-  const { gameId } = req.params;
+    const { gameId } = req.params;
 
-  try {
-    const game = await Game.findOne({ gameId });
-    if (!game) {
-      return res.status(404).json({ error: "Game not found" });
+    try {
+        const game = await Game.findOne({ gameId }).populate("players", "username balance telegramId");
+        if (!game) {
+            return res.status(404).json({ error: "Game not found" });
+        }
+
+        res.json({
+            gameId: game.gameId,
+            players: game.players, // This now returns full player details, not just IDs
+            status: game.status,
+            totalPrize: game.totalPrize,
+            startTime: game.startTime,
+        });
+    } catch (error) {
+        handleError(res, error, "Error fetching game details:");
     }
-
-    res.json({
-      gameId: game.gameId,
-      players: game.players,
-      status: game.status,
-      startTime: game.startTime,
-    });
-  } catch (error) {
-    console.error("Error fetching game details:", error);
-    res.status(500).json({ error: "Server error" });
-  }
 });
 
 module.exports = router;
