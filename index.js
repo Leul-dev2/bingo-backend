@@ -12,7 +12,7 @@ const app = express();
 const server = http.createServer(app); // 👈 Create HTTP server
 const io = new Server(server, {
   cors: {
-    origin: "*", // Allow all origins — restrict in production
+    origin: "https://bossbingo.netlify.app", // Allow all origins — restrict in production
   },
 });
 
@@ -67,7 +67,7 @@ io.on("connection", (socket) => {
 });
 
 // Start the server with WebSocket
-const PORT = process.env.PORT || 5002;
+const PORT = process.env.PORT || 5005;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
