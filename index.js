@@ -52,7 +52,7 @@ io.on("connection", (socket) => {
   socket.on("joinUser", ({ telegramId }) => {
     socket.join(telegramId);
     console.log(`User ${telegramId} joined personal room`);
-    socket.emit("userconnected", telegramId);
+    socket.emit("userconnected", {telegramId});
   });
 
   // Join game room
