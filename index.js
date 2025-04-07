@@ -45,36 +45,44 @@ app.use((err, req, res, next) => {
 });
 
 // 🧠 Socket.IO Logic
+// In-memory store (optional - for game logic)
+const userSelections = {}; // key: telegramId, value: { cardId, card, gameId }
+
 io.on("connection", (socket) => {
   console.log("🟢 New client connected");
 
-  // Join user room
   socket.on("joinUser", ({ telegramId }) => {
     socket.join(telegramId);
     console.log(`User ${telegramId} joined personal room`);
-    socket.emit("userconnected", {telegramId});
+    socket.emit("userconnected", { telegramId });
   });
 
-
-  // Join game room
   socket.on("userJoinedGame", ({ telegramId, gameId }) => {
     socket.join(gameId);
     console.log(`User ${telegramId} joined game room: ${gameId}`);
-    io.to(gameId).emit("gameStatusUpdate", "active");
+    io.to(telegramId).emit("gameStatusUpdate", "active");
   });
 
-   // Listen for card selection event from clients
-   socket.on('cardSelected', (data) => {
-    console.log('Card selected:', data);
+  socket.on("cardSelected", (data) => {
+    const { telegramId, cardId, card, gameId } = data;
 
-    // Broadcast to all clients
-    io.emit('cardSelected', data);  // This sends the selected card data to all connected clients
+    // Save or process user selection
+    userSelections[telegramId] = { cardId, card, gameId };
+
+    console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
+
+    // Send it ONLY to that user (or store it)
+    io.to(telegramId).emit("cardConfirmed", { cardId, card });
+
+    // Optional: notify game room that a user has selected a card (but not the actual card data)
+    io.to(gameId).emit("userCardSelected", { telegramId });
   });
 
   socket.on("disconnect", () => {
     console.log("🔴 Client disconnected");
   });
 });
+
 
 // Start the server with WebSocket
 const PORT = process.env.PORT || 5002;
