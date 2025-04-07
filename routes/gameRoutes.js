@@ -10,7 +10,7 @@ const handleError = (res, error, message = "Server Error") => {
 };
 
 router.post("/start", async (req, res) => {
-  const { gameId, telegramId, betAmount } = req.body;
+  const { gameId, telegramId } = req.body;
 
   try {
     // Ensure the 'await' keyword is used inside an 'async' function
@@ -18,7 +18,7 @@ router.post("/start", async (req, res) => {
 
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    if (user.balance < betAmount) {
+    if (user.balance < gameId) {
       return res.status(400).json({ error: "Insufficient balance" });
     }
 
