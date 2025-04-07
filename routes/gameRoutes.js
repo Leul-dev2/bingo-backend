@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const User = require("../models/user");
 const Game = require("../models/game");
+const { Socket } = require("socket.io");
 
 // Error handler helper
 const handleError = (res, error, message = "Server Error") => {
@@ -22,30 +23,9 @@ router.post("/start", async (req, res) => {
       return res.status(400).json({ error: "Insufficient balance" });
     }
 
-    let game = await Game.findOne({ gameId });
-    if (!game) return res.status(404).json({ error: "Game not found" });
-
     const io = req.app.get("io");
 
-    // Example: Create game room
-    io.of("/").adapter.addClient(game.gameId, (err) => {
-      if (err) {
-        return res.status(500).json({ error: "Error creating game room" });
-      }
-
-      // Emit game status update to the room
-      io.to(game.gameId).emit("gameStatusUpdate", "waiting");
-
-      // Update user's balance
-      // user.balance -= betAmount;
-      // await user.save();  // This 'await' is allowed here as the function is 'async'
-
-      res.json({
-        message: "Game room created successfully",
-        gameId: game.gameId,
-        newBalance: user.balance,
-      });
-    });
+    io.emit("gameid", { gameId, telegramId });
 
   } catch (error) {
     console.error("Error starting the game:", error);
