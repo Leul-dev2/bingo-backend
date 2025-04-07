@@ -59,7 +59,7 @@ io.on("connection", (socket) => {
   socket.on("userJoinedGame", ({ telegramId, gameId }) => {
     socket.join(gameId);
     console.log(`User ${telegramId} joined game room: ${gameId}`);
-    io.to(gameId).emit("gameStatusUpdate", "ongoing");
+    io.to(gameId).emit("gameStatusUpdate", "active");
   });
 
   socket.on("disconnect", () => {

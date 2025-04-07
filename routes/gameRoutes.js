@@ -9,66 +9,50 @@ const handleError = (res, error, message = "Server Error") => {
   res.status(500).json({ error: message });
 };
 
-// @route   POST /api/games/join
-// @desc    User joins a game
-// @access  Public or Authenticated based on your needs
-router.post("/join", async (req, res) => {
-  const { telegramId, gameId, betAmount } = req.body;
+router.post("/start", async (req, res) => {
+  const { gameId, telegramId, betAmount } = req.body;
 
   try {
+    // Ensure the 'await' keyword is used inside an 'async' function
     const user = await User.findOne({ telegramId });
+
     if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (user.balance < betAmount) {
+      return res.status(400).json({ error: "Insufficient balance" });
+    }
 
     let game = await Game.findOne({ gameId });
     if (!game) return res.status(404).json({ error: "Game not found" });
 
-    if (game.status === "ongoing")
-      return res.status(400).json({ error: "Game already started" });
+    const io = req.app.get("io");
 
-    if (user.balance < betAmount)
-      return res.status(400).json({ error: "Insufficient balance" });
+    // Example: Create game room
+    io.of("/").adapter.addClient(game.gameId, (err) => {
+      if (err) {
+        return res.status(500).json({ error: "Error creating game room" });
+      }
 
-    if (game.players.includes(user._id))
-      return res.status(400).json({ error: "Player already joined" });
+      // Emit game status update to the room
+      io.to(game.gameId).emit("gameStatusUpdate", "waiting");
 
-    game.players.push(user._id);
-    game.totalPrize += betAmount;
+      // Update user's balance
+      // user.balance -= betAmount;
+      // await user.save();  // This 'await' is allowed here as the function is 'async'
 
-    const io = req.app.get("io"); // 👈 Get socket.io instance from Express
-
-    if (game.players.length < 2) {
-      await game.save();
-      return res.json({
-        message: "Waiting for more players...",
+      res.json({
+        message: "Game room created successfully",
         gameId: game.gameId,
-        gameStatus: game.status,
-        players: game.players.length,
-        totalPrize: game.totalPrize,
+        newBalance: user.balance,
       });
-    }
-
-    user.balance -= betAmount;
-    await user.save();
-
-    game.status = "ongoing";
-    await game.save();
-
-    // 🔄 Real-time updates to all players in the game room
-    io.to(game.gameId).emit("gameStatusUpdate", "ongoing");
-    io.to(telegramId).emit("balanceUpdated", user.balance);
-
-    res.json({
-      message: "Joined game successfully",
-      newBalance: user.balance,
-      gameId: game.gameId,
-      gameStatus: game.status,
-      players: game.players.length,
-      totalPrize: game.totalPrize,
     });
 
   } catch (error) {
-    handleError(res, error, "Error joining game:");
+    console.error("Error starting the game:", error);
+    res.status(500).json({ error: "Error starting the game" });
   }
 });
+
+
 
 module.exports = router;
