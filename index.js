@@ -65,18 +65,19 @@ io.on("connection", (socket) => {
 
   socket.on("cardSelected", (data) => {
     const { telegramId, cardId, card, gameId } = data;
-
-    // Save or process user selection
-    userSelections[telegramId] = { cardId, card, gameId };
-
-    console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
-
-    // Send it ONLY to that user (or store it)
+  
+    // Confirm to the sender only
     io.to(telegramId).emit("cardConfirmed", { cardId, card });
-
-    // Optional: notify game room that a user has selected a card (but not the actual card data)
-    io.to(gameId).emit("userCardSelected", { telegramId });
+  
+    // Notify others in the same game room (but not the sender)
+    socket.to(gameId).emit("otherCardSelected", {
+      telegramId,
+      cardId,
+    });
+  
+    console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
   });
+  
 
   socket.on("disconnect", () => {
     console.log("🔴 Client disconnected");
