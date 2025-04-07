@@ -55,11 +55,20 @@ io.on("connection", (socket) => {
     socket.emit("userconnected", {telegramId});
   });
 
+
   // Join game room
   socket.on("userJoinedGame", ({ telegramId, gameId }) => {
     socket.join(gameId);
     console.log(`User ${telegramId} joined game room: ${gameId}`);
     io.to(gameId).emit("gameStatusUpdate", "active");
+  });
+
+   // Listen for card selection event from clients
+   socket.on('cardSelected', (data) => {
+    console.log('Card selected:', data);
+
+    // Broadcast to all clients
+    io.emit('cardSelected', data);  // This sends the selected card data to all connected clients
   });
 
   socket.on("disconnect", () => {
@@ -68,7 +77,7 @@ io.on("connection", (socket) => {
 });
 
 // Start the server with WebSocket
-const PORT = process.env.PORT || 5005;
+const PORT = process.env.PORT || 5002;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });

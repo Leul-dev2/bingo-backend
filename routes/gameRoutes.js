@@ -14,24 +14,28 @@ router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
 
   try {
-    // Ensure the 'await' keyword is used inside an 'async' function
     const user = await User.findOne({ telegramId });
-
-    if (!user) return res.status(404).json({ error: "User not found" });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
 
     if (user.balance < gameId) {
       return res.status(400).json({ error: "Insufficient balance" });
     }
 
+    // Emit game ID to client using Socket.IO
     const io = req.app.get("io");
-
     io.emit("gameid", { gameId, telegramId });
+
+    // Send a successful response
+    return res.status(200).json({ success: true, gameId, telegramId });
 
   } catch (error) {
     console.error("Error starting the game:", error);
-    res.status(500).json({ error: "Error starting the game" });
+    return res.status(500).json({ error: "Error starting the game" });
   }
 });
+
 
 
 
