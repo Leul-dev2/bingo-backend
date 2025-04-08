@@ -51,7 +51,6 @@ let gameSessions = {}; // Store game sessions: gameId -> [telegramId]
 let userSelections = {}; // Store user selections: socket.id -> { telegramId, gameId }
 let gameCards = {}; // Store game card selections: gameId -> { cardId: telegramId }
 
-// Function to make a card available again
 const makeCardAvailable = (gameId, cardId) => {
   if (gameCards[gameId]) {
     delete gameCards[gameId][cardId];  // Remove the card from the selected cards list
@@ -144,6 +143,9 @@ io.on("connection", (socket) => {
       // If the user selected a card, make it available again
       if (cardId && gameCards[gameId] && gameCards[gameId][cardId] === telegramId) {
         makeCardAvailable(gameId, cardId);  // Release the selected card
+      
+         // Notify other players in the game room that the card is available again
+      io.to(gameId).emit("cardAvailable", { cardId, telegramId });
       }
   
       // Remove the user from the game session
@@ -159,7 +161,6 @@ io.on("connection", (socket) => {
     }
   });
 });
-
 
 // Start the server with WebSocket
 const PORT = process.env.PORT || 5002;
