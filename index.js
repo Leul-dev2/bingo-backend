@@ -54,33 +54,34 @@ io.on("connection", (socket) => {
   console.log("🟢 New client connected");
 
   // User joins a game
+  // User joins a game
   socket.on("userJoinedGame", ({ telegramId, gameId }) => {
     // Initialize the game session if it doesn't exist
     if (!gameSessions[gameId]) {
-      gameSessions[gameId] = [];
+      gameSessions[gameId] = [];  // Create a new array for game players if not already initialized
     }
 
-    // Avoid duplicates in the game session (make sure the player is not already in the session)
+    // Avoid duplicates in the game session
     if (!gameSessions[gameId].includes(telegramId)) {
-      gameSessions[gameId].push(telegramId);
+      gameSessions[gameId].push(telegramId);  // Add the telegramId to the game session
     }
 
-    // Join the user to the game room
+    // Add the user to the game room (to receive game-specific events)
     socket.join(gameId);
 
     console.log(`User ${telegramId} joined game room: ${gameId}`);
     console.log(`User ${telegramId} added to game ${gameId}:`, gameSessions[gameId]);
 
     // Emit the number of players in the game session to all users in that game room
-    const numberOfPlayers = gameSessions[gameId].length;  // This will be the number of players in that game
-    io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
+    const numberOfPlayers = gameSessions[gameId].length;  // This will be the number of players in the game
+    io.to(gameId).emit("gameid", { gameId, numberOfPlayers });  // Send to everyone in the game room
 
     // Store the gameId in the userSelections object for each user
     if (!userSelections[telegramId]) {
-      userSelections[telegramId] = { gameId }; // Initialize the game selection if not already set
+      userSelections[telegramId] = { gameId };  // Initialize the game selection if not already set
       console.log(`User ${telegramId} joined game ${gameId}`);
     } else {
-      userSelections[telegramId].gameId = gameId; // Update if already present
+      userSelections[telegramId].gameId = gameId;  // Update if already present
     }
   });
 
