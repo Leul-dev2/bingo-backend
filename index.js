@@ -60,22 +60,22 @@ io.on("connection", (socket) => {
     if (!gameSessions[gameId]) {
       gameSessions[gameId] = [];  // Create a new array for game players if not already initialized
     }
-
+  
     // Avoid duplicates in the game session
     if (!gameSessions[gameId].includes(telegramId)) {
       gameSessions[gameId].push(telegramId);  // Add the telegramId to the game session
     }
-
+  
     // Add the user to the game room (to receive game-specific events)
     socket.join(gameId);
-
+  
     console.log(`User ${telegramId} joined game room: ${gameId}`);
     console.log(`User ${telegramId} added to game ${gameId}:`, gameSessions[gameId]);
-
+  
     // Emit the number of players in the game session to all users in that game room
     const numberOfPlayers = gameSessions[gameId].length;  // This will be the number of players in the game
     io.to(gameId).emit("gameid", { gameId, numberOfPlayers });  // Send to everyone in the game room
-
+  
     // Store the gameId in the userSelections object for each user
     if (!userSelections[telegramId]) {
       userSelections[telegramId] = { gameId };  // Initialize the game selection if not already set
@@ -84,6 +84,24 @@ io.on("connection", (socket) => {
       userSelections[telegramId].gameId = gameId;  // Update if already present
     }
   });
+  
+  // Handle player disconnection (when the user leaves the page)
+  socket.on("disconnect", () => {
+    const { telegramId, gameId } = userSelections[socket.id] || {};  // Get telegramId and gameId from userSelections
+  
+    if (telegramId && gameId) {
+      // Remove the user from the game session
+      gameSessions[gameId] = gameSessions[gameId].filter(id => id !== telegramId);
+  
+      console.log(`User ${telegramId} disconnected from game ${gameId}`);
+      console.log(`Updated game session ${gameId}:`, gameSessions[gameId]);
+  
+      // Emit the number of players in the game session after the player leaves
+      const numberOfPlayers = gameSessions[gameId].length;
+      io.to(gameId).emit("gameid", { gameId, numberOfPlayers });  // Send updated player count to everyone in the game room
+    }
+  });
+  
 
   // Other events like card selection can be added below
   socket.on("cardSelected", (data) => {
