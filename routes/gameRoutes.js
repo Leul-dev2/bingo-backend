@@ -10,6 +10,9 @@ const handleError = (res, error, message = "Server Error") => {
   res.status(500).json({ error: message });
 };
 
+// At the top of your file (outside the router), define gameSessions
+const gameSessions = {}; // Stores gameId: [telegramIds]
+
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
 
@@ -23,18 +26,37 @@ router.post("/start", async (req, res) => {
       return res.status(400).json({ error: "Insufficient balance" });
     }
 
-    // Emit game ID to client using Socket.IO
-    const io = req.app.get("io");
-    io.emit("gameid", { gameId, telegramId });
+    // Add user to the game session
+    if (!gameSessions[gameId]) {
+      gameSessions[gameId] = [];
+    }
 
-    // Send a successful response
-    return res.status(200).json({ success: true, gameId, telegramId });
+    // Avoid duplicates
+    if (!gameSessions[gameId].includes(telegramId)) {
+      gameSessions[gameId].push(telegramId);
+    }
+
+    // Emit game ID and updated player list to all clients in that game
+    const io = req.app.get("io");
+    io.emit("gameid", {
+      gameId,
+      telegramIds: gameSessions[gameId], // updated player list
+      numberOfPlayers: gameSessions[gameId].length
+    });
+
+    return res.status(200).json({
+      success: true,
+      gameId,
+      telegramId,
+      playersInRoom: gameSessions[gameId],
+    });
 
   } catch (error) {
     console.error("Error starting the game:", error);
     return res.status(500).json({ error: "Error starting the game" });
   }
 });
+
 
 
 
