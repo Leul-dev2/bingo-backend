@@ -77,7 +77,7 @@ io.on("connection", (socket) => {
     io.to(telegramId).emit("gameStatusUpdate", "active");
 
     // Emit the number of players in the game session to all users in that game
-    const numberOfPlayers = gameSessions[gameId].length;
+    const numberOfPlayers = gameSessions[gameId].length;  // Includes the current player
     io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
 
     // Store the gameId in the userSelections object
@@ -111,7 +111,7 @@ io.on("connection", (socket) => {
     console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
 
     // Emit the number of players in the game session after card selection
-    const numberOfPlayers = gameSessions[gameId].length;
+    const numberOfPlayers = gameSessions[gameId].length;  // Includes the current player
     io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
   });
 
@@ -119,6 +119,7 @@ io.on("connection", (socket) => {
     console.log("🔴 Client disconnected");
   });
 });
+
 
 
 // Start the server with WebSocket
