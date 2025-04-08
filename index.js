@@ -49,6 +49,15 @@ app.use((err, req, res, next) => {
 
 let gameSessions = {}; // Store game sessions: gameId -> [telegramId]
 let userSelections = {}; // Store user selections: socket.id -> { telegramId, gameId }
+let gameCards = {}; // Store game card selections: gameId -> { cardId: telegramId }
+
+// Function to make a card available again
+const makeCardAvailable = (gameId, cardId) => {
+  if (gameCards[gameId]) {
+    delete gameCards[gameId][cardId];  // Remove the card from the selected cards list
+    console.log(`Card ${cardId} is now available in game ${gameId}`);
+  }
+};
 
 io.on("connection", (socket) => {
   console.log("🟢 New client connected");
@@ -59,29 +68,46 @@ io.on("connection", (socket) => {
     if (!gameSessions[gameId]) {
       gameSessions[gameId] = [];  // Create a new array for game players if not already initialized
     }
-  
+
     // Avoid duplicates in the game session
     if (!gameSessions[gameId].includes(telegramId)) {
       gameSessions[gameId].push(telegramId);  // Add the telegramId to the game session
     }
-  
+
     // Add the user to the game room (to receive game-specific events)
     socket.join(gameId);
-  
+
     // Store the gameId in the userSelections object for each user
     userSelections[socket.id] = { telegramId, gameId };  // Track by socket.id
     
     console.log(`User ${telegramId} joined game room: ${gameId}`);
     console.log(`User ${telegramId} added to game ${gameId}:`, gameSessions[gameId]);
-  
+
     // Emit the number of players in the game session to all users in that game room
     const numberOfPlayers = gameSessions[gameId].length;  // This will be the number of players in the game
     io.to(gameId).emit("gameid", { gameId, numberOfPlayers });  // Send to everyone in the game room
+    
+    // Send the current card selection state to the new user
+    io.to(socket.id).emit("currentCardSelections", gameCards[gameId] || {});  // Send existing selections to the new user
   });
 
   // Other events like card selection
   socket.on("cardSelected", (data) => {
     const { telegramId, cardId, card, gameId } = data;
+
+    // Check if the card is already selected
+    if (gameCards[gameId] && gameCards[gameId][cardId]) {
+      // If the card is already selected, notify the user
+      io.to(telegramId).emit("cardUnavailable", { cardId });
+      console.log(`Card ${cardId} is already selected by another user`);
+      return;
+    }
+
+    // Store the selected card in the gameCards object
+    if (!gameCards[gameId]) {
+      gameCards[gameId] = {};  // Initialize if not already present
+    }
+    gameCards[gameId][cardId] = telegramId;  // Store the telegramId for the selected card
 
     // Store the selected card in the userSelections object
     userSelections[socket.id] = {
@@ -112,9 +138,14 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     console.log("🔴 Client disconnected");
     
-    const { telegramId, gameId } = userSelections[socket.id] || {};  // Get telegramId and gameId from userSelections
+    const { telegramId, gameId, cardId } = userSelections[socket.id] || {};  // Get telegramId, gameId, and cardId from userSelections
   
     if (telegramId && gameId) {
+      // If the user selected a card, make it available again
+      if (cardId && gameCards[gameId] && gameCards[gameId][cardId] === telegramId) {
+        makeCardAvailable(gameId, cardId);  // Release the selected card
+      }
+  
       // Remove the user from the game session
       gameSessions[gameId] = gameSessions[gameId].filter(id => id !== telegramId);
       delete userSelections[socket.id];  // Clean up the user from userSelections
@@ -128,9 +159,6 @@ io.on("connection", (socket) => {
     }
   });
 });
-
-
-
 
 
 // Start the server with WebSocket
