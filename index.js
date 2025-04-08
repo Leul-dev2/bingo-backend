@@ -85,24 +85,6 @@ io.on("connection", (socket) => {
     }
   });
   
-  // Handle player disconnection (when the user leaves the page)
-  socket.on("disconnect", () => {
-    const { telegramId, gameId } = userSelections[socket.id] || {};  // Get telegramId and gameId from userSelections
-  
-    if (telegramId && gameId) {
-      // Remove the user from the game session
-      gameSessions[gameId] = gameSessions[gameId].filter(id => id !== telegramId);
-  
-      console.log(`User ${telegramId} disconnected from game ${gameId}`);
-      console.log(`Updated game session ${gameId}:`, gameSessions[gameId]);
-  
-      // Emit the number of players in the game session after the player leaves
-      const numberOfPlayers = gameSessions[gameId].length;
-      io.to(gameId).emit("gameid", { gameId, numberOfPlayers });  // Send updated player count to everyone in the game room
-    }
-  });
-  
-
   // Other events like card selection can be added below
   socket.on("cardSelected", (data) => {
     const { telegramId, cardId, card, gameId } = data;
@@ -135,6 +117,19 @@ io.on("connection", (socket) => {
   // Handle disconnection event
   socket.on("disconnect", () => {
     console.log("🔴 Client disconnected");
+    const { telegramId, gameId } = userSelections[socket.id] || {};  // Get telegramId and gameId from userSelections
+  
+    if (telegramId && gameId) {
+      // Remove the user from the game session
+      gameSessions[gameId] = gameSessions[gameId].filter(id => id !== telegramId);
+  
+      console.log(`User ${telegramId} disconnected from game ${gameId}`);
+      console.log(`Updated game session ${gameId}:`, gameSessions[gameId]);
+  
+      // Emit the number of players in the game session after the player leaves
+      const numberOfPlayers = gameSessions[gameId].length;
+      io.to(gameId).emit("gameid", { gameId, numberOfPlayers });  // Send updated player count to everyone in the game room
+    }
   });
 });
 
