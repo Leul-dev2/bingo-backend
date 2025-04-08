@@ -10,78 +10,33 @@ const handleError = (res, error, message = "Server Error") => {
   res.status(500).json({ error: message });
 };
 
-// At the top of your file (outside the router), define gameSessions
-const userSelections = {}; // key: telegramId, value: { cardId, card, gameId }
-const gameSessions = {}; // key: gameId, value: array of telegramIds (players)
+router.post("/start", async (req, res) => {
+  const { gameId, telegramId } = req.body;
 
-io.on("connection", (socket) => {
-  console.log("🟢 New client connected");
-
-  socket.on("joinUser", ({ telegramId }) => {
-    socket.join(telegramId);
-    console.log(`User ${telegramId} joined personal room`);
-    socket.emit("userconnected", { telegramId });
-  });
-
-  socket.on("userJoinedGame", ({ telegramId, gameId }) => {
-    // Add user to the game session
-    if (!gameSessions[gameId]) {
-      gameSessions[gameId] = [];
+  try {
+    const user = await User.findOne({ telegramId });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
     }
 
-    // Avoid duplicates in the game session
-    if (!gameSessions[gameId].includes(telegramId)) {
-      gameSessions[gameId].push(telegramId);
+    if (user.balance < gameId) {
+      return res.status(400).json({ error: "Insufficient balance" });
     }
 
-    socket.join(gameId); // Add the user to the game room
-    console.log(`User ${telegramId} joined game room: ${gameId}`);
+    // Emit game ID to client using Socket.IO
+    const io = req.app.get("io");
+    io.emit("gameid", { gameId, telegramId });
 
-    // Emit game status to the user
-    io.to(telegramId).emit("gameStatusUpdate", "active");
+    // Send a successful response
+    return res.status(200).json({ success: true, gameId, telegramId });
 
-    // Emit the number of players in the game session to all users in that game
-    const numberOfPlayers = gameSessions[gameId].length;
-    io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
-
-    // Store the gameId in the userSelections object
-    if (!userSelections[telegramId]) {
-      userSelections[telegramId] = { gameId }; // Initialize if not already set
-    } else {
-      userSelections[telegramId].gameId = gameId; // Update if already present
-    }
-  });
-
-  socket.on("cardSelected", (data) => {
-    const { telegramId, cardId, card, gameId } = data;
-
-    // Store the selected card in the userSelections object
-    userSelections[telegramId] = {
-      ...userSelections[telegramId], // preserve existing data
-      cardId,
-      card,
-      gameId, // Store the gameId as well
-    };
-
-    // Confirm to the sender only
-    io.to(telegramId).emit("cardConfirmed", { cardId, card });
-
-    // Notify others in the same game room (but not the sender)
-    socket.to(gameId).emit("otherCardSelected", {
-      telegramId,
-      cardId,
-    });
-
-    console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
-
-    // Emit the number of players in the game session after card selection
-    const numberOfPlayers = gameSessions[gameId].length;
-    io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
-  });
-
-  socket.on("disconnect", () => {
-    console.log("🔴 Client disconnected");
-  });
+  } catch (error) {
+    console.error("Error starting the game:", error);
+    return res.status(500).json({ error: "Error starting the game" });
+  }
 });
+
+
+
 
 module.exports = router;
