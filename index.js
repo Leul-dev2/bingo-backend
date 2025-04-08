@@ -53,21 +53,23 @@ const gameSessions = {}; // key: gameId, value: array of telegramIds (players)
 io.on("connection", (socket) => {
   console.log("🟢 New client connected");
 
+  // Handle user joining the game
   socket.on("joinUser", ({ telegramId }) => {
     socket.join(telegramId);
     console.log(`User ${telegramId} joined personal room`);
     socket.emit("userconnected", { telegramId });
   });
 
+  // Handle user joining a game
   socket.on("userJoinedGame", ({ telegramId, gameId }) => {
-    // Add user to the game session
+    // Ensure the game session exists
     if (!gameSessions[gameId]) {
       gameSessions[gameId] = [];
     }
 
     // Avoid duplicates in the game session
     if (!gameSessions[gameId].includes(telegramId)) {
-      gameSessions[gameId].push(telegramId);
+      gameSessions[gameId].push(telegramId); // Add the user to the game session
     }
 
     socket.join(gameId); // Add the user to the game room
@@ -76,8 +78,8 @@ io.on("connection", (socket) => {
     // Emit game status to the user
     io.to(telegramId).emit("gameStatusUpdate", "active");
 
-    // Emit the number of players in the game session to all users in that game
-    const numberOfPlayers = gameSessions[gameId].length;  // Includes the current player
+    // Emit the number of players in the game session to all users in that game room
+    const numberOfPlayers = gameSessions[gameId].length;  // This will include the current player
     io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
 
     // Store the gameId in the userSelections object
@@ -88,12 +90,13 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Handle card selection
   socket.on("cardSelected", (data) => {
     const { telegramId, cardId, card, gameId } = data;
 
     // Store the selected card in the userSelections object
     userSelections[telegramId] = {
-      ...userSelections[telegramId], // preserve existing data
+      ...userSelections[telegramId], // Preserve existing data
       cardId,
       card,
       gameId, // Store the gameId as well
@@ -111,14 +114,16 @@ io.on("connection", (socket) => {
     console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
 
     // Emit the number of players in the game session after card selection
-    const numberOfPlayers = gameSessions[gameId].length;  // Includes the current player
+    const numberOfPlayers = gameSessions[gameId].length;  // This will include the current player
     io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
   });
 
+  // Handle disconnection
   socket.on("disconnect", () => {
     console.log("🔴 Client disconnected");
   });
 });
+
 
 
 
