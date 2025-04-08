@@ -69,6 +69,7 @@ io.on("connection", (socket) => {
     socket.join(gameId);
 
     console.log(`User ${telegramId} joined game room: ${gameId}`);
+    console.log(`User ${telegramId} added to game ${gameId}:`, gameSessions[gameId]);
 
     // Emit the number of players in the game session to all users in that game room
     const numberOfPlayers = gameSessions[gameId].length;  // This will be the number of players in that game
@@ -77,6 +78,7 @@ io.on("connection", (socket) => {
     // Store the gameId in the userSelections object for each user
     if (!userSelections[telegramId]) {
       userSelections[telegramId] = { gameId }; // Initialize the game selection if not already set
+      console.log(`User ${telegramId} joined game ${gameId}`);
     } else {
       userSelections[telegramId].gameId = gameId; // Update if already present
     }
@@ -107,6 +109,7 @@ io.on("connection", (socket) => {
 
     // Emit the updated number of players in the game session after card selection
     const numberOfPlayers = gameSessions[gameId].length;  // Includes the current player
+    console.log(`Number of players in game ${gameId}: ${numberOfPlayers}`);
     io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
   });
 
