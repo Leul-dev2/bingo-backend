@@ -13,6 +13,7 @@ const server = http.createServer(app); // 👈 Create HTTP server
 const io = new Server(server, {
   cors: {
     origin: "https://bossbingo.netlify.app", // Allow all origins — restrict in production
+    // origin: "http://localhost:5173",
   },
 });
 
@@ -87,8 +88,11 @@ io.on("connection", (socket) => {
     io.to(gameId).emit("gameid", { gameId, numberOfPlayers });  // Send to everyone in the game room
     
     // Send the current card selection state to the new user
-    io.to(socket.id).emit("currentCardSelections", gameCards[gameId] || {});  // Send existing selections to the new user
-  });
+    socket.on("requestCurrentCards", ({ gameId }) => {
+      const selections = gameCards[gameId] || {};
+      socket.emit("currentCardSelections", selections);
+    });
+      });
 
   // Other events like card selection
   socket.on("cardSelected", (data) => {
