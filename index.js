@@ -86,13 +86,12 @@ io.on("connection", (socket) => {
     // Emit the number of players in the game session to all users in that game room
     const numberOfPlayers = gameSessions[gameId].length;  // This will be the number of players in the game
     io.to(gameId).emit("gameid", { gameId, numberOfPlayers });  // Send to everyone in the game room
-    
-    // Send the current card selection state to the new user
+    });
+
     socket.on("requestCurrentCards", ({ gameId }) => {
       const selections = gameCards[gameId] || {};
       socket.emit("currentCardSelections", selections);
     });
-      });
 
       socket.on("cardSelected", (data) => {
         const { telegramId, cardId, card, gameId } = data;
@@ -146,9 +145,9 @@ io.on("connection", (socket) => {
       // If the user selected a card, make it available again
       if (cardId && gameCards[gameId] && gameCards[gameId][cardId] === telegramId) {
         makeCardAvailable(gameId, cardId);  // Release the selected card
-      
-         // Notify other players in the game room that the card is available again
-      io.to(gameId).emit("cardAvailable", { cardId, telegramId });
+        
+        // Emit the updated game state to all players (inform everyone that card is now available)
+        io.to(gameId).emit("cardAvailable", { cardId, telegramId });
       }
   
       // Remove the user from the game session
