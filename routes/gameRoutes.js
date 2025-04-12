@@ -1,10 +1,8 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
+const { io } = require('../index'); // Access 'io' directly from index.js // Access the existing io from the index.js
 const User = require("../models/user");
 const Game = require("../models/game");
-// No need to re-initialize 'io', we can access it from app.get('io')
-const { io } = require('../index'); // Access the existing io from the index.js
-
 
 // In-memory storage for players in each game room
 let gameRooms = {};  // Key: gameId, Value: array of player telegramIds
