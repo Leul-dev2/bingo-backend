@@ -61,7 +61,7 @@ router.post("/start", async (req, res) => {
 });
 
 // Socket.IO connection event for players joining the game room
-const io = require('socket.io')(server); // Make sure the server object is passed here
+const io = require('socket.io')(Server); // Make sure the server object is passed here
 
 io.on("connection", (socket) => {
   socket.on("joinGame", (gameId, telegramId) => {
