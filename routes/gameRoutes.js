@@ -2,7 +2,9 @@ const express = require("express");
 const router = express.Router();
 const User = require("../models/user");
 const Game = require("../models/game");
-const { Socket } = require("socket.io");
+// No need to re-initialize 'io', we can access it from app.get('io')
+const { io } = require('../index'); // Access the existing io from the index.js
+
 
 // In-memory storage for players in each game room
 let gameRooms = {};  // Key: gameId, Value: array of player telegramIds
@@ -42,7 +44,6 @@ router.post("/start", async (req, res) => {
     gameRooms[gameId].push(telegramId);
 
     // Emit the updated player count to the game room
-    const io = req.app.get("io");
     io.to(gameId).emit("playerCountUpdate", {
       gameId,
       playerCount: gameRooms[gameId].length,
@@ -61,8 +62,6 @@ router.post("/start", async (req, res) => {
 });
 
 // Socket.IO connection event for players joining the game room
-const io = require('socket.io')(Server); // Make sure the server object is passed here
-
 io.on("connection", (socket) => {
   socket.on("joinGame", (gameId, telegramId) => {
     // Add the player to the room
