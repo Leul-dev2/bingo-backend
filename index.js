@@ -63,37 +63,39 @@ io.on("connection", (socket) => {
   console.log("🟢 New client connected");
 
   // User joins a game
-  socket.on("userJoinedGame", ({ telegramId, gameId }) => {
-    // Initialize the game session if it doesn't exist
-    if (!gameSessions[gameId]) {
-      gameSessions[gameId] = [];  // Create a new array for game players if not already initialized
-    }
-
-    // Avoid duplicates in the game session
-    if (!gameSessions[gameId].includes(telegramId)) {
-      gameSessions[gameId].push(telegramId);  // Add the telegramId to the game session
-    }
-
-    // Add the user to the game room (to receive game-specific events)
-    socket.join(gameId);
-
-    // Store the gameId in the userSelections object for each user
-    userSelections[socket.id] = { telegramId, gameId };  // Track by socket.id
-    
-    console.log(`User ${telegramId} joined game room: ${gameId}`);
-    console.log(`User ${telegramId} added to game ${gameId}:`, gameSessions[gameId]);
-
-    // Emit the number of players in the game session to all users in that game room
-    const numberOfPlayers = gameSessions[gameId].length;  // This will be the number of players in the game
-    io.to(gameId).emit("gameid", { gameId, numberOfPlayers });  // Send to everyone in the game room
-    });
-
-    socket.on("requestCurrentCards", ({ gameId }) => {
-      if (!gameCards[gameId]) {
-        gameCards[gameId] = {};  // Ensure the gameCards object is initialized for the gameId
+    socket.on("userJoinedGame", ({ telegramId, gameId }) => {
+      if (!gameSessions[gameId]) {
+        gameSessions[gameId] = [];
       }
-      socket.emit("currentCardSelections", gameCards[gameId]);
+    
+      if (!gameSessions[gameId].includes(telegramId)) {
+        gameSessions[gameId].push(telegramId);
+      }
+    
+      socket.join(gameId);
+    
+      // 🔁 Store user selection
+      userSelections[socket.id] = { telegramId, gameId };
+    
+      console.log(`User ${telegramId} joined game room: ${gameId}`);
+    
+      // ✅ Send current selected cards to this user only
+      if (gameCards[gameId]) {
+        socket.emit("currentCardSelections", gameCards[gameId]);
+      }
+    
+      // ✅ Send player count to all in room
+      const numberOfPlayers = gameSessions[gameId].length;
+      io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
     });
+    
+
+    // socket.on("requestCurrentCards", ({ gameId }) => {
+    //   if (!gameCards[gameId]) {
+    //     gameCards[gameId] = {};  // Ensure the gameCards object is initialized for the gameId
+    //   }
+    //   socket.emit("currentCardSelections", gameCards[gameId]);
+    // });
     
 
       socket.on("cardSelected", (data) => {
@@ -123,7 +125,8 @@ io.on("connection", (socket) => {
       
         // ✅ Store the new selected card
         gameCards[gameId][cardId] = telegramId;
-        userSelections[socket.id] = { cardId, card, gameId };
+        userSelections[socket.id] = { telegramId, cardId, card, gameId };
+
       
         // Confirm to this user
         io.to(telegramId).emit("cardConfirmed", { cardId, card });
@@ -147,7 +150,7 @@ io.on("connection", (socket) => {
     if (telegramId && gameId) {
       // If the user selected a card, make it available again
       if (cardId && gameCards[gameId] && gameCards[gameId][cardId] === telegramId) {
-        delete gameCards[gameId][cardId];  // Free the card
+        delete gameCards[gameId][cardId]; 
         socket.to(gameId).emit("cardAvailable", { cardId });
         console.log(`Card ${cardId} is now available again`);
       }
