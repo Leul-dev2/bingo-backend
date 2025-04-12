@@ -94,48 +94,47 @@ io.on("connection", (socket) => {
     });
       });
 
-  // Other events like card selection
-  socket.on("cardSelected", (data) => {
-    const { telegramId, cardId, card, gameId } = data;
-
-    // Check if the card is already selected
-    if (gameCards[gameId] && gameCards[gameId][cardId]) {
-      // If the card is already selected, notify the user
-      io.to(telegramId).emit("cardUnavailable", { cardId });
-      console.log(`Card ${cardId} is already selected by another user`);
-      return;
-    }
-
-    // Store the selected card in the gameCards object
-    if (!gameCards[gameId]) {
-      gameCards[gameId] = {};  // Initialize if not already present
-    }
-    gameCards[gameId][cardId] = telegramId;  // Store the telegramId for the selected card
-
-    // Store the selected card in the userSelections object
-    userSelections[socket.id] = {
-      ...userSelections[socket.id], // preserve existing data
-      cardId,
-      card,
-      gameId, // Store the gameId as well
-    };
-
-    // Confirm to the sender only
-    io.to(telegramId).emit("cardConfirmed", { cardId, card });
-
-    // Notify others in the same game room (but not the sender)
-    socket.to(gameId).emit("otherCardSelected", {
-      telegramId,
-      cardId,
-    });
-
-    console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
-
-    // Emit the updated number of players in the game session after card selection
-    const numberOfPlayers = gameSessions[gameId].length;  // Includes the current player
-    console.log(`Number of players in game ${gameId}: ${numberOfPlayers}`);
-    io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
-  });
+      socket.on("cardSelected", (data) => {
+        const { telegramId, cardId, card, gameId } = data;
+      
+        if (!gameCards[gameId]) {
+          gameCards[gameId] = {}; // initialize if not present
+        }
+      
+        // Check if the card is already taken by another user
+        if (gameCards[gameId][cardId] && gameCards[gameId][cardId] !== telegramId) {
+          io.to(telegramId).emit("cardUnavailable", { cardId });
+          console.log(`Card ${cardId} is already selected by another user`);
+          return;
+        }
+      
+        // ✅ Check if the user had selected a card before
+        const prevSelection = userSelections[socket.id];
+        const prevCardId = prevSelection?.cardId;
+      
+        // ✅ Free up old card if exists and different from new one
+        if (prevCardId && prevCardId !== cardId) {
+          delete gameCards[gameId][prevCardId];
+          socket.to(gameId).emit("cardAvailable", { cardId: prevCardId });
+          console.log(`Card ${prevCardId} is now available again`);
+        }
+      
+        // ✅ Store the new selected card
+        gameCards[gameId][cardId] = telegramId;
+        userSelections[socket.id] = { cardId, card, gameId };
+      
+        // Confirm to this user
+        io.to(telegramId).emit("cardConfirmed", { cardId, card });
+      
+        // Notify others
+        socket.to(gameId).emit("otherCardSelected", { telegramId, cardId });
+      
+        const numberOfPlayers = gameSessions[gameId]?.length || 0;
+        io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
+      
+        console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
+      });
+      
 
   // Handle disconnection event
   socket.on("disconnect", () => {
