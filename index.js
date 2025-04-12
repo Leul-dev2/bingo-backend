@@ -89,9 +89,12 @@ io.on("connection", (socket) => {
     });
 
     socket.on("requestCurrentCards", ({ gameId }) => {
-      const selections = gameCards[gameId] || {};
-      socket.emit("currentCardSelections", selections);
+      if (!gameCards[gameId]) {
+        gameCards[gameId] = {};  // Ensure the gameCards object is initialized for the gameId
+      }
+      socket.emit("currentCardSelections", gameCards[gameId]);
     });
+    
 
       socket.on("cardSelected", (data) => {
         const { telegramId, cardId, card, gameId } = data;
@@ -138,30 +141,30 @@ io.on("connection", (socket) => {
   // Handle disconnection event
   socket.on("disconnect", () => {
     console.log("🔴 Client disconnected");
-    
-    const { telegramId, gameId, cardId } = userSelections[socket.id] || {};  // Get telegramId, gameId, and cardId from userSelections
+  
+    const { telegramId, gameId, cardId } = userSelections[socket.id] || {}; // Get telegramId, gameId, and cardId from userSelections
   
     if (telegramId && gameId) {
       // If the user selected a card, make it available again
       if (cardId && gameCards[gameId] && gameCards[gameId][cardId] === telegramId) {
-        makeCardAvailable(gameId, cardId);  // Release the selected card
-        
-        // Emit the updated game state to all players (inform everyone that card is now available)
-        io.to(gameId).emit("cardAvailable", { cardId, telegramId });
+        delete gameCards[gameId][cardId];  // Free the card
+        socket.to(gameId).emit("cardAvailable", { cardId });
+        console.log(`Card ${cardId} is now available again`);
       }
   
       // Remove the user from the game session
       gameSessions[gameId] = gameSessions[gameId].filter(id => id !== telegramId);
-      delete userSelections[socket.id];  // Clean up the user from userSelections
+      delete userSelections[socket.id]; // Clean up the user from userSelections
   
       console.log(`User ${telegramId} disconnected from game ${gameId}`);
       console.log(`Updated game session ${gameId}:`, gameSessions[gameId]);
   
       // Emit the number of players in the game session after the player leaves
       const numberOfPlayers = gameSessions[gameId].length;
-      io.to(gameId).emit("gameid", { gameId, numberOfPlayers });  // Send updated player count to everyone in the game room
+      io.to(gameId).emit("gameid", { gameId, numberOfPlayers }); // Send updated player count to everyone in the game room
     }
   });
+  
 });
 
 // Start the server with WebSocket
