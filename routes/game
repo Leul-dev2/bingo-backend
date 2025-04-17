@@ -28,12 +28,12 @@ router.post("/start", async (req, res) => {
     if (!game) return res.status(404).json({ error: "Game not found" });
 
     // Check user balance against the game price
-    if (user.balance < gameId) {
+    if (user.balance < game.price) {
       return res.status(400).json({ error: "Insufficient balance" });
     }
 
     // Deduct balance and save
-    user.balance -= gameId;
+    user.balance -= game.price;
     await user.save();
 
     // Add user to startedPlayers
