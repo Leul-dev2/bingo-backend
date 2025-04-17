@@ -20,6 +20,7 @@ const io = new Server(server, {
 // Middleware
 app.use(express.json());
 app.use(cors());
+let gameRooms = {};
 
 // Attach io to app to access inside routes
 app.set("io", io);
@@ -52,7 +53,7 @@ app.use((err, req, res, next) => {
 let gameSessions = {}; // Store game sessions: gameId -> [telegramId]
 let userSelections = {}; // Store user selections: socket.id -> { telegramId, gameId }
 let gameCards = {}; // Store game card selections: gameId -> { cardId: telegramId }
-let gameRooms = {};
+
 
 const makeCardAvailable = (gameId, cardId) => {
   if (gameCards[gameId]) {
