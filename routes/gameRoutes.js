@@ -28,6 +28,8 @@ router.post("/start", async (req, res) => {
     const playerCount = gameRooms[gameId].length;
 
     io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
+    // ✅ Emit gameId event that frontend is listening for
+    io.to(gameId).emit("gameId", { gameId, telegramId });
 
     return res.status(200).json({ success: true, gameId, telegramId });
 
