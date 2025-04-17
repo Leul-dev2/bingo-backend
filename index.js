@@ -25,6 +25,8 @@ let gameRooms = {};
 // Attach io to app to access inside routes
 app.set("io", io);
 app.set("gameRooms", gameRooms);
+// Attach the function to the app object so it's accessible in routes
+app.set("emitPlayerCount", emitPlayerCount);
 
 // Routes
 app.use("/api/users", userRoutes);
@@ -62,13 +64,12 @@ const makeCardAvailable = (gameId, cardId) => {
   }
 };
 
+
+
 function emitPlayerCount(gameId) {
   const playerCount = gameRooms[gameId]?.length || 0;
   io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
 }
-
-// Attach the function to the app object so it's accessible in routes
-app.set("emitPlayerCount", emitPlayerCount);
 
 
 io.on("connection", (socket) => {
