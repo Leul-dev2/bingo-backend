@@ -67,6 +67,9 @@ function emitPlayerCount(gameId) {
   io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
 }
 
+// Attach the function to the app object so it's accessible in routes
+app.set("emitPlayerCount", emitPlayerCount);
+
 
 io.on("connection", (socket) => {
   console.log("🟢 New client connected");

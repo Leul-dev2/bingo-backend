@@ -7,6 +7,7 @@ router.post("/start", async (req, res) => {
 
   const io = req.app.get("io"); // 👈 Access io
   const gameRooms = req.app.get("gameRooms"); // 👈 Access gameRooms
+  const emitPlayerCount = req.app.get("emitPlayerCount"); // Access emitPlayerCount function
 
   try {
     const user = await User.findOne({ telegramId });
