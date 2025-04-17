@@ -150,11 +150,6 @@ io.on("connection", (socket) => {
             message: `You joined game room ${gameId}`,
             telegramId,
           });
-
-          socket.on("getPlayerCount", ({ gameId }) => {
-            const playerCount = gameRooms[gameId]?.length || 0;
-            socket.emit("playerCountUpdate", { gameId, playerCount });
-          });
       
           // Broadcast updated player count
           // if (gameRooms[gameId]) {
@@ -164,6 +159,11 @@ io.on("connection", (socket) => {
           //   });
           // }
         })
+      });
+
+      socket.on("getPlayerCount", ({ gameId }) => {
+        const playerCount = gameRooms[gameId]?.length || 0;
+        socket.emit("playerCountUpdate", { gameId, playerCount });
       });
       
 
