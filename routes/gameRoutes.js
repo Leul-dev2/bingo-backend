@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { io } = require('../index'); // Access 'io' directly from index.js // Access the existing io from the index.js
 const User = require("../models/user");
 const Game = require("../models/game");
 
@@ -17,49 +18,38 @@ const handleError = (res, error, message = "Server Error") => {
 // Start the game route
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
-  const io = req.app.get("io"); // Access the existing io
+  const io = req.app.get("io"); // Get io from app
 
   try {
     const user = await User.findOne({ telegramId });
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // Assuming you have a game model or a pricing system to get the game price
-    const game = await Game.findById(gameId); 
-    if (!game) return res.status(404).json({ error: "Game not found" });
-
-    // Check user balance against the game price
     if (user.balance < gameId) {
       return res.status(400).json({ error: "Insufficient balance" });
     }
 
-    // Deduct balance and save
     user.balance -= gameId;
     await user.save();
 
-    // Add user to startedPlayers
+    // Add user to game room (use shared gameRooms object)
     if (!startedPlayers[gameId]) startedPlayers[gameId] = [];
     if (!startedPlayers[gameId].includes(telegramId)) {
       startedPlayers[gameId].push(telegramId);
     }
 
-    // Add user to game session
-    // if (!gameSessions[gameId]) gameSessions[gameId] = [];
-    // if (!gameSessions[gameId].includes(telegramId)) {
-    //   gameSessions[gameId].push(telegramId);
-    // }
-
-    // Notify all players in game room about update
+    // Notify clients in the game room
     io.to(gameId).emit("playerCountUpdate", {
       gameId,
-      playerCount: startedPlayers[gameId].length,
+      playerCount: gameRooms[gameId].length,
     });
 
-    io.to(gameId).emit("gameStarted", { gameId, telegramId });
+    io.to(gameId).emit("gameId", { gameId, telegramId });
 
     return res.status(200).json({ success: true, gameId, telegramId });
 
   } catch (error) {
-    handleError(res, error, "Error starting the game");
+    console.error("Error starting the game:", error);
+    return res.status(500).json({ error: "Error starting the game" });
   }
 });
 
