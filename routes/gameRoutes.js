@@ -35,11 +35,9 @@ router.post("/start", async (req, res) => {
       gameRooms[gameId].push(telegramId);
     }
 
+    const playerCount = gameRooms[gameId].length;
     // Notify clients in the game room
-    io.to(gameId).emit("playerCountUpdate", {
-      gameId,
-      playerCount: gameRooms[gameId].length,
-    });
+    io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
 
     io.to(gameId).emit("gameId", { gameId, telegramId });
 
