@@ -4,10 +4,8 @@ const { io } = require('../index'); // Access 'io' directly from index.js // Acc
 const User = require("../models/user");
 const Game = require("../models/game");
 
-const {
-  gameSessions,
-  startedPlayers,
-} = require("../utils/gameState"); // Shared memory
+// In-memory storage for players in each game room
+let gameRooms = {};  // Key: gameId, Value: array of player telegramIds
 
 // Error handler helper
 const handleError = (res, error, message = "Server Error") => {
@@ -32,9 +30,9 @@ router.post("/start", async (req, res) => {
     await user.save();
 
     // Add user to game room (use shared gameRooms object)
-    if (!startedPlayers[gameId]) startedPlayers[gameId] = [];
-    if (!startedPlayers[gameId].includes(telegramId)) {
-      startedPlayers[gameId].push(telegramId);
+    if (!gameRooms[gameId]) gameRooms[gameId] = [];
+    if (!gameRooms[gameId].includes(telegramId)) {
+      gameRooms[gameId].push(telegramId);
     }
 
     // Notify clients in the game room
