@@ -1,6 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const { io, gameRooms } = require('../index');
 const User = require("../models/user");
 
 router.post("/start", async (req, res) => {
