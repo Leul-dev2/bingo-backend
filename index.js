@@ -23,6 +23,7 @@ app.use(cors());
 
 // Attach io to app to access inside routes
 app.set("io", io);
+app.set("gameRooms", gameRooms);
 
 // Routes
 app.use("/api/users", userRoutes);

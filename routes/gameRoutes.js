@@ -6,6 +6,9 @@ const User = require("../models/user");
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
 
+  const io = req.app.get("io"); // 👈 Access io
+  const gameRooms = req.app.get("gameRooms"); // 👈 Access gameRooms
+
   try {
     const user = await User.findOne({ telegramId });
     if (!user) return res.status(404).json({ error: "User not found" });
@@ -24,7 +27,6 @@ router.post("/start", async (req, res) => {
 
     const playerCount = gameRooms[gameId].length;
 
-    // Emit the update to everyone in the room
     io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
 
     return res.status(200).json({ success: true, gameId, telegramId });
@@ -34,5 +36,6 @@ router.post("/start", async (req, res) => {
     return res.status(500).json({ error: "Error starting the game" });
   }
 });
+
 
 module.exports = router;
