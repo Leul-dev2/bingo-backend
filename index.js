@@ -51,6 +51,7 @@ app.use((err, req, res, next) => {
 let gameSessions = {}; // Store game sessions: gameId -> [telegramId]
 let userSelections = {}; // Store user selections: socket.id -> { telegramId, gameId }
 let gameCards = {}; // Store game card selections: gameId -> { cardId: telegramId }
+let gameRooms = {};
 
 const makeCardAvailable = (gameId, cardId) => {
   if (gameCards[gameId]) {
@@ -148,6 +149,11 @@ io.on("connection", (socket) => {
           socket.emit("joinedRoom", {
             message: `You joined game room ${gameId}`,
             telegramId,
+          });
+
+          socket.on("getPlayerCount", ({ gameId }) => {
+            const playerCount = gameRooms[gameId]?.length || 0;
+            socket.emit("playerCountUpdate", { gameId, playerCount });
           });
       
           // Broadcast updated player count
