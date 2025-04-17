@@ -22,6 +22,7 @@ router.post("/start", async (req, res) => {
     if (!gameRooms[gameId]) gameRooms[gameId] = [];
     if (!gameRooms[gameId].includes(telegramId)) {
       gameRooms[gameId].push(telegramId);
+      emitPlayerCount(gameId);
     }
 
     const playerCount = gameRooms[gameId].length;

@@ -62,6 +62,12 @@ const makeCardAvailable = (gameId, cardId) => {
   }
 };
 
+function emitPlayerCount(gameId) {
+  const playerCount = gameRooms[gameId]?.length || 0;
+  io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
+}
+
+
 io.on("connection", (socket) => {
   console.log("🟢 New client connected");
 
