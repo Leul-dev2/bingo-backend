@@ -175,6 +175,7 @@ io.on("connection", (socket) => {
       });
 
       socket.on("getPlayerCount", ({ gameId }) => {
+        socket.join(gameId);  // 👈 Join the room
         const playerCount = gameRooms[gameId]?.length || 0;
         socket.emit("playerCountUpdate", { gameId, playerCount });
       });
