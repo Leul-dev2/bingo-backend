@@ -180,7 +180,21 @@ io.on("connection", (socket) => {
         socket.emit("playerCountUpdate", { gameId, playerCount });
       });
       
-
+      if (gameRooms[gameId].length >= 2 && !gameRooms[gameId].countdownStarted) {
+        gameRooms[gameId].countdownStarted = true;
+        let countdown = 25;  // Initial countdown
+        const countdownInterval = setInterval(() => {
+          io.to(gameId).emit("countdownUpdate", { countdown });
+          if (countdown === 0) {
+            clearInterval(countdownInterval);
+            // Start the game or any other logic after countdown finishes
+            io.to(gameId).emit("gameStarted");
+            drawNumber(gameId);  // Optional: Trigger first number draw
+          }
+          countdown -= 1;
+        }, 1000);
+      }
+        
   // Handle disconnection event
   socket.on("disconnect", () => {
     console.log("🔴 Client disconnected");
