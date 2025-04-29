@@ -1,3 +1,7 @@
+const express = require('express');
+const router = express.Router();
+const User = require("../models/user");
+
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
 
@@ -45,3 +49,6 @@ router.post("/start", async (req, res) => {
     return res.status(500).json({ error: "Error starting the game" });
   }
 });
+
+
+module.exports = router;
