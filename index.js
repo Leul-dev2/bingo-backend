@@ -179,6 +179,12 @@ io.on("connection", (socket) => {
         const playerCount = gameRooms[gameId]?.length || 0;
         socket.emit("playerCountUpdate", { gameId, playerCount });
       });
+
+      socket.on("gameCount", () => {
+        // Send signal to frontend to start the game
+        socket.emit("gameStart", { countdown: 25 });
+      });
+      
       
   // Handle disconnection event
   socket.on("disconnect", () => {
