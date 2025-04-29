@@ -76,90 +76,110 @@ function emitPlayerCount(gameId) {
 io.on("connection", (socket) => {
   console.log("🟢 New client connected");
 
-  // ✅ User joins a game session
-  socket.on("userJoinedGame", ({ telegramId, gameId }) => {
-    if (!gameSessions[gameId]) {
-      gameSessions[gameId] = [];
-    }
-
-    if (!gameSessions[gameId].includes(telegramId)) {
-      gameSessions[gameId].push(telegramId);
-    }
-
-    socket.join(gameId);
-    userSelections[socket.id] = { telegramId, gameId };
-
-    console.log(`User ${telegramId} joined game room: ${gameId}`);
-
-    // Send current selected cards to this user only
-    if (gameCards[gameId]) {
-      socket.emit("currentCardSelections", gameCards[gameId]);
-    }
-
-    // Broadcast updated player count to all in room
-    const numberOfPlayers = gameSessions[gameId].length;
-    io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
-  });
-
-  // ✅ Card selection
-  socket.on("cardSelected", (data) => {
-    const { telegramId, cardId, card, gameId } = data;
-
-    if (!gameCards[gameId]) {
-      gameCards[gameId] = {};
-    }
-
-    // Check if card already selected by someone else
-    if (gameCards[gameId][cardId] && gameCards[gameId][cardId] !== telegramId) {
-      io.to(telegramId).emit("cardUnavailable", { cardId });
-      console.log(`Card ${cardId} is already selected by another user`);
-      return;
-    }
-
-    const prevSelection = userSelections[socket.id];
-    const prevCardId = prevSelection?.cardId;
-
-    if (prevCardId && prevCardId !== cardId) {
-      delete gameCards[gameId][prevCardId];
-      socket.to(gameId).emit("cardAvailable", { cardId: prevCardId });
-      console.log(`Card ${prevCardId} is now available again`);
-    }
-
-    gameCards[gameId][cardId] = telegramId;
-    userSelections[socket.id] = { telegramId, cardId, card, gameId };
-
-    io.to(telegramId).emit("cardConfirmed", { cardId, card });
-    socket.to(gameId).emit("otherCardSelected", { telegramId, cardId });
-
-    const numberOfPlayers = gameSessions[gameId]?.length || 0;
-    io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
-
-    console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
-  });
-
-  // ✅ Join game manually (optional route trigger)
-  socket.on("joinGame", ({ gameId, telegramId }) => {
-    socket.join(gameId);
-    console.log(`Player ${telegramId} joined room ${gameId}`);
-
-    socket.emit("joinedRoom", {
-      message: `You joined game room ${gameId}`,
-      telegramId,
+  // User joins a game
+    socket.on("userJoinedGame", ({ telegramId, gameId }) => {
+      if (!gameSessions[gameId]) {
+        gameSessions[gameId] = [];
+      }
+    
+      if (!gameSessions[gameId].includes(telegramId)) {
+        gameSessions[gameId].push(telegramId);
+      }
+    
+      socket.join(gameId);
+    
+      // 🔁 Store user selection
+      userSelections[socket.id] = { telegramId, gameId };
+    
+      console.log(`User ${telegramId} joined game room: ${gameId}`);
+    
+      // ✅ Send current selected cards to this user only
+      if (gameCards[gameId]) {
+        socket.emit("currentCardSelections", gameCards[gameId]);
+      }
+    
+      // ✅ Send player count to all in room
+      const numberOfPlayers = gameSessions[gameId].length;
+      io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
     });
 
-    const playerCount = gameSessions[gameId]?.length || 0;
-    io.to(gameId).emit("playerCountUpdate", {
-      gameId,
-      playerCount,
-    });
-  });
+    
 
-  // ✅ Request current player count
-  socket.on("getPlayerCount", ({ gameId }) => {
-    socket.join(gameId);
-    const playerCount = gameSessions[gameId]?.length || 0;
-    socket.emit("playerCountUpdate", { gameId, playerCount });
-  });
+    // socket.on("requestCurrentCards", ({ gameId }) => {
+    //   if (!gameCards[gameId]) {
+    //     gameCards[gameId] = {};  // Ensure the gameCards object is initialized for the gameId
+    //   }
+    //   socket.emit("currentCardSelections", gameCards[gameId]);
+    // });
+    
+
+      socket.on("cardSelected", (data) => {
+        const { telegramId, cardId, card, gameId } = data;
+      
+        if (!gameCards[gameId]) {
+          gameCards[gameId] = {}; // initialize if not present
+        }
+      
+        // Check if the card is already taken by another user
+        if (gameCards[gameId][cardId] && gameCards[gameId][cardId] !== telegramId) {
+          io.to(telegramId).emit("cardUnavailable", { cardId });
+          console.log(`Card ${cardId} is already selected by another user`);
+          return;
+        }
+      
+        // ✅ Check if the user had selected a card before
+        const prevSelection = userSelections[socket.id];
+        const prevCardId = prevSelection?.cardId;
+      
+        // ✅ Free up old card if exists and different from new one
+        if (prevCardId && prevCardId !== cardId) {
+          delete gameCards[gameId][prevCardId];
+          socket.to(gameId).emit("cardAvailable", { cardId: prevCardId });
+          console.log(`Card ${prevCardId} is now available again`);
+        }
+      
+        // ✅ Store the new selected card
+        gameCards[gameId][cardId] = telegramId;
+        userSelections[socket.id] = { telegramId, cardId, card, gameId };
+
+      
+        // Confirm to this user
+        io.to(telegramId).emit("cardConfirmed", { cardId, card });
+      
+        // Notify others
+        socket.to(gameId).emit("otherCardSelected", { telegramId, cardId });
+      
+        const numberOfPlayers = gameSessions[gameId]?.length || 0;
+        io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
+      
+        console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
+
+        socket.on("joinGame", (gameId, telegramId) => {
+          socket.join(gameId);
+          console.log(`Player ${telegramId} joined room ${gameId}`);
+      
+          // Optionally emit a confirmation back to the joining player
+          socket.emit("joinedRoom", {
+            message: `You joined game room ${gameId}`,
+            telegramId,
+          });
+      
+          // Broadcast updated player count
+          // if (gameRooms[gameId]) {
+          //   io.to(gameId).emit("playerCountUpdate", {
+          //     gameId,
+          //     playerCount: gameRooms[gameId].length,
+          //   });
+          // }
+        })
+      });
+
+      socket.on("getPlayerCount", ({ gameId }) => {
+        socket.join(gameId);  // 👈 Join the room
+        const playerCount = gameRooms[gameId]?.length || 0;
+        socket.emit("playerCountUpdate", { gameId, playerCount });
+      });
+      
 
   // Handle disconnection event
   socket.on("disconnect", () => {
