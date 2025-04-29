@@ -185,36 +185,41 @@ io.on("connection", (socket) => {
       socket.on("gameCount", ({ gameId }) => {
         const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
         gameDraws[gameId] = { numbers, index: 0 };
-      
+        
         io.to(gameId).emit("gameStart", { countdown: 25 });
       
-        // ✅ Start drawing after 25 seconds
+        // Start drawing after 25 seconds
         setTimeout(() => {
           startDrawing(gameId, io);
         }, 25000);
       });
       
-
-      
       const drawInterval = {};
-
+      
       function startDrawing(gameId, io) {
+        console.log(`Starting the drawing process for gameId: ${gameId}`);
         drawInterval[gameId] = setInterval(() => {
           const game = gameDraws[gameId];
+      
+          // Ensure the game and numbers are valid, and index hasn't exceeded the numbers
           if (!game || game.index >= game.numbers.length) {
             clearInterval(drawInterval[gameId]);
             io.to(gameId).emit("allNumbersDrawn");
+            console.log(`All numbers drawn for gameId: ${gameId}`);
             return;
           }
-
+      
           const number = game.numbers[game.index++];
           const letterIndex = Math.floor((number - 1) / 15);
           const letter = ["B", "I", "N", "G", "O"][letterIndex];
           const label = `${letter}-${number}`;
-
+      
+          console.log(`Drawing number: ${number}, Label: ${label}, Index: ${game.index - 1}`);
+      
           io.to(gameId).emit("numberDrawn", { number, label });
-        }, 4000);
+        }, 4000); // Adjust this delay if needed
       }
+      
 
       
       
