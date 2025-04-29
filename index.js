@@ -180,9 +180,9 @@ io.on("connection", (socket) => {
         socket.emit("playerCountUpdate", { gameId, playerCount });
       });
 
-      socket.on("gameCount", () => {
-        // Send signal to frontend to start the game
-        socket.emit("gameStart", { countdown: 25 });
+      socket.on("gameCount", ({ gameId }) => {
+        console.log(`Starting game in room: ${gameId}`);
+        io.to(gameId).emit("gameStart", { countdown: 25 }); // Broadcast to all in the room
       });
       
       
