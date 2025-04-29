@@ -180,24 +180,6 @@ io.on("connection", (socket) => {
         socket.emit("playerCountUpdate", { gameId, playerCount });
       });
       
-      socket.on("gameCount", ({ playerCount, gameId }) => {
-        if (playerCount >= 2) {
-          // Start the countdown for everyone
-          let countdown = 5; // or any number you prefer
-          io.to(gameId).emit("countdownStart", countdown);
-    
-          countdownIntervals[gameId] = setInterval(() => {
-            countdown--;
-            io.to(gameId).emit("countdownUpdate", countdown);
-    
-            if (countdown <= 0) {
-              clearInterval(countdownIntervals[gameId]);
-              io.to(gameId).emit("gameStarted");
-            }
-          }, 1000);
-        }
-      });
-        
   // Handle disconnection event
   socket.on("disconnect", () => {
     console.log("🔴 Client disconnected");
