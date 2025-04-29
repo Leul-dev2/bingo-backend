@@ -213,7 +213,7 @@ io.on("connection", (socket) => {
           const label = `${letter}-${number}`;
 
           io.to(gameId).emit("numberDrawn", { number, label });
-        }, 2000);
+        }, 4000);
       }
 
       
