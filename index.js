@@ -196,25 +196,31 @@ io.on("connection", (socket) => {
   
       // Remove from gameSessions
       gameSessions[gameId] = gameSessions[gameId]?.filter(id => id !== telegramId);
-      delete userSelections[socket.id];
       console.log(`User ${telegramId} disconnected from game ${gameId}`);
       console.log(`Updated game session ${gameId}:`, gameSessions[gameId]);
   
       // Remove from gameRooms
       if (gameRooms[gameId]) {
-        gameRooms[gameId] = gameRooms[gameId].filter(id => id !== socket.id);
+        gameRooms[gameId] = gameRooms[gameId].filter(id => id !== telegramId); // ✅ fixed
         console.log(`Updated game room ${gameId}:`, gameRooms[gameId]);
       }
   
-      // Emit updated game session count
-      const numberOfPlayers = gameSessions[gameId]?.length || 0;
-      io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
+      // Clean up userSelections
+      delete userSelections[socket.id];
   
-      // Emit updated player count from gameRooms
-      const playerCount = gameRooms[gameId]?.length || 0;
-      io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
+      // Emit updated counts
+      io.to(gameId).emit("gameid", {
+        gameId,
+        numberOfPlayers: gameSessions[gameId]?.length || 0,
+      });
+  
+      io.to(gameId).emit("playerCountUpdate", {
+        gameId,
+        playerCount: gameRooms[gameId]?.length || 0,
+      });
     }
   });
+  
   
   
 });
