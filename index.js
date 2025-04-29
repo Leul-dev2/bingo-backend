@@ -184,28 +184,38 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     console.log("🔴 Client disconnected");
   
-    const { telegramId, gameId, cardId } = userSelections[socket.id] || {}; // Get telegramId, gameId, and cardId from userSelections
+    const { telegramId, gameId, cardId } = userSelections[socket.id] || {};
   
     if (telegramId && gameId) {
-      // If the user selected a card, make it available again
+      // Make card available again
       if (cardId && gameCards[gameId] && gameCards[gameId][cardId] === telegramId) {
-        delete gameCards[gameId][cardId]; 
+        delete gameCards[gameId][cardId];
         socket.to(gameId).emit("cardAvailable", { cardId });
         console.log(`Card ${cardId} is now available again`);
       }
   
-      // Remove the user from the game session
-      gameSessions[gameId] = gameSessions[gameId].filter(id => id !== telegramId);
-      delete userSelections[socket.id]; // Clean up the user from userSelections
-  
+      // Remove from gameSessions
+      gameSessions[gameId] = gameSessions[gameId]?.filter(id => id !== telegramId);
+      delete userSelections[socket.id];
       console.log(`User ${telegramId} disconnected from game ${gameId}`);
       console.log(`Updated game session ${gameId}:`, gameSessions[gameId]);
   
-      // Emit the number of players in the game session after the player leaves
-      const numberOfPlayers = gameSessions[gameId].length;
-      io.to(gameId).emit("gameid", { gameId, numberOfPlayers }); // Send updated player count to everyone in the game room
+      // Remove from gameRooms
+      if (gameRooms[gameId]) {
+        gameRooms[gameId] = gameRooms[gameId].filter(id => id !== socket.id);
+        console.log(`Updated game room ${gameId}:`, gameRooms[gameId]);
+      }
+  
+      // Emit updated game session count
+      const numberOfPlayers = gameSessions[gameId]?.length || 0;
+      io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
+  
+      // Emit updated player count from gameRooms
+      const playerCount = gameRooms[gameId]?.length || 0;
+      io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
     }
   });
+  
   
 });
 
