@@ -56,6 +56,8 @@ app.use((err, req, res, next) => {
 let gameSessions = {}; // Store game sessions: gameId -> [telegramId]
 let userSelections = {}; // Store user selections: socket.id -> { telegramId, gameId }
 let gameCards = {}; // Store game card selections: gameId -> { cardId: telegramId }
+const gameDraws = {}; // { [gameId]: { numbers: [...], index: 0 } };
+
 
 
 const makeCardAvailable = (gameId, cardId) => {
@@ -181,9 +183,39 @@ io.on("connection", (socket) => {
       });
 
       socket.on("gameCount", ({ gameId }) => {
-        console.log(`Starting game in room: ${gameId}`);
-        io.to(gameId).emit("gameStart", { countdown: 25 }); // Broadcast to all in the room
+        const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
+        gameDraws[gameId] = { numbers, index: 0 };
+      
+        io.to(gameId).emit("gameStart", { countdown: 25 });
+      
+        // ✅ Start drawing after 25 seconds
+        setTimeout(() => {
+          startDrawing(gameId, io);
+        }, 25000);
       });
+      
+
+      
+      const drawInterval = {};
+
+      function startDrawing(gameId, io) {
+        drawInterval[gameId] = setInterval(() => {
+          const game = gameDraws[gameId];
+          if (!game || game.index >= game.numbers.length) {
+            clearInterval(drawInterval[gameId]);
+            io.to(gameId).emit("allNumbersDrawn");
+            return;
+          }
+
+          const number = game.numbers[game.index++];
+          const letterIndex = Math.floor((number - 1) / 15);
+          const letter = ["B", "I", "N", "G", "O"][letterIndex];
+          const label = `${letter}-${number}`;
+
+          io.to(gameId).emit("numberDrawn", { number, label });
+        }, 2000);
+      }
+
       
       
   // Handle disconnection event
