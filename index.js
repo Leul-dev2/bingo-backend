@@ -223,25 +223,48 @@ io.on("connection", (socket) => {
       }
       
 
-      socket.on("winner", ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
-        // Use gameRooms to track players
-        const players = gameRooms[gameId] || [];
-        const playerCount = players.length;  // Correct player count based on gameRooms
+      socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
+        try {
+          // ✅ Use gameRooms to track players
+          const players = gameRooms[gameId] || [];
+          const playerCount = players.length;
       
-        const stakeAmount = Number(gameId);  // Assuming gameId is stake amount
-        const prizeAmount = stakeAmount * playerCount;
-
+          // ✅ Use gameId as stake amount
+          const stakeAmount = Number(gameId);  // Change this logic if gameId ≠ stake
+          const prizeAmount = stakeAmount * playerCount;
       
-        // Emit the winner event with the correct player count
-        io.to(gameId.toString()).emit("winnerfound", {
-          winnerName: telegramId,
-          prizeAmount,
-          playerCount,
-          board,
-          winnerPattern,
-          boardNumber: cartelaId,
-        });
+          // ✅ Find the user from the database
+          const winnerUser = await User.findOne({ telegramId });
+          if (!winnerUser) {
+            console.error(`❌ User with telegramId ${telegramId} not found`);
+            return;
+          }
+      
+          // ✅ Update the user's balance
+          winnerUser.balance += prizeAmount;
+      
+          // ✅ Save the updated balance
+          await winnerUser.save();
+      
+          // ✅ Emit the winnerfound event with updated balance info
+          io.to(gameId.toString()).emit("winnerfound", {
+            winnerName: telegramId,
+            prizeAmount,
+            playerCount,
+            board,
+            winnerPattern,
+            boardNumber: cartelaId,
+            newBalance: winnerUser.balance, // Optional: return updated balance
+          });
+      
+          console.log(`🏆 User ${telegramId} won and received ${prizeAmount}. New balance: ${winnerUser.balance}`);
+      
+        } catch (error) {
+          console.error("🔥 Error processing winner:", error);
+          socket.emit("winnerError", { message: "Failed to update winner balance. Please try again." });
+        }
       });
+      
       
       
       
