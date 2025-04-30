@@ -8,6 +8,7 @@ require("dotenv").config();
 
 const userRoutes = require("./routes/userRoutes");
 const gameRoutes = require("./routes/gameRoutes");
+const User = require("./models/user");
 
 const app = express();
 const server = http.createServer(app); // 👈 Create HTTP server
@@ -221,24 +222,42 @@ io.on("connection", (socket) => {
       }
       
 
-      socket.on("winner", ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
-        // Use gameRooms to track players
-        const players = gameRooms[gameId] || [];
-        const playerCount = players.length;  // Correct player count based on gameRooms
+      socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
+        try {
+          // Use gameRooms to track players
+          const players = gameRooms[gameId] || [];
+          const playerCount = players.length;
       
-        const stakeAmount = Number(gameId);  // Assuming gameId is stake amount
-        const prizeAmount = stakeAmount * playerCount;
+          const stakeAmount = Number(gameId);  // If gameId is the stake
+          const prizeAmount = stakeAmount * playerCount;
       
-        // Emit the winner event with the correct player count
-        io.to(gameId.toString()).emit("winnerfound", {
-          winnerName: telegramId,
-          prizeAmount,
-          playerCount,
-          board,
-          winnerPattern,
-          boardNumber: cartelaId,
-        });
+          // Fetch the winner user by telegramId
+          const winnerUser = await User.findOne({ telegramId });
+          if (!winnerUser) {
+            console.error(`User with telegramId ${telegramId} not found`);
+            return;
+          }
+      
+          // Add prizeAmount to user's balance
+          winnerUser.balance += prizeAmount;
+      
+          // Save updated balance
+          await winnerUser.save();
+      
+          // Emit winner found event
+          io.to(gameId.toString()).emit("winnerfound", {
+            winnerName: telegramId,
+            prizeAmount,
+            playerCount,
+            board,
+            winnerPattern,
+            boardNumber: cartelaId,
+          });
+        } catch (error) {
+          console.error("Error processing winner:", error);
+        }
       });
+      
       
       
       
