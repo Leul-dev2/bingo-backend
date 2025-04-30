@@ -5,8 +5,8 @@ const User = require("../models/user");
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
 
-  const io = req.app.get("io"); // 👈 Access io
-  const gameRooms = req.app.get("gameRooms"); // 👈 Access gameRooms
+  const io = req.app.get("io"); // Access io
+  const gameRooms = req.app.get("gameRooms"); // Access gameRooms
 
   try {
     // Check if the user exists
@@ -54,5 +54,6 @@ router.post("/start", async (req, res) => {
     return res.status(500).json({ error: "Error starting the game" });
   }
 });
+
 
 module.exports = router;
