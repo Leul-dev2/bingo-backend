@@ -222,8 +222,12 @@ io.on("connection", (socket) => {
       
 
       socket.on("winner", ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
+        const room = io.sockets.adapter.rooms.get(gameId.toString());
+        const playerCount = room ? room.size : 1;
+      
         const prizeAmount = gameId * playerCount;
-        io.to(gameId).emit("winnerfound", {
+      
+        io.to(gameId.toString()).emit("winnerfound", {
           winnerName: telegramId,
           prizeAmount,
           board,
@@ -231,6 +235,7 @@ io.on("connection", (socket) => {
           boardNumber: cartelaId
         });
       });
+      
       
       
       
