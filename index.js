@@ -230,6 +230,7 @@ io.on("connection", (socket) => {
         io.to(gameId.toString()).emit("winnerfound", {
           winnerName: telegramId,
           prizeAmount,
+          playerCount,
           board,
           winnerPattern,
           boardNumber: cartelaId
