@@ -221,6 +221,16 @@ io.on("connection", (socket) => {
       }
       
 
+      socket.on("winner", ({ telegramId, gameId, prizeAmount, board, winnerPattern, cartelaId }) => {
+        io.to(gameId).emit("winnerfound", {
+          winnerName: telegramId,
+          prizeAmount,
+          board,
+          winnerPattern,
+          boardNumber: cartelaId
+        });
+      });
+      
       
       
   // Handle disconnection event
