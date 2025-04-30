@@ -70,10 +70,10 @@ const makeCardAvailable = (gameId, cardId) => {
 
 
 
-function emitPlayerCount(gameId) {
-  const playerCount = gameRooms[gameId]?.length || 0;
-  io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
-}
+// function emitPlayerCount(gameId) {
+//   const playerCount = gameRooms[gameId]?.length || 0;
+//   io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
+// }
 
 
 const userSessions = {}; // To store user sessions globally
