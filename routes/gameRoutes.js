@@ -5,8 +5,8 @@ const User = require("../models/user");
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
 
-  const io = req.app.get("io"); // Access io
-  const gameRooms = req.app.get("gameRooms"); // Access gameRooms
+  const io = req.app.get("io"); // 👈 Access io
+  const gameRooms = req.app.get("gameRooms"); // 👈 Access gameRooms
 
   try {
     // Check if the user exists
@@ -24,27 +24,22 @@ router.post("/start", async (req, res) => {
 
     // Ensure that the game room exists
     if (!gameRooms[gameId]) {
-      gameRooms[gameId] = {}; // Change from array to object
+      gameRooms[gameId] = [];
     }
 
-    // Store player data in the game room
-    if (!gameRooms[gameId][telegramId]) {
-      gameRooms[gameId][telegramId] = {
-        telegramId,
-        // Add other properties if needed (e.g., player state, card selections, etc.)
-      };
-
-      // Add player to the game room (socket join)
-      io.sockets.adapter.rooms[gameId] = io.sockets.adapter.rooms[gameId] || new Set();
-      io.sockets.adapter.rooms[gameId].add(telegramId);
-
-      // Emit to game room about the new player joining
-      const playerCount = Object.keys(gameRooms[gameId]).length;
-      io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
-
-      // Emit the gameId and telegramId to notify clients
-      io.to(gameId).emit("gameId", { gameId, telegramId });
+    // Only add the player if they aren't already in the game room
+    if (!gameRooms[gameId].includes(telegramId)) {
+      gameRooms[gameId].push(telegramId);
     }
+
+    // Get the updated player count
+    const playerCount = gameRooms[gameId].length;
+
+    // Emit the updated player count to all clients in the game room
+    io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
+    
+    // Emit the gameId and telegramId to notify clients
+    io.to(gameId).emit("gameId", { gameId, telegramId });
 
     // Return success response
     return res.status(200).json({ success: true, gameId, telegramId });
@@ -54,6 +49,5 @@ router.post("/start", async (req, res) => {
     return res.status(500).json({ error: "Error starting the game" });
   }
 });
-
 
 module.exports = router;
