@@ -222,20 +222,24 @@ io.on("connection", (socket) => {
       
 
       socket.on("winner", ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
-        const room = io.sockets.adapter.rooms.get(gameId.toString());
-        const playerCount = room ? room.size : 1;
+        const gameRooms = socket.handshake.app.get("gameRooms"); // ⬅ Get gameRooms safely if you're outside route
+        const players = gameRooms[gameId] || [];
       
-        const prizeAmount = gameId * playerCount;
+        const playerCount = players.length;
+        const stakeAmount = Number(gameId); // assuming gameId = stake
+        const prizeAmount = stakeAmount * playerCount;
       
-        io.to(gameId.toString()).emit("winnerfound", {
+        io.to(gameId).emit("winnerfound", {
           winnerName: telegramId,
           prizeAmount,
-          playerCount,
           board,
           winnerPattern,
-          boardNumber: cartelaId
+          boardNumber: cartelaId,
         });
+      
+        console.log(`Winner declared in game ${gameId}: ${telegramId} wins ${prizeAmount}`);
       });
+      
       
       
       
