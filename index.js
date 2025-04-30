@@ -222,6 +222,7 @@ io.on("connection", (socket) => {
       
 
       socket.on("winner", ({ telegramId, gameId, prizeAmount, board, winnerPattern, cartelaId }) => {
+        const prizeAmount = gameId * playerCount;
         io.to(gameId).emit("winnerfound", {
           winnerName: telegramId,
           prizeAmount,
