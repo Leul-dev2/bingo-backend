@@ -159,24 +159,14 @@ io.on("connection", (socket) => {
 
       });
 
-      socket.on("joinGame", (gameId, telegramId) => {
+      socket.on("joinGame", ({ gameId, telegramId }) => {
         socket.join(gameId);
-        console.log(`Player ${telegramId} joined room ${gameId}`);
     
-        // Optionally emit a confirmation back to the joining player
-        socket.emit("joinedRoom", {
-          message: `You joined game room ${gameId}`,
-          telegramId,
-        });
+        // Send back only to this player their data
+        socket.emit("gameId", { gameId, telegramId });
     
-        // Broadcast updated player count
-        // if (gameRooms[gameId]) {
-        //   io.to(gameId).emit("playerCountUpdate", {
-        //     gameId,
-        //     playerCount: gameRooms[gameId].length,
-        //   });
-        // }
-      })
+        // You can store socket.telegramId = telegramId if needed
+      });
 
       socket.on("getPlayerCount", ({ gameId }) => {
         socket.join(gameId);  // 👈 Join the room

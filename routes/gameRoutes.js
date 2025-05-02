@@ -39,7 +39,7 @@ router.post("/start", async (req, res) => {
     io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
     
     // Emit the gameId and telegramId to notify clients
-    io.to(gameId).emit("gameId", { gameId, telegramId });
+   // io.to(gameId).emit("gameId", { gameId, telegramId });
 
     // Return success response
     return res.status(200).json({ success: true, gameId, telegramId });
