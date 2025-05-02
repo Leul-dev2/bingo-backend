@@ -178,12 +178,12 @@ io.on("connection", (socket) => {
         const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
         gameDraws[gameId] = { numbers, index: 0 };
     
-        io.to(gameId).emit("gameStart", { countdown: 25 });
+        io.to(gameId).emit("gameStart", { countdown: 15 });
     
         // Start drawing after 25 seconds
         setTimeout(() => {
             startDrawing(gameId, io);
-        }, 25000);
+        }, 15000);
     });
     
     const drawInterval = {};
@@ -212,7 +212,7 @@ io.on("connection", (socket) => {
             // Emit the drawn number
             io.to(gameId).emit("numberDrawn", { number, label });
     
-        }, 4000); // Draws one number every 4 seconds (adjust as needed)
+        }, 8000); // Draws one number every 4 seconds (adjust as needed)
     }
     
       
