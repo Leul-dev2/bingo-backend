@@ -230,15 +230,18 @@ io.on("connection", (socket) => {
             return;
           }
       
+          // ✅ Find the winner's username (assuming it’s stored as `username`)
+          const winnerUsername = winnerUser.username || "Unknown";
+      
           // ✅ Update the user's balance
           winnerUser.balance += prizeAmount;
       
           // ✅ Save the updated balance
           await winnerUser.save();
       
-          // ✅ Emit the winnerfound event with updated balance info
+          // ✅ Emit the winnerfound event with updated balance info and username
           io.to(gameId.toString()).emit("winnerfound", {
-            winnerName: telegramId,
+            winnerName: winnerUsername,  // Send username instead of telegramId
             prizeAmount,
             playerCount,
             board,
@@ -247,13 +250,14 @@ io.on("connection", (socket) => {
             newBalance: winnerUser.balance, // Optional: return updated balance
           });
       
-          console.log(`🏆 User ${telegramId} won and received ${prizeAmount}. New balance: ${winnerUser.balance}`);
+          console.log(`🏆 User ${winnerUsername} (telegramId: ${telegramId}) won and received ${prizeAmount}. New balance: ${winnerUser.balance}`);
       
         } catch (error) {
           console.error("🔥 Error processing winner:", error);
           socket.emit("winnerError", { message: "Failed to update winner balance. Please try again." });
         }
-      });
+    });
+    
       
       
       
