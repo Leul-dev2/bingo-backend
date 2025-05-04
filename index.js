@@ -215,7 +215,6 @@ io.on("connection", (socket) => {
   });
 
 
-
   function startDrawing(gameId, io) {
       console.log(`Starting the drawing process for gameId: ${gameId}`);
       drawIntervals[gameId] = setInterval(() => {
