@@ -180,14 +180,31 @@ io.on("connection", (socket) => {
             const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
             gameDraws[gameId] = { numbers, index: 0 };
     
-            io.to(gameId).emit("gameStart", { countdown: 15 });
+            let countdownValue = 15; // Initialize countdown value
     
-            // Start drawing after 15 seconds
+            // Function to broadcast the countdown
+            const broadcastCountdown = () => {
+                io.to(gameId).emit("gameStart", { countdown: countdownValue });
+                countdownValue--;
+    
+                if (countdownValue < 0) {
+                    clearInterval(countdownInterval); // Stop the countdown when it reaches 0
+                }
+            };
+    
+            // Broadcast the countdown immediately
+            broadcastCountdown();
+    
+            // Broadcast the countdown every second
+            const countdownInterval = setInterval(broadcastCountdown, 1000);
+    
+            // Start drawing after 15 seconds (same as before)
             setTimeout(() => {
+                clearInterval(countdownInterval); // Ensure the countdown stops
                 startDrawing(gameId, io);
             }, 15000);
         } else {
-          console.log(`Game ${gameId} already initialized. Ignoring gameCount event.`);
+            console.log(`Game ${gameId} already initialized. Ignoring gameCount event.`);
         }
     });
     
