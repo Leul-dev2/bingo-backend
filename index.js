@@ -174,87 +174,46 @@ io.on("connection", (socket) => {
         socket.emit("playerCountUpdate", { gameId, playerCount });
       });
 
-      let frontendsReady = {}; // Track which games have a ready frontend
-      let gameStartTimers = {}; // Track setTimeout timers for each game
-      
-      // Handle frontend readiness
-      socket.on("frontendReady", ({ gameId }) => {
-          frontendsReady[gameId] = true;
-          console.log(`Frontend ready for game ${gameId}`);
-      
-          // Check if ready to start
-          if (gameDraws[gameId] && frontendsReady[gameId]) {
-              startGameDrawing(gameId, io);
-          }
-      });
-      
-      // Handle game start request
       socket.on("gameCount", ({ gameId }) => {
-          const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
-          gameDraws[gameId] = { numbers, index: 0 };
-          frontendsReady[gameId] = false; // Reset readiness for new game
-          console.log(`Game counted for game ${gameId}, waiting for frontends...`);
-      
-          io.to(gameId).emit("gameStart", { countdown: 15 });
-      
-          // Start a timer to start the game even if a frontend doesn't report as ready
-          gameStartTimers[gameId] = setTimeout(() => {
-              if (!frontendsReady[gameId]) {
-                  console.warn(`Frontend readiness timeout for game ${gameId}. Starting anyway.`);
-              }
-              startGameDrawing(gameId, io);
-          }, 20000); // Wait 20 seconds, then start anyway
-      });
-      
-      // Start game drawing process
-      function startGameDrawing(gameId, io) {
-          // Only start drawing if the game exists
-          if (!gameDraws[gameId]) {
-              console.warn(`Game ${gameId} does not exist, cannot start drawing.`);
-              return;
-          }
-      
-          // Clear the timeout if it exists
-          if (gameStartTimers[gameId]) {
-              clearTimeout(gameStartTimers[gameId]);
-              delete gameStartTimers[gameId];
-          }
-      
-          // Start the drawing after a brief delays
-      
-              startDrawing(gameId, io);
-           // Delay before the first number is drawn
-      }
-      
-      const drawInterval = {};
-      
-      // Function to handle drawing numbers
-      function startDrawing(gameId, io) {
-          console.log(`Starting the drawing process for gameId: ${gameId}`);
-          drawInterval[gameId] = setInterval(() => {
-              const game = gameDraws[gameId];
-      
-              // Ensure the game and numbers are valid, and the index hasn't exceeded the numbers
-              if (!game || game.index >= game.numbers.length) {
-                  clearInterval(drawInterval[gameId]);
-                  io.to(gameId).emit("allNumbersDrawn");
-                  console.log(`All numbers drawn for gameId: ${gameId}`);
-                  return;
-              }
-      
-              // Draw one number
-              const number = game.numbers[game.index++];
-              const letterIndex = Math.floor((number - 1) / 15);
-              const letter = ["B", "I", "N", "G", "O"][letterIndex];
-              const label = `${letter}-${number}`;
-      
-              console.log(`Drawing number: ${number}, Label: ${label}, Index: ${game.index - 1}`);
-      
-              // Emit the drawn number
-              io.to(gameId).emit("numberDrawn", { number, label });
-          }, 8000); // Draws one number every 8 seconds (adjust as needed)
-      }
-      
+        const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
+        gameDraws[gameId] = { numbers, index: 0 };
+    
+        io.to(gameId).emit("gameStart", { countdown: 15 });
+    
+        // Start drawing after 25 seconds
+        setTimeout(() => {
+            startDrawing(gameId, io);
+        }, 15000);
+    });
+    
+    const drawInterval = {};
+    
+    function startDrawing(gameId, io) {
+        console.log(`Starting the drawing process for gameId: ${gameId}`);
+        drawInterval[gameId] = setInterval(() => {
+            const game = gameDraws[gameId];
+    
+            // Ensure the game and numbers are valid, and index hasn't exceeded the numbers
+            if (!game || game.index >= game.numbers.length) {
+                clearInterval(drawInterval[gameId]);
+                io.to(gameId).emit("allNumbersDrawn");
+                console.log(`All numbers drawn for gameId: ${gameId}`);
+                return;
+            }
+    
+            // Draw one number
+            const number = game.numbers[game.index++];
+            const letterIndex = Math.floor((number - 1) / 15);
+            const letter = ["B", "I", "N", "G", "O"][letterIndex];
+            const label = `${letter}-${number}`;
+    
+            console.log(`Drawing number: ${number}, Label: ${label}, Index: ${game.index - 1}`);
+    
+            // Emit the drawn number
+            io.to(gameId).emit("numberDrawn", { number, label });
+    
+        }, 8000); // Draws one number every 4 seconds (adjust as needed)
+    }
     
       
 
