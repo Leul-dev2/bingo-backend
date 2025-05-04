@@ -228,7 +228,6 @@ io.on("connection", (socket) => {
       
       const drawInterval = {};
       
-      // Function to handle drawing numbers
       function startDrawing(gameId, io) {
         console.log(`Starting the drawing process for gameId: ${gameId}`);
         drawInterval[gameId] = setInterval(() => {
@@ -251,9 +250,11 @@ io.on("connection", (socket) => {
             // Add timestamp here
             const timestamp = Date.now();
     
+            // Emit the drawn number with timestamp
             io.to(gameId).emit("numberDrawn", { number, label, timestamp });
-        }, 8000);
+        }, 8000); // Draw every 8 seconds
     }
+    
       
     
       
