@@ -83,17 +83,6 @@ io.on("connection", (socket) => {
 
   // User joins a game
   socket.on("userJoinedGame", ({ telegramId, gameId }) => {
-      if (!gameDraws[gameId]) {
-          gameDraws[gameId] = { numbers: [], index: 0, gameStarted: false };
-      }
-
-      // Check if the game has already started
-      if (gameDraws[gameId].gameStarted) {
-          console.log(`User ${telegramId} tried to join game ${gameId} after it started.`);
-          socket.emit("gameFull", { message: "Game has already started. You cannot join now." });
-          return; // Prevent the user from joining
-      }
-
       if (!gameSessions[gameId]) {
           gameSessions[gameId] = [];
       }
@@ -130,6 +119,12 @@ io.on("connection", (socket) => {
 
       // Emit the updated player count
       io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
+
+      if (gameDraws[gameId].gameStarted) {
+        console.log(`User ${telegramId} tried to join game ${gameId} after it started.`);
+        io.to(socket.id).emit("gameFull", { message: "Game has already started. You cannot join now." });
+        return; // Prevent the user from joining
+      }
   });
 
 
@@ -195,7 +190,7 @@ io.on("connection", (socket) => {
       // Check if the game has already been initialized
       if (!gameDraws[gameId]) {
           const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
-          gameDraws[gameId] = { numbers, index: 0, gameStarted: false };
+          gameDraws[gameId] = { numbers, index: 0 };
 
           let countdownValue = 15; // Initialize countdown value
 
@@ -228,10 +223,6 @@ io.on("connection", (socket) => {
 
   function startDrawing(gameId, io) {
       console.log(`Starting the drawing process for gameId: ${gameId}`);
-
-      // Set the gameStarted flag to true *after* the countdown
-      gameDraws[gameId].gameStarted = true;
-
       drawIntervals[gameId] = setInterval(() => {
           const game = gameDraws[gameId];
 
@@ -329,7 +320,7 @@ io.on("connection", (socket) => {
 
           // Remove from gameRooms
           if (gameRooms[gameId]) {
-              gameRooms[gameId] = gameRooms[gameId].filter(id => id !== telegramId);
+              gameRooms[gameId] = gameRooms[gameId].filter(id => id !== telegramId); // ✅ fixed
               console.log(`Updated game room ${gameId}:`, gameRooms[gameId]);
 
               // Check if the game room is empty after removing the player
