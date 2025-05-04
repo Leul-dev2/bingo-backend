@@ -230,30 +230,30 @@ io.on("connection", (socket) => {
       
       // Function to handle drawing numbers
       function startDrawing(gameId, io) {
-          console.log(`Starting the drawing process for gameId: ${gameId}`);
-          drawInterval[gameId] = setInterval(() => {
-              const game = gameDraws[gameId];
-      
-              // Ensure the game and numbers are valid, and the index hasn't exceeded the numbers
-              if (!game || game.index >= game.numbers.length) {
-                  clearInterval(drawInterval[gameId]);
-                  io.to(gameId).emit("allNumbersDrawn");
-                  console.log(`All numbers drawn for gameId: ${gameId}`);
-                  return;
-              }
-      
-              // Draw one number
-              const number = game.numbers[game.index++];
-              const letterIndex = Math.floor((number - 1) / 15);
-              const letter = ["B", "I", "N", "G", "O"][letterIndex];
-              const label = `${letter}-${number}`;
-      
-              console.log(`Drawing number: ${number}, Label: ${label}, Index: ${game.index - 1}`);
-      
-              // Emit the drawn number
-              io.to(gameId).emit("numberDrawn", { number, label });
-          }, 8000); // Draws one number every 8 seconds (adjust as needed)
-      }
+        console.log(`Starting the drawing process for gameId: ${gameId}`);
+        drawInterval[gameId] = setInterval(() => {
+            const game = gameDraws[gameId];
+    
+            if (!game || game.index >= game.numbers.length) {
+                clearInterval(drawInterval[gameId]);
+                io.to(gameId).emit("allNumbersDrawn");
+                console.log(`All numbers drawn for gameId: ${gameId}`);
+                return;
+            }
+    
+            const number = game.numbers[game.index++];
+            const letterIndex = Math.floor((number - 1) / 15);
+            const letter = ["B", "I", "N", "G", "O"][letterIndex];
+            const label = `${letter}-${number}`;
+    
+            console.log(`Drawing number: ${number}, Label: ${label}, Index: ${game.index - 1}`);
+    
+            // Add timestamp here
+            const timestamp = Date.now();
+    
+            io.to(gameId).emit("numberDrawn", { number, label, timestamp });
+        }, 8000);
+    }
       
     
       
