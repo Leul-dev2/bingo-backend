@@ -185,7 +185,7 @@ io.on("connection", (socket) => {
           // Start drawing after 15 seconds countdown
           setTimeout(() => {
               startDrawing(gameId, io); // Start drawing after the countdown
-          }, 15000);
+          }, 15000); // Wait 15 seconds before starting the drawing
       });
       
       function startDrawing(gameId, io) {
@@ -197,33 +197,55 @@ io.on("connection", (socket) => {
               return; // Don't start a new interval if one is already running
           }
       
-          // Start the drawing process after an initial delay
-          setTimeout(() => {
-              // Now, set the interval to draw one number every 8 seconds
-              drawInterval[gameId] = setInterval(() => {
-                  const game = gameDraws[gameId];
+          // First number is drawn immediately after the countdown (no delay)
+          drawFirstNumber(gameId, io);
       
-                  if (!game || game.index >= game.numbers.length) {
-                      clearInterval(drawInterval[gameId]);
-                      io.to(gameId).emit("allNumbersDrawn");
-                      console.log(`All numbers drawn for gameId: ${gameId}`);
-                      delete drawInterval[gameId]; // Clean up the interval reference
-                      return;
-                  }
+          // Now, start the interval to draw subsequent numbers
+          drawInterval[gameId] = setInterval(() => {
+              const game = gameDraws[gameId];
       
-                  // Draw one number
-                  const number = game.numbers[game.index++];
-                  const letterIndex = Math.floor((number - 1) / 15);
-                  const letter = ["B", "I", "N", "G", "O"][letterIndex];
-                  const label = `${letter}-${number}`;
+              if (!game || game.index >= game.numbers.length) {
+                  clearInterval(drawInterval[gameId]);
+                  io.to(gameId).emit("allNumbersDrawn");
+                  console.log(`All numbers drawn for gameId: ${gameId}`);
+                  delete drawInterval[gameId]; // Clean up the interval reference
+                  return;
+              }
       
-                  console.log(`Drawing number: ${number}, Label: ${label}, Index: ${game.index - 1}`);
+              // Draw the next number
+              const number = game.numbers[game.index++];
+              const letterIndex = Math.floor((number - 1) / 15);
+              const letter = ["B", "I", "N", "G", "O"][letterIndex];
+              const label = `${letter}-${number}`;
       
-                  // Emit the drawn number
-                  io.to(gameId).emit("numberDrawn", { number, label });
-              }, 8000); // Draw one number every 8 seconds
-          }, 0); // This ensures the first draw happens with no delay before the interval starts
+              console.log(`Drawing number: ${number}, Label: ${label}, Index: ${game.index - 1}`);
+      
+              // Emit the drawn number
+              io.to(gameId).emit("numberDrawn", { number, label });
+          }, 8000); // Draw one number every 8 seconds
       }
+      
+      // Draw the first number immediately after the countdown
+      function drawFirstNumber(gameId, io) {
+          const game = gameDraws[gameId];
+      
+          if (!game || game.index >= game.numbers.length) {
+              console.warn(`Game ${gameId} has no more numbers to draw`);
+              return;
+          }
+      
+          // Draw the first number immediately
+          const number = game.numbers[game.index++];
+          const letterIndex = Math.floor((number - 1) / 15);
+          const letter = ["B", "I", "N", "G", "O"][letterIndex];
+          const label = `${letter}-${number}`;
+      
+          console.log(`First draw - Drawing number: ${number}, Label: ${label}`);
+      
+          // Emit the drawn number immediately
+          io.to(gameId).emit("numberDrawn", { number, label });
+      }
+      
       
 
       socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
