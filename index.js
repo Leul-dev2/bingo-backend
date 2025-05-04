@@ -178,25 +178,18 @@ io.on("connection", (socket) => {
         const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
         gameDraws[gameId] = { numbers, index: 0 };
     
-        // Emit game start with a 15-second countdown
         io.to(gameId).emit("gameStart", { countdown: 15 });
     
-        // Start drawing after 15 seconds (countdown)
+        // Start drawing after 25 seconds
         setTimeout(() => {
             startDrawing(gameId, io);
         }, 15000);
     });
     
-    // Function to start drawing numbers
+    const drawInterval = {};
+    
     function startDrawing(gameId, io) {
         console.log(`Starting the drawing process for gameId: ${gameId}`);
-        
-        // Ensure no previous drawing is active for this gameId
-        if (drawInterval[gameId]) {
-            clearInterval(drawInterval[gameId]);
-        }
-    
-        // Start drawing numbers every 8 seconds
         drawInterval[gameId] = setInterval(() => {
             const game = gameDraws[gameId];
     
@@ -219,13 +212,8 @@ io.on("connection", (socket) => {
             // Emit the drawn number
             io.to(gameId).emit("numberDrawn", { number, label });
     
-        }, 8000); // Draws one number every 8 seconds
+        }, 8000); // Draws one number every 4 seconds (adjust as needed)
     }
-    
-    // Event when all numbers have been drawn
-    socket.on("allNumbersDrawn", () => {
-        console.log("All numbers have been drawn, game over!");
-    });
     
       
 
