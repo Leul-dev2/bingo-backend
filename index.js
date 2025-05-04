@@ -119,12 +119,6 @@ io.on("connection", (socket) => {
 
       // Emit the updated player count
       io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
-
-      if (gameDraws[gameId].gameStarted) {
-        console.log(`User ${telegramId} tried to join game ${gameId} after it started.`);
-        io.to(socket.id).emit("gameFull", { message: "Game has already started. You cannot join now." });
-        return; // Prevent the user from joining
-      }
   });
 
 
@@ -219,6 +213,7 @@ io.on("connection", (socket) => {
           console.log(`Game ${gameId} already initialized. Ignoring gameCount event.`);
       }
   });
+
 
 
   function startDrawing(gameId, io) {
