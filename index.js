@@ -208,22 +208,24 @@ io.on("connection", (socket) => {
       
       // Start game drawing process
       function startGameDrawing(gameId, io) {
-        // Only start drawing if the game exists
-        if (!gameDraws[gameId]) {
-            console.warn(`Game ${gameId} does not exist, cannot start drawing.`);
-            return;
-        }
-    
-        // Clear the timeout if it exists
-        if (gameStartTimers[gameId]) {
-            clearTimeout(gameStartTimers[gameId]);
-            delete gameStartTimers[gameId];
-        }
-    
-        // Start the drawing immediately after the countdown
-        startDrawing(gameId, io);
-    }
-    
+          // Only start drawing if the game exists
+          if (!gameDraws[gameId]) {
+              console.warn(`Game ${gameId} does not exist, cannot start drawing.`);
+              return;
+          }
+      
+          // Clear the timeout if it exists
+          if (gameStartTimers[gameId]) {
+              clearTimeout(gameStartTimers[gameId]);
+              delete gameStartTimers[gameId];
+          }
+      
+          // Start the drawing after a brief delay
+          setTimeout(() => {
+              startDrawing(gameId, io);
+          }, 3000); // Delay before the first number is drawn
+      }
+      
       const drawInterval = {};
       
       // Function to handle drawing numbers
