@@ -176,6 +176,7 @@ io.on("connection", (socket) => {
 
       let drawInterval = {}; // Track intervals for each game
       let countdownStarted = {}; // Track if the countdown has already started for each game
+      let countdownTimers = {}; // Track the countdown timers for each game
       
       socket.on("gameCount", ({ gameId }) => {
           // Initialize game if it's not already initialized
@@ -184,18 +185,17 @@ io.on("connection", (socket) => {
               gameDraws[gameId] = { numbers, index: 0 };
           }
       
-          // Check if the countdown has already started
+          // If the countdown hasn't started yet, start it
           if (!countdownStarted[gameId]) {
-              // Start the countdown for the game
-              countdownStarted[gameId] = true;
+              countdownStarted[gameId] = true; // Mark countdown as started
               io.to(gameId).emit("gameStart", { countdown: 15 });
       
-              // Start drawing after 15 seconds (15,000 ms)
-              setTimeout(() => {
+              // Set countdown timer to wait for 15 seconds before drawing
+              countdownTimers[gameId] = setTimeout(() => {
                   startDrawing(gameId, io); // Start drawing after the countdown
               }, 15000); // Wait 15 seconds before starting the drawing
           }
-          
+      
           // Inform the new player about the current countdown state
           io.to(gameId).emit("gameStart", { countdown: 15 });
       });
@@ -224,7 +224,7 @@ io.on("connection", (socket) => {
                   return;
               }
       
-              // Ensure only one number is drawn per interval
+              // Ensure only one number is drawn per interval (fix issue of 2 numbers being drawn at once)
               const number = game.numbers[game.index++];
               const letterIndex = Math.floor((number - 1) / 15);
               const letter = ["B", "I", "N", "G", "O"][letterIndex];
