@@ -243,7 +243,7 @@ io.on("connection", (socket) => {
             // Emit the drawn number
             io.to(gameId).emit("numberDrawn", { number, label });
 
-        }, 8000); // Draws one number every 8 seconds (adjust as needed)
+        }, 4000); // Draws one number every 8 seconds (adjust as needed)
     }
 
 
