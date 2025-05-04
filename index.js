@@ -182,9 +182,9 @@ io.on("connection", (socket) => {
       
           io.to(gameId).emit("gameStart", { countdown: 15 });
       
-          // Start drawing after the countdown
+          // Start drawing after 15 seconds countdown
           setTimeout(() => {
-              startDrawing(gameId, io); // Start drawing after 15 seconds countdown
+              startDrawing(gameId, io); // Start drawing after the countdown
           }, 15000);
       });
       
@@ -197,31 +197,33 @@ io.on("connection", (socket) => {
               return; // Don't start a new interval if one is already running
           }
       
-          // Start the drawing process
-          drawInterval[gameId] = setInterval(() => {
-              const game = gameDraws[gameId];
+          // Start the drawing process after an initial delay
+          setTimeout(() => {
+              // Now, set the interval to draw one number every 8 seconds
+              drawInterval[gameId] = setInterval(() => {
+                  const game = gameDraws[gameId];
       
-              if (!game || game.index >= game.numbers.length) {
-                  clearInterval(drawInterval[gameId]);
-                  io.to(gameId).emit("allNumbersDrawn");
-                  console.log(`All numbers drawn for gameId: ${gameId}`);
-                  delete drawInterval[gameId]; // Clean up the interval reference
-                  return;
-              }
+                  if (!game || game.index >= game.numbers.length) {
+                      clearInterval(drawInterval[gameId]);
+                      io.to(gameId).emit("allNumbersDrawn");
+                      console.log(`All numbers drawn for gameId: ${gameId}`);
+                      delete drawInterval[gameId]; // Clean up the interval reference
+                      return;
+                  }
       
-              // Draw one number
-              const number = game.numbers[game.index++];
-              const letterIndex = Math.floor((number - 1) / 15);
-              const letter = ["B", "I", "N", "G", "O"][letterIndex];
-              const label = `${letter}-${number}`;
+                  // Draw one number
+                  const number = game.numbers[game.index++];
+                  const letterIndex = Math.floor((number - 1) / 15);
+                  const letter = ["B", "I", "N", "G", "O"][letterIndex];
+                  const label = `${letter}-${number}`;
       
-              console.log(`Drawing number: ${number}, Label: ${label}, Index: ${game.index - 1}`);
+                  console.log(`Drawing number: ${number}, Label: ${label}, Index: ${game.index - 1}`);
       
-              // Emit the drawn number
-              io.to(gameId).emit("numberDrawn", { number, label });
-          }, 8000); // Draw one number every 8 seconds
+                  // Emit the drawn number
+                  io.to(gameId).emit("numberDrawn", { number, label });
+              }, 8000); // Draw one number every 8 seconds
+          }, 0); // This ensures the first draw happens with no delay before the interval starts
       }
-      
       
 
       socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
