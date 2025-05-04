@@ -108,18 +108,18 @@ io.on("connection", (socket) => {
         const numberOfPlayers = gameSessions[gameId].length;
         io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
 
-        // Initialize gameRooms if it doesn't exist
-        if (!gameRooms[gameId]) {
-            gameRooms[gameId] = [];
-        }
+        // // Initialize gameRooms if it doesn't exist
+        // if (!gameRooms[gameId]) {
+        //     gameRooms[gameId] = [];
+        // }
 
-        // Add the player to the gameRooms
-        if (!gameRooms[gameId].includes(telegramId)) {
-            gameRooms[gameId].push(telegramId);
-        }
+        // // Add the player to the gameRooms
+        // if (!gameRooms[gameId].includes(telegramId)) {
+        //     gameRooms[gameId].push(telegramId);
+        // }
 
-        // Emit the updated player count
-        io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
+        // // Emit the updated player count
+        // io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
     });
 
 
