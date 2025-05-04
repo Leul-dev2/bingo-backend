@@ -212,7 +212,7 @@ io.on("connection", (socket) => {
                   return;
               }
       
-              // Draw the next number
+              // Ensure only one number is drawn per interval
               const number = game.numbers[game.index++];
               const letterIndex = Math.floor((number - 1) / 15);
               const letter = ["B", "I", "N", "G", "O"][letterIndex];
