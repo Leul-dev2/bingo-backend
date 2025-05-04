@@ -220,10 +220,10 @@ io.on("connection", (socket) => {
               delete gameStartTimers[gameId];
           }
       
-          // Start the drawing after a brief delay
+          // Start the drawing after a brief delays
           setTimeout(() => {
               startDrawing(gameId, io);
-          }, 3000); // Delay before the first number is drawn
+          }, 10000); // Delay before the first number is drawn
       }
       
       const drawInterval = {};
