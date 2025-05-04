@@ -175,17 +175,29 @@ io.on("connection", (socket) => {
       });
 
       let drawInterval = {}; // Track intervals for each game
-
+      let countdownStarted = {}; // Track if the countdown has already started for each game
+      
       socket.on("gameCount", ({ gameId }) => {
-          const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
-          gameDraws[gameId] = { numbers, index: 0 };
+          // Initialize game if it's not already initialized
+          if (!gameDraws[gameId]) {
+              const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
+              gameDraws[gameId] = { numbers, index: 0 };
+          }
       
+          // Check if the countdown has already started
+          if (!countdownStarted[gameId]) {
+              // Start the countdown for the game
+              countdownStarted[gameId] = true;
+              io.to(gameId).emit("gameStart", { countdown: 15 });
+      
+              // Start drawing after 15 seconds (15,000 ms)
+              setTimeout(() => {
+                  startDrawing(gameId, io); // Start drawing after the countdown
+              }, 15000); // Wait 15 seconds before starting the drawing
+          }
+          
+          // Inform the new player about the current countdown state
           io.to(gameId).emit("gameStart", { countdown: 15 });
-      
-          // Start drawing after 15 seconds countdown
-          setTimeout(() => {
-              startDrawing(gameId, io); // Start drawing after the countdown
-          }, 15000); // Wait 15 seconds before starting the drawing
       });
       
       function startDrawing(gameId, io) {
