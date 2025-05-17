@@ -7,9 +7,7 @@ router.get("/", (req, res) => {
   res.json({ message: "Users is connected" });
 });
 
-
 // ✅ **New Route: Fetch user balance by telegramId**
-
 router.get("/getUser", async (req, res) => {
   const { telegramId } = req.query; // Extract telegramId from query
 

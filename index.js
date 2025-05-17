@@ -71,15 +71,13 @@ const makeCardAvailable = (gameId, cardId) => {
 };
 
 
-
 function emitPlayerCount(gameId) {
   const playerCount = gameRooms[gameId]?.length || 0;
   io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
 }
 
 
-
-io.on("connection", (socket) => {
+  io.on("connection", (socket) => {
     console.log("🟢 New client connected");
 
     // User joins a game
@@ -120,10 +118,8 @@ io.on("connection", (socket) => {
 
         // // Emit the updated player count
         // io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
-    });
 
-
-    socket.on("cardSelected", (data) => {
+        socket.on("cardSelected", (data) => {
         const { telegramId, cardId, card, gameId } = data;
 
         if (!gameCards[gameId]) {
@@ -165,6 +161,11 @@ io.on("connection", (socket) => {
         console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
 
     });
+
+    });
+
+
+   
 
     socket.on("joinGame", ({ gameId, telegramId }) => {
         socket.join(gameId);
@@ -245,7 +246,6 @@ io.on("connection", (socket) => {
 
         }, 4000); // Draws one number every 8 seconds (adjust as needed)
     }
-
 
     socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
         try {
