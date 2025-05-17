@@ -244,7 +244,7 @@ function emitPlayerCount(gameId) {
             // Emit the drawn number
             io.to(gameId).emit("numberDrawn", { number, label });
 
-        }, 4000); // Draws one number every 8 seconds (adjust as needed)
+        }, 2000); // Draws one number every 8 seconds (adjust as needed)
     }
 
     socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
