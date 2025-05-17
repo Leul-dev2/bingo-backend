@@ -102,6 +102,17 @@ function emitPlayerCount(gameId) {
             socket.emit("currentCardSelections", gameCards[gameId]);
         }
 
+         if (gameCards[gameId]) {
+        Object.entries(gameCards[gameId]).forEach(([cardId, otherTelegramId]) => {
+            if (otherTelegramId !== telegramId) {
+                io.to(telegramId).emit("otherCardSelected", {
+                    telegramId: otherTelegramId,
+                    cardId
+                });
+            }
+        });
+    }
+
         // ✅ Send player count to all in room
         const numberOfPlayers = gameSessions[gameId].length;
         io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
@@ -118,6 +129,11 @@ function emitPlayerCount(gameId) {
 
         // // Emit the updated player count
         // io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
+
+    
+
+    });
+
 
         socket.on("cardSelected", (data) => {
         const { telegramId, cardId, card, gameId } = data;
@@ -159,8 +175,6 @@ function emitPlayerCount(gameId) {
         io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
 
         console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
-
-    });
 
     });
 
