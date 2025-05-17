@@ -102,6 +102,7 @@ function emitPlayerCount(gameId) {
             socket.emit("currentCardSelections", gameCards[gameId]);
         }
 
+
          if (gameCards[gameId]) {
         Object.entries(gameCards[gameId]).forEach(([cardId, otherTelegramId]) => {
             if (otherTelegramId !== telegramId) {
@@ -130,7 +131,6 @@ function emitPlayerCount(gameId) {
         // // Emit the updated player count
         // io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
 
-    
 
     });
 
