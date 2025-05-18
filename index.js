@@ -102,18 +102,6 @@ function emitPlayerCount(gameId) {
             socket.emit("currentCardSelections", gameCards[gameId]);
         }
 
-
-         if (gameCards[gameId]) {
-        Object.entries(gameCards[gameId]).forEach(([cardId, otherTelegramId]) => {
-            if (otherTelegramId !== telegramId) {
-                io.to(telegramId).emit("otherCardSelected", {
-                    telegramId: otherTelegramId,
-                    cardId
-                });
-            }
-        });
-    }
-
         // ✅ Send player count to all in room
         const numberOfPlayers = gameSessions[gameId].length;
         io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
@@ -210,9 +198,10 @@ function emitPlayerCount(gameId) {
                 countdownValue--;
             } else {
                 clearInterval(countdownIntervals[gameId]);
-
                 // ✅ Notify frontend to start the game
                 io.to(gameId).emit("gameStart");
+                  gameCards[gameId] = {};
+                  io.to(gameId).emit("cardsReset", { gameId });
 
                 // 🎯 Begin drawing
                 startDrawing(gameId, io);
