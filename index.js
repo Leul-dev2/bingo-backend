@@ -197,38 +197,32 @@ function emitPlayerCount(gameId) {
     });
 
     socket.on("gameCount", ({ gameId }) => {
-        // Check if the game has already been initialized
-        if (!gameDraws[gameId]) {
-            const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
-            gameDraws[gameId] = { numbers, index: 0 };
+    if (!gameDraws[gameId]) {
+        const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
+        gameDraws[gameId] = { numbers, index: 0 };
 
-            let countdownValue = 15; // Initialize countdown value
+        let countdownValue = 15;
 
-            // Function to broadcast the countdown
-            const broadcastCountdown = () => {
-                io.to(gameId).emit("gameStart", { countdown: countdownValue });
+        // Broadcast the countdown every second
+        countdownIntervals[gameId] = setInterval(() => {
+            if (countdownValue > 0) {
+                io.to(gameId).emit("countdownTick", { countdown: countdownValue });
                 countdownValue--;
+            } else {
+                clearInterval(countdownIntervals[gameId]);
 
-                if (countdownValue < 0) {
-                    clearInterval(countdownIntervals[gameId]); // Stop the countdown when it reaches 0
-                }
-            };
+                // ✅ Notify frontend to start the game
+                io.to(gameId).emit("gameStart");
 
-            // Broadcast the countdown immediately
-            broadcastCountdown();
-
-            // Broadcast the countdown every second
-            countdownIntervals[gameId] = setInterval(broadcastCountdown, 1000);
-
-            // Start drawing after 15 seconds (same as before)
-            setTimeout(() => {
-                clearInterval(countdownIntervals[gameId]); // Ensure the countdown stops
+                // 🎯 Begin drawing
                 startDrawing(gameId, io);
-            }, 15000);
-        } else {
-            console.log(`Game ${gameId} already initialized. Ignoring gameCount event.`);
-        }
-    });
+            }
+        }, 1000);
+    } else {
+        console.log(`Game ${gameId} already initialized. Ignoring gameCount event.`);
+    }
+   });
+
 
 
     function startDrawing(gameId, io) {
@@ -258,7 +252,7 @@ function emitPlayerCount(gameId) {
             // Emit the drawn number
             io.to(gameId).emit("numberDrawn", { number, label });
 
-        }, 2000); // Draws one number every 8 seconds (adjust as needed)
+        }, 3000); // Draws one number every 8 seconds (adjust as needed)
     }
 
     socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
