@@ -306,6 +306,7 @@ function emitPlayerCount(gameId) {
 
             console.log(`🏆 User ${winnerUsername} (telegramId: ${telegramId}) won and received ${prizeAmount}. New balance: ${winnerUser.balance}`);
             resetGame(gameId);
+             io.to(gameId).emit("gameFinished");
         } catch (error) {
             console.error("🔥 Error processing winner:", error);
             socket.emit("winnerError", { message: "Failed to update winner balance. Please try again." });
