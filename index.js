@@ -290,6 +290,8 @@ function emitPlayerCount(gameId) {
                 winnerPattern,
                 boardNumber: cartelaId,
                 newBalance: winnerUser.balance, // Optional: return updated balance
+                telegramId,
+                gameId,
             });
 
             console.log(`🏆 User ${winnerUsername} (telegramId: ${telegramId}) won and received ${prizeAmount}. New balance: ${winnerUser.balance}`);
