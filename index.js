@@ -81,7 +81,7 @@ function resetGame(gameId) {
 
     // Delete game data
     delete gameDraws[gameId];
-    delete gameSessions[gameId];
+   // delete gameSessions[gameId];
     delete gameCards[gameId];
     delete gameRooms[gameId];
     delete drawIntervals[gameId];
