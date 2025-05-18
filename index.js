@@ -71,6 +71,27 @@ const makeCardAvailable = (gameId, cardId) => {
 };
 
 
+
+function resetGame(gameId) {
+    console.log(`Resetting game ${gameId}...`);
+
+    // Clear intervals
+    clearInterval(drawIntervals[gameId]);
+    clearInterval(countdownIntervals[gameId]);
+
+    // Delete game data
+    delete gameDraws[gameId];
+    delete gameSessions[gameId];
+    delete gameCards[gameId];
+    delete gameRooms[gameId];
+    delete drawIntervals[gameId];
+    delete countdownIntervals[gameId];
+
+    console.log(`Game ${gameId} has been fully reset.`);
+}
+
+
+
 function emitPlayerCount(gameId) {
   const playerCount = gameRooms[gameId]?.length || 0;
   io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
@@ -284,7 +305,7 @@ function emitPlayerCount(gameId) {
             });
 
             console.log(`🏆 User ${winnerUsername} (telegramId: ${telegramId}) won and received ${prizeAmount}. New balance: ${winnerUser.balance}`);
-
+            resetGame(gameId);
         } catch (error) {
             console.error("🔥 Error processing winner:", error);
             socket.emit("winnerError", { message: "Failed to update winner balance. Please try again." });
@@ -313,30 +334,20 @@ function emitPlayerCount(gameId) {
             console.log(`Updated game session ${gameId}:`, gameSessions[gameId]);
 
             // Remove from gameRooms
-            if (gameRooms[gameId]) {
-                gameRooms[gameId] = gameRooms[gameId].filter(id => id !== telegramId); // ✅ fixed
+                    if (gameRooms[gameId]) {
+                gameRooms[gameId] = gameRooms[gameId].filter(id => id !== telegramId);
                 console.log(`Updated game room ${gameId}:`, gameRooms[gameId]);
 
-                // Check if the game room is empty after removing the player
                 if (gameRooms[gameId].length === 0) {
-                    console.log(`All players left game ${gameId}. Resetting game state.`);
-
-                    // Clear intervals
-                    clearInterval(drawIntervals[gameId]);
-                    clearInterval(countdownIntervals[gameId]);
-
-                    // Delete game data
-                    delete gameDraws[gameId];
-                    delete gameSessions[gameId];
-                    delete gameCards[gameId];
-                    delete gameRooms[gameId];
-
-                    console.log(`Game ${gameId} has been fully reset.`);
+                    resetGame(gameId);  // ✅ use the same function
                 } else {
-                    // Emit updated player count if there are still players in the game
-                    io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
+                    io.to(gameId).emit("playerCountUpdate", {
+                        gameId,
+                        playerCount: gameRooms[gameId].length
+                    });
                 }
             }
+
 
             // Clean up userSelections
             delete userSelections[socket.id];
