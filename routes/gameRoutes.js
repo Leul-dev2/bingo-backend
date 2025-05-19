@@ -9,7 +9,7 @@ router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
 
   const io = req.app.get("io");
-  const gameRooms = req.app.get("gameRooms");
+  const gameRooms = req.app.get("gameRooms") || {};
 
   try {
     if (joiningUsers.has(telegramId)) {
@@ -17,14 +17,14 @@ router.post("/start", async (req, res) => {
     }
     joiningUsers.add(telegramId);
 
-    // Check if game already exists in DB
+    // Check if game exists
     let game = await Game.findOne({ gameId });
 
-    // If not, create a new game document
     if (!game) {
+      // Create new game with default entryFee=0 for now
       game = new Game({
         gameId,
-        entryFee: Number(gameId), // assuming gameId represents entryFee
+        entryFee: 0,
         players: [],
         status: "active",
         prizePool: 0,
@@ -32,32 +32,29 @@ router.post("/start", async (req, res) => {
       await game.save();
     }
 
-    // Prevent joining again
+    // Check if user already joined
     if (game.players.includes(telegramId)) {
       joiningUsers.delete(telegramId);
       return res.status(400).json({ error: "User already in the game" });
     }
 
-    // Deduct balance if enough
-    const user = await User.findOneAndUpdate(
-      { telegramId, balance: { $gte: game.entryFee } },
-      { $inc: { balance: -game.entryFee } },
-      { new: true }
-    );
+    // Find user and check balance (assuming entryFee is zero, no deduction here)
+    const user = await User.findOne({ telegramId });
 
     if (!user) {
       joiningUsers.delete(telegramId);
-      return res.status(400).json({ error: "Insufficient balance or user not found" });
+      return res.status(400).json({ error: "User not found" });
     }
 
-    // Update game DB: add player + update prize pool
+    // Add player to game
     game.players.push(telegramId);
-    game.prizePool = game.players.length * game.entryFee;
+    game.prizePool = game.players.length * game.entryFee; // still zero now
     await game.save();
 
-    // In-memory game room handling
+    // Update in-memory room
     if (!gameRooms[gameId]) gameRooms[gameId] = [];
     gameRooms[gameId].push(telegramId);
+    req.app.set("gameRooms", gameRooms);
 
     const playerCount = gameRooms[gameId].length;
     io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
@@ -69,6 +66,64 @@ router.post("/start", async (req, res) => {
     console.error("Error:", error);
     joiningUsers.delete(telegramId);
     return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
+router.post("/complete", async (req, res) => {
+  const { gameId, winners = [], board, winnerPattern, cartelaId } = req.body;
+
+  try {
+    const gameRooms = req.app.get("gameRooms") || {};
+    const players = gameRooms[gameId] || [];
+    const playerCount = players.length;
+    const stakeAmount = number(gameId); // no entryFee for now
+    const prizeAmount = stakeAmount * playerCount; // zero for now
+
+    // Check if game exists and is completed
+    const existingGame = await Game.findOne({ gameId });
+    if (!existingGame) {
+      return res.status(404).json({ error: "Game not found" });
+    }
+    if (existingGame.status === "completed") {
+      return res.status(400).json({ error: "Game already completed" });
+    }
+
+    const updatedWinners = [];
+
+    for (let telegramId of winners) {
+      // Atomic update to user balance, increment by prizeAmount (0 here)
+      const user = await User.findOneAndUpdate(
+        { telegramId },
+        { $inc: { balance: prizeAmount } },
+        { new: true }
+      );
+      if (user) {
+        updatedWinners.push({ telegramId, username: user.username, newBalance: user.balance });
+      }
+    }
+
+    // Update game as completed with winner info
+    const updatedGame = await Game.findOneAndUpdate(
+      { gameId },
+      {
+        winners,
+        playerCount,
+        prizeAmount,
+        winnerPattern,
+        cartelaId,
+        board,
+        status: "completed",
+        endedAt: new Date(),
+      },
+      { new: true }
+    );
+
+    return res.status(200).json({ success: true, updatedWinners, game: updatedGame });
+
+  } catch (error) {
+    console.error("Error completing game:", error);
+    return res.status(500).json({ error: "Failed to complete game" });
   }
 });
 

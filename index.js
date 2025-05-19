@@ -265,54 +265,43 @@ function emitPlayerCount(gameId) {
         }, 3000); // Draws one number every 8 seconds (adjust as needed)
     }
 
-    socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
-        try {
-            // ✅ Use gameRooms to track players
-            const players = gameRooms[gameId] || [];
-            const playerCount = players.length;
+   socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
+  try {
+    const axios = require("axios");
 
-            // ✅ Use gameId as stake amount
-            const stakeAmount = Number(gameId);  // Change this logic if gameId ≠ stake
-            const prizeAmount = stakeAmount * playerCount;
-
-            // ✅ Find the user from the database
-            const winnerUser = await User.findOne({ telegramId });
-            if (!winnerUser) {
-                console.error(`❌ User with telegramId ${telegramId} not found`);
-                return;
-            }
-
-            // ✅ Find the winner's username (assuming it’s stored as `username`)
-            const winnerUsername = winnerUser.username || "Unknown";
-
-            // ✅ Update the user's balance
-            winnerUser.balance += prizeAmount;
-
-            // ✅ Save the updated balance
-            await winnerUser.save();
-
-            // ✅ Emit the winnerfound event with updated balance info and username
-            io.to(gameId.toString()).emit("winnerfound", {
-                winnerName: winnerUsername,  // Send username instead of telegramId
-                prizeAmount,
-                playerCount,
-                board,
-                winnerPattern,
-                boardNumber: cartelaId,
-                newBalance: winnerUser.balance, // Optional: return updated balance
-                telegramId,
-                gameId,
-            });
-
-            console.log(`🏆 User ${winnerUsername} (telegramId: ${telegramId}) won and received ${prizeAmount}. New balance: ${winnerUser.balance}`);
-            resetGame(gameId);
-             io.to(gameId).emit("gameFinished");
-        } catch (error) {
-            console.error("🔥 Error processing winner:", error);
-            socket.emit("winnerError", { message: "Failed to update winner balance. Please try again." });
-        }
+    const response = await axios.post(`https://bingobot-backend.onrender.com/api/games/complete`, {
+      telegramId,
+      gameId,
+      winners: [telegramId],
+      board,
+      winnerPattern,
+      cartelaId
     });
 
+    const { updatedWinners, game } = response.data;
+    const winner = updatedWinners[0];
+
+    io.to(gameId.toString()).emit("winnerfound", {
+      winnerName: winner.username,
+      prizeAmount: game.prizeAmount,
+      playerCount: game.playerCount,
+      board,
+      winnerPattern,
+      boardNumber: cartelaId,
+      newBalance: winner.newBalance,
+      telegramId,
+      gameId,
+    });
+
+    console.log(`🏆 Winner saved to DB. Game ${gameId} completed.`);
+    resetGame(gameId);
+    io.to(gameId).emit("gameFinished");
+
+  } catch (error) {
+    console.error("🔥 Error completing game via API:", error.message);
+    socket.emit("winnerError", { message: "Failed to complete game. Try again." });
+  }
+});
 
 
     // Handle disconnection event
