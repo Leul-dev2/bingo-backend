@@ -77,33 +77,35 @@ const makeCardAvailable = (gameId, cardId) => {
 async function resetGame(gameId) {
   console.log(`Resetting game ${gameId}...`);
 
-  // Clear intervals
   clearInterval(drawIntervals[gameId]);
   clearInterval(countdownIntervals[gameId]);
 
-  // Delete in-memory game data
   delete gameDraws[gameId];
   delete gameCards[gameId];
   delete gameRooms[gameId];
   delete drawIntervals[gameId];
   delete countdownIntervals[gameId];
 
-  // Reset MongoDB game document
-  await Game.findOneAndUpdate(
+  const updated = await Game.findOneAndUpdate(
     { gameId },
     {
-      players: [],
-      winners: [],
-      prizePool: 0,
-      status: "active",
-      isCompleted: false,
-      startedAt: new Date(),
-      endedAt: null,
-    }
+      $set: {
+        players: [],
+        winners: [],
+        prizePool: 0,
+        status: "active",
+        isCompleted: false,
+        startedAt: new Date(),
+        endedAt: null,
+      },
+    },
+    { new: true }
   );
 
-  console.log(`Game ${gameId} has been fully reset.`);
+  console.log(`✅ Game ${gameId} reset complete. Players list is now:`, updated.players);
 }
+
+
 
 app.set("resetGame", resetGame);
 
