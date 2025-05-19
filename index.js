@@ -29,7 +29,7 @@ app.set("io", io);
 app.set("gameRooms", gameRooms);
 // Attach the function to the app object so it's accessible in routes
 app.set("emitPlayerCount", emitPlayerCount);
-app.set("resetGame", resetGame);
+
 
 
 // Routes
@@ -104,6 +104,8 @@ async function resetGame(gameId) {
 
   console.log(`Game ${gameId} has been fully reset.`);
 }
+
+app.set("resetGame", resetGame);
 
 
 function emitPlayerCount(gameId) {
