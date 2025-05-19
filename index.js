@@ -285,7 +285,7 @@ function emitPlayerCount(gameId) {
   try {
     const axios = require("axios");
 
-    const response = await axios.post(`https://bingobot-backend.onrender.com/api/games/complete`, {
+    const response = await axios.post(`https://bingobot-backend-bwdo.onrender.com/api/games/complete`, {
       telegramId,
       gameId,
       winners: [telegramId],
