@@ -9,7 +9,7 @@ require("dotenv").config();
 const userRoutes = require("./routes/userRoutes");
 const gameRoutes = require("./routes/gameRoutes");
 const User = require("./models/user");
-
+const User = require("./models/game");
 const app = express();
 const server = http.createServer(app); // 👈 Create HTTP server
 const io = new Server(server, {
@@ -29,6 +29,8 @@ app.set("io", io);
 app.set("gameRooms", gameRooms);
 // Attach the function to the app object so it's accessible in routes
 app.set("emitPlayerCount", emitPlayerCount);
+app.set("resetGame", resetGame);
+
 
 // Routes
 app.use("/api/users", userRoutes);
@@ -72,24 +74,36 @@ const makeCardAvailable = (gameId, cardId) => {
 
 
 
-function resetGame(gameId) {
-    console.log(`Resetting game ${gameId}...`);
+async function resetGame(gameId) {
+  console.log(`Resetting game ${gameId}...`);
 
-    // Clear intervals
-    clearInterval(drawIntervals[gameId]);
-    clearInterval(countdownIntervals[gameId]);
+  // Clear intervals
+  clearInterval(drawIntervals[gameId]);
+  clearInterval(countdownIntervals[gameId]);
 
-    // Delete game data
-    delete gameDraws[gameId];
-   // delete gameSessions[gameId];
-    delete gameCards[gameId];
-    delete gameRooms[gameId];
-    delete drawIntervals[gameId];
-    delete countdownIntervals[gameId];
+  // Delete in-memory game data
+  delete gameDraws[gameId];
+  delete gameCards[gameId];
+  delete gameRooms[gameId];
+  delete drawIntervals[gameId];
+  delete countdownIntervals[gameId];
 
-    console.log(`Game ${gameId} has been fully reset.`);
+  // Reset MongoDB game document
+  await Game.findOneAndUpdate(
+    { gameId },
+    {
+      players: [],
+      winners: [],
+      prizePool: 0,
+      status: "active",
+      isCompleted: false,
+      startedAt: new Date(),
+      endedAt: null,
+    }
+  );
+
+  console.log(`Game ${gameId} has been fully reset.`);
 }
-
 
 
 function emitPlayerCount(gameId) {

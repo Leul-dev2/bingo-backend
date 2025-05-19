@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const User = require("../models/user");
 const Game = require("../models/game");
+const resetGame = req.app.get("resetGame");
+
+
 
 const joiningUsers = new Set();
 
@@ -77,10 +80,9 @@ router.post("/complete", async (req, res) => {
     const gameRooms = req.app.get("gameRooms") || {};
     const players = gameRooms[gameId] || [];
     const playerCount = players.length;
-    const stakeAmount = number(gameId); // no entryFee for now
-    const prizeAmount = stakeAmount * playerCount; // zero for now
+    const stakeAmount = 0; // or however you calculate it
+    const prizeAmount = stakeAmount * playerCount;
 
-    // Check if game exists and is completed
     const existingGame = await Game.findOne({ gameId });
     if (!existingGame) {
       return res.status(404).json({ error: "Game not found" });
@@ -92,7 +94,6 @@ router.post("/complete", async (req, res) => {
     const updatedWinners = [];
 
     for (let telegramId of winners) {
-      // Atomic update to user balance, increment by prizeAmount (0 here)
       const user = await User.findOneAndUpdate(
         { telegramId },
         { $inc: { balance: prizeAmount } },
@@ -103,7 +104,6 @@ router.post("/complete", async (req, res) => {
       }
     }
 
-    // Update game as completed with winner info
     const updatedGame = await Game.findOneAndUpdate(
       { gameId },
       {
@@ -119,6 +119,12 @@ router.post("/complete", async (req, res) => {
       { new: true }
     );
 
+    // ✅ Get resetGame function from app
+    const resetGame = req.app.get("resetGame");
+    if (typeof resetGame === "function") {
+      resetGame(gameId);
+    }
+
     return res.status(200).json({ success: true, updatedWinners, game: updatedGame });
 
   } catch (error) {
@@ -126,5 +132,6 @@ router.post("/complete", async (req, res) => {
     return res.status(500).json({ error: "Failed to complete game" });
   }
 });
+
 
 module.exports = router;
