@@ -2,51 +2,57 @@ const express = require('express');
 const router = express.Router();
 const User = require("../models/user");
 
+const joiningUsers = new Set(); // In-memory lock to block rapid duplicate joins
+
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
 
-  const io = req.app.get("io"); // 👈 Access io
-  const gameRooms = req.app.get("gameRooms"); // 👈 Access gameRooms
+  const io = req.app.get("io");
+  const gameRooms = req.app.get("gameRooms");
 
   try {
-    // Check if the user exists
-    const user = await User.findOne({ telegramId });
-    if (!user) return res.status(404).json({ error: "User not found" });
-
-    // Check if the user has enough balance to start the game
-    if (user.balance < gameId) {
-      return res.status(400).json({ error: "Insufficient balance" });
+    // 🚫 Prevent double-clicking (fast repeated requests)
+    if (joiningUsers.has(telegramId)) {
+      return res.status(429).json({ error: "You're already joining the game" });
     }
+    joiningUsers.add(telegramId);
 
-    // Deduct the player's balance
-    user.balance -= gameId;
-    await user.save();
-
-    // Ensure that the game room exists
+    // ✅ Create game room if it doesn't exist
     if (!gameRooms[gameId]) {
       gameRooms[gameId] = [];
     }
 
-    // Only add the player if they aren't already in the game room
-    if (!gameRooms[gameId].includes(telegramId)) {
-      gameRooms[gameId].push(telegramId);
+    // 🚫 Don't let the same user join twice
+    if (gameRooms[gameId].includes(telegramId)) {
+      joiningUsers.delete(telegramId);
+      return res.status(400).json({ error: "User already in the game" });
     }
 
-    // Get the updated player count
+    // ✅ Atomically deduct balance if user has enough
+    const user = await User.findOneAndUpdate(
+      { telegramId, balance: { $gte: gameId } },
+      { $inc: { balance: -gameId } },
+      { new: true }
+    );
+
+    if (!user) {
+      joiningUsers.delete(telegramId);
+      return res.status(400).json({ error: "Insufficient balance or user not found" });
+    }
+
+    // ✅ Add to game room
+    gameRooms[gameId].push(telegramId);
+
     const playerCount = gameRooms[gameId].length;
-
-    // Emit the updated player count to all clients in the game room
     io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
-    
-    // Emit the gameId and telegramId to notify clients
-    // io.to(gameId).emit("gameId", { gameId, telegramId });
 
-    // Return success response
+    joiningUsers.delete(telegramId);
     return res.status(200).json({ success: true, gameId, telegramId });
 
   } catch (error) {
-    console.error("Error starting the game:", error);
-    return res.status(500).json({ error: "Error starting the game" });
+    console.error("Error:", error);
+    joiningUsers.delete(telegramId);
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
