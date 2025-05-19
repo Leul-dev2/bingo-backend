@@ -86,23 +86,24 @@ async function resetGame(gameId) {
   delete drawIntervals[gameId];
   delete countdownIntervals[gameId];
 
-  const updated = await Game.findOneAndUpdate(
+  // Reset game document
+  await Game.findOneAndUpdate(
     { gameId },
     {
-      $set: {
-        players: [],
-        winners: [],
-        prizePool: 0,
-        status: "active",
-        isCompleted: false,
-        startedAt: new Date(),
-        endedAt: null,
-      },
-    },
-    { new: true }
+      players: [],
+      winners: [],
+      prizePool: 0,
+      status: "active",
+      startedAt: new Date(),
+      endedAt: null,
+    }
   );
 
-  console.log(`✅ Game ${gameId} reset complete. Players list is now:`, updated.players);
+  // Confirm
+  const updated = await Game.findOne({ gameId });
+  console.log("✅ After reset, game players:", updated.players); // Should be []
+
+  console.log(`Game ${gameId} has been fully reset.`);
 }
 
 

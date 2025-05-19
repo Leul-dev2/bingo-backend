@@ -34,10 +34,10 @@ router.post("/start", async (req, res) => {
     }
 
     // Check if user already joined
-    // if (game.players.includes(telegramId)) {
-    //   joiningUsers.delete(telegramId);
-    //   return res.status(400).json({ error: "User already in the game" });
-    // }
+    if (game.players.includes(telegramId)) {
+     // joiningUsers.delete(telegramId);
+      return res.status(400).json({ error: "User already in the game" });
+    }
 
     // Find user and check balance (assuming entryFee is zero, no deduction here)
     const user = await User.findOne({ telegramId });
