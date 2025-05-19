@@ -1,13 +1,12 @@
 const mongoose = require("mongoose");
 
 const gameSchema = new mongoose.Schema({
-  gameId: { type: Number, required: true, unique: true },
-  players: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
-  totalPrize: { type: Number, default: 0 },
-  gameStatus: { type: String, enum: ["waiting", "ongoing", "completed"], default: "waiting" },
-  winner: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
-  createdAt: { type: Date, default: Date.now },
-  timerStart: { type: Date, default: null }, // This will hold the start time for the 15-second timer
+  gameId: { type: String, required: true, unique: true }, // Unique per round/session
+  entryFee: { type: Number, required: true },
+  players: [{ type: Number }], // Array of telegramIds
+  startedAt: { type: Date, default: Date.now },
+  status: { type: String, enum: ["active", "completed"], default: "active" },
+  prizePool: { type: Number, default: 0 },
 });
 
 module.exports = mongoose.model("Game", gameSchema);

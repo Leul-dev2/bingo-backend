@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const User = require("../models/user");
+const Game = require("../models/game");
 
-const joiningUsers = new Set(); // In-memory lock to block rapid duplicate joins
+const joiningUsers = new Set();
 
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
@@ -11,27 +12,36 @@ router.post("/start", async (req, res) => {
   const gameRooms = req.app.get("gameRooms");
 
   try {
-    // 🚫 Prevent double-clicking (fast repeated requests)
     if (joiningUsers.has(telegramId)) {
       return res.status(429).json({ error: "You're already joining the game" });
     }
     joiningUsers.add(telegramId);
 
-    // ✅ Create game room if it doesn't exist
-    if (!gameRooms[gameId]) {
-      gameRooms[gameId] = [];
+    // Check if game already exists in DB
+    let game = await Game.findOne({ gameId });
+
+    // If not, create a new game document
+    if (!game) {
+      game = new Game({
+        gameId,
+        entryFee: Number(gameId), // assuming gameId represents entryFee
+        players: [],
+        status: "active",
+        prizePool: 0,
+      });
+      await game.save();
     }
 
-    // 🚫 Don't let the same user join twice
-    if (gameRooms[gameId].includes(telegramId)) {
+    // Prevent joining again
+    if (game.players.includes(telegramId)) {
       joiningUsers.delete(telegramId);
       return res.status(400).json({ error: "User already in the game" });
     }
 
-    // ✅ Atomically deduct balance if user has enough
+    // Deduct balance if enough
     const user = await User.findOneAndUpdate(
-      { telegramId, balance: { $gte: gameId } },
-      { $inc: { balance: -gameId } },
+      { telegramId, balance: { $gte: game.entryFee } },
+      { $inc: { balance: -game.entryFee } },
       { new: true }
     );
 
@@ -40,7 +50,13 @@ router.post("/start", async (req, res) => {
       return res.status(400).json({ error: "Insufficient balance or user not found" });
     }
 
-    // ✅ Add to game room
+    // Update game DB: add player + update prize pool
+    game.players.push(telegramId);
+    game.prizePool = game.players.length * game.entryFee;
+    await game.save();
+
+    // In-memory game room handling
+    if (!gameRooms[gameId]) gameRooms[gameId] = [];
     gameRooms[gameId].push(telegramId);
 
     const playerCount = gameRooms[gameId].length;
