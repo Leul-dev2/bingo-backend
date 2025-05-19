@@ -9,7 +9,7 @@ require("dotenv").config();
 const userRoutes = require("./routes/userRoutes");
 const gameRoutes = require("./routes/gameRoutes");
 const User = require("./models/user");
-const User = require("./models/game");
+const Game = require("./models/game");
 const app = express();
 const server = http.createServer(app); // 👈 Create HTTP server
 const io = new Server(server, {
