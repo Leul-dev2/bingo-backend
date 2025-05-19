@@ -105,20 +105,23 @@ router.post("/complete", async (req, res) => {
       }
     }
 
-    const updatedGame = await Game.findOneAndUpdate(
-      { gameId },
-      {
-        winners,
-        playerCount,
-        prizeAmount,
-        winnerPattern,
-        cartelaId,
-        board,
-        status: "completed",
-        endedAt: new Date(),
-      },
-      { new: true }
-    );
+    // After game is marked as completed
+await Game.findOneAndUpdate(
+  { gameId },
+  {
+    winners,
+    playerCount,
+    prizeAmount,
+    winnerPattern,
+    cartelaId,
+    board,
+    status: "completed",
+    endedAt: new Date(),
+    // Add this to empty players list
+    players: [],
+  },
+  { new: true }
+);
 
     // ✅ Get resetGame function from app
  
