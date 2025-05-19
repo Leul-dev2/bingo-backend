@@ -4,8 +4,6 @@ const User = require("../models/user");
 const Game = require("../models/game");
 
 
-
-
 const joiningUsers = new Set();
 
 router.post("/start", async (req, res) => {
