@@ -74,6 +74,7 @@ router.post("/start", async (req, res) => {
 
 
 router.post("/complete", async (req, res) => {
+  const resetGame = req.app.get("resetGame");
   const { gameId, winners = [], board, winnerPattern, cartelaId } = req.body;
 
   try {
@@ -120,7 +121,7 @@ router.post("/complete", async (req, res) => {
     );
 
     // ✅ Get resetGame function from app
-    const resetGame = req.app.get("resetGame");
+ 
     if (typeof resetGame === "function") {
       resetGame(gameId);
     }
