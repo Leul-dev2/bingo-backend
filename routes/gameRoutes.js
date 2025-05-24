@@ -79,7 +79,7 @@ router.post("/complete", async (req, res) => {
     const gameRooms = req.app.get("gameRooms") || {};
     const players = gameRooms[gameId] || [];
     const playerCount = players.length;
-    const stakeAmount = 0; // or however you calculate it
+    const stakeAmount = 0; // Adjust as needed
     const prizeAmount = stakeAmount * playerCount;
 
     const existingGame = await Game.findOne({ gameId });
@@ -103,26 +103,22 @@ router.post("/complete", async (req, res) => {
       }
     }
 
-    // After game is marked as completed
-      const updatedGame = await Game.findOneAndUpdate(
-        { gameId },
-        {
-          winners,
-          playerCount,
-          prizeAmount,
-          winnerPattern,
-          cartelaId,
-          board,
-          status: "completed",
-          endedAt: new Date(),
-          players: [],
-        },
-        { new: true }
-      );
+    const updatedGame = await Game.findOneAndUpdate(
+      { gameId },
+      {
+        winners,
+        playerCount,
+        prizeAmount,
+        winnerPattern,
+        cartelaId,
+        board,
+        status: "completed",
+        endedAt: new Date(),
+        players: [],
+      },
+      { new: true }
+    );
 
-
-    // ✅ Get resetGame function from app
- 
     if (typeof resetGame === "function") {
       resetGame(gameId);
     }
