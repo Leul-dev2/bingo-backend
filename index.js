@@ -229,7 +229,7 @@ function emitPlayerCount(gameId) {
         const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
         gameDraws[gameId] = { numbers, index: 0 };
 
-        let countdownValue = 15;
+        let countdownValue = 5;
 
         // Broadcast the countdown every second
         countdownIntervals[gameId] = setInterval(() => {
@@ -281,7 +281,7 @@ function emitPlayerCount(gameId) {
             // Emit the drawn number
             io.to(gameId).emit("numberDrawn", { number, label });
 
-        }, 3000); // Draws one number every 8 seconds (adjust as needed)
+        }, 1000); // Draws one number every 8 seconds (adjust as needed)
     }
 
    
