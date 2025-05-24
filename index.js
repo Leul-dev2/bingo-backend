@@ -284,17 +284,17 @@ function emitPlayerCount(gameId) {
         }, 3000); // Draws one number every 8 seconds (adjust as needed)
     }
 
-   socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
-  try {
-    const axios = require("axios");
+   const axios = require("axios"); // Make sure this is installed via `npm install axios`
 
+socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
+  try {
     const response = await axios.post(`https://bingobot-backend-bwdo.onrender.com/api/games/complete`, {
       telegramId,
       gameId,
       winners: [telegramId],
       board,
       winnerPattern,
-      cartelaId
+      cartelaId,
     });
 
     const { updatedWinners, game } = response.data;
@@ -321,6 +321,7 @@ function emitPlayerCount(gameId) {
     socket.emit("winnerError", { message: "Failed to complete game. Try again." });
   }
 });
+
 
 
     // Handle disconnection event
