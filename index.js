@@ -9,7 +9,7 @@ require("dotenv").config();
 const userRoutes = require("./routes/userRoutes");
 const gameRoutes = require("./routes/gameRoutes");
 const User = require("./models/user");
-const Game = require("./models/game");
+
 const app = express();
 const server = http.createServer(app); // 👈 Create HTTP server
 const io = new Server(server, {
@@ -29,8 +29,6 @@ app.set("io", io);
 app.set("gameRooms", gameRooms);
 // Attach the function to the app object so it's accessible in routes
 app.set("emitPlayerCount", emitPlayerCount);
-
-
 
 // Routes
 app.use("/api/users", userRoutes);
@@ -74,41 +72,24 @@ const makeCardAvailable = (gameId, cardId) => {
 
 
 
-async function resetGame(gameId) {
-  console.log(`Resetting game ${gameId}...`);
+function resetGame(gameId) {
+    console.log(`Resetting game ${gameId}...`);
 
-  clearInterval(drawIntervals[gameId]);
-  clearInterval(countdownIntervals[gameId]);
+    // Clear intervals
+    clearInterval(drawIntervals[gameId]);
+    clearInterval(countdownIntervals[gameId]);
 
-  delete gameDraws[gameId];
-  delete gameCards[gameId];
-  delete gameRooms[gameId];
-  delete drawIntervals[gameId];
-  delete countdownIntervals[gameId];
+    // Delete game data
+    delete gameDraws[gameId];
+   // delete gameSessions[gameId];
+    delete gameCards[gameId];
+    delete gameRooms[gameId];
+    delete drawIntervals[gameId];
+    delete countdownIntervals[gameId];
 
-  // Reset game document
-  await Game.findOneAndUpdate(
-    { gameId },
-    {
-      players: [],
-      winners: [],
-      prizePool: 0,
-      status: "active",
-      startedAt: new Date(),
-      endedAt: null,
-    }
-  );
-
-  // Confirm
-  const updated = await Game.findOne({ gameId });
-  console.log("✅ After reset, game players:", updated.players); // Should be []
-
-  console.log(`Game ${gameId} has been fully reset.`);
+    console.log(`Game ${gameId} has been fully reset.`);
 }
 
-
-
-app.set("resetGame", resetGame);
 
 
 function emitPlayerCount(gameId) {
@@ -229,7 +210,7 @@ function emitPlayerCount(gameId) {
         const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
         gameDraws[gameId] = { numbers, index: 0 };
 
-        let countdownValue = 5;
+        let countdownValue = 15;
 
         // Broadcast the countdown every second
         countdownIntervals[gameId] = setInterval(() => {
@@ -281,77 +262,56 @@ function emitPlayerCount(gameId) {
             // Emit the drawn number
             io.to(gameId).emit("numberDrawn", { number, label });
 
-        }, 1000); // Draws one number every 8 seconds (adjust as needed)
+        }, 3000); // Draws one number every 8 seconds (adjust as needed)
     }
 
-   
+    socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
+        try {
+            // ✅ Use gameRooms to track players
+            const players = gameRooms[gameId] || [];
+            const playerCount = players.length;
 
-socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
-  try {
-    const resetGame = socket.request.app.get("resetGame");
-    const gameRooms = socket.request.app.get("gameRooms") || {};
-    const players = gameRooms[gameId] || [];
-    const playerCount = players.length;
-    const stakeAmount = 10; // Update this as needed
-    const prizeAmount = stakeAmount * playerCount;
+            // ✅ Use gameId as stake amount
+            const stakeAmount = Number(gameId);  // Change this logic if gameId ≠ stake
+            const prizeAmount = stakeAmount * playerCount;
 
-    const existingGame = await Game.findOne({ gameId });
-    if (!existingGame) return socket.emit("winnerError", { message: "Game not found" });
-    if (existingGame.status === "completed") return socket.emit("winnerError", { message: "Game already completed" });
+            // ✅ Find the user from the database
+            const winnerUser = await User.findOne({ telegramId });
+            if (!winnerUser) {
+                console.error(`❌ User with telegramId ${telegramId} not found`);
+                return;
+            }
 
-    const user = await User.findOneAndUpdate(
-      { telegramId },
-      { $inc: { balance: prizeAmount } },
-      { new: true }
-    );
+            // ✅ Find the winner's username (assuming it’s stored as `username`)
+            const winnerUsername = winnerUser.username || "Unknown";
 
-    if (!user) {
-      return socket.emit("winnerError", { message: "User not found" });
-    }
+            // ✅ Update the user's balance
+            winnerUser.balance += prizeAmount;
 
-    const updatedGame = await Game.findOneAndUpdate(
-      { gameId },
-      {
-        $set: {
-          winners: [telegramId],
-          playerCount,
-          prizeAmount,
-          winnerPattern,
-          cartelaId,
-          board,
-          status: "completed",
-          endedAt: new Date(),
-          players: [],
-        },
-      },
-      { new: true }
-    );
+            // ✅ Save the updated balance
+            await winnerUser.save();
 
-    io.to(gameId.toString()).emit("winnerfound", {
-      winnerName: user.username,
-      prizeAmount: updatedGame.prizeAmount,
-      playerCount: updatedGame.playerCount,
-      board,
-      winnerPattern,
-      boardNumber: cartelaId,
-      newBalance: user.balance,
-      telegramId,
-      gameId,
+            // ✅ Emit the winnerfound event with updated balance info and username
+            io.to(gameId.toString()).emit("winnerfound", {
+                winnerName: winnerUsername,  // Send username instead of telegramId
+                prizeAmount,
+                playerCount,
+                board,
+                winnerPattern,
+                boardNumber: cartelaId,
+                newBalance: winnerUser.balance, // Optional: return updated balance
+                telegramId,
+                gameId,
+            });
+
+            console.log(`🏆 User ${winnerUsername} (telegramId: ${telegramId}) won and received ${prizeAmount}. New balance: ${winnerUser.balance}`);
+            resetGame(gameId);
+             io.to(gameId).emit("gameFinished");
+        } catch (error) {
+            console.error("🔥 Error processing winner:", error);
+            socket.emit("winnerError", { message: "Failed to update winner balance. Please try again." });
+        }
     });
-
-    if (resetGame) {
-      resetGame(gameId);
-    }
-
-    io.to(gameId).emit("gameFinished");
-
-    console.log(`🏆 Winner handled directly via socket. Game ${gameId} completed.`);
-  } catch (error) {
-    console.error("🔥 Error handling winner via socket:", error.message);
-    socket.emit("winnerError", { message: "Failed to complete game. Try again." });
-  }
-});
-
 
 
 
