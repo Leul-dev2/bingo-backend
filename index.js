@@ -292,14 +292,12 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
     const gameRooms = socket.request.app.get("gameRooms") || {};
     const players = gameRooms[gameId] || [];
     const playerCount = players.length;
-    const stakeAmount = 0; // update this as needed
+    const stakeAmount = 10; // Update this as needed
     const prizeAmount = stakeAmount * playerCount;
 
     const existingGame = await Game.findOne({ gameId });
     if (!existingGame) return socket.emit("winnerError", { message: "Game not found" });
     if (existingGame.status === "completed") return socket.emit("winnerError", { message: "Game already completed" });
-
-    const updatedWinners = [];
 
     const user = await User.findOneAndUpdate(
       { telegramId },
@@ -307,26 +305,24 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
       { new: true }
     );
 
-    if (user) {
-      updatedWinners.push({
-        telegramId,
-        username: user.username,
-        newBalance: user.balance
-      });
+    if (!user) {
+      return socket.emit("winnerError", { message: "User not found" });
     }
 
     const updatedGame = await Game.findOneAndUpdate(
       { gameId },
       {
-        winners: [telegramId],
-        playerCount,
-        prizeAmount,
-        winnerPattern,
-        cartelaId,
-        board,
-        status: "completed",
-        endedAt: new Date(),
-        players: [],
+        $set: {
+          winners: [telegramId],
+          playerCount,
+          prizeAmount,
+          winnerPattern,
+          cartelaId,
+          board,
+          status: "completed",
+          endedAt: new Date(),
+          players: [],
+        },
       },
       { new: true }
     );
@@ -343,7 +339,7 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
       gameId,
     });
 
-    if (typeof resetGame === "function") {
+    if (resetGame) {
       resetGame(gameId);
     }
 
