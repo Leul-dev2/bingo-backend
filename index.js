@@ -284,43 +284,78 @@ function emitPlayerCount(gameId) {
         }, 3000); // Draws one number every 8 seconds (adjust as needed)
     }
 
-   const axios = require("axios"); // Make sure this is installed via `npm install axios`
+   
 
 socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
   try {
-    const response = await axios.post(`https://bingobot-backend-bwdo.onrender.com/api/games/complete`, {
-      telegramId,
-      gameId,
-      winners: [telegramId],
-      board,
-      winnerPattern,
-      cartelaId,
-    });
+    const resetGame = socket.request.app.get("resetGame");
+    const gameRooms = socket.request.app.get("gameRooms") || {};
+    const players = gameRooms[gameId] || [];
+    const playerCount = players.length;
+    const stakeAmount = 0; // update this as needed
+    const prizeAmount = stakeAmount * playerCount;
 
-    const { updatedWinners, game } = response.data;
-    const winner = updatedWinners[0];
+    const existingGame = await Game.findOne({ gameId });
+    if (!existingGame) return socket.emit("winnerError", { message: "Game not found" });
+    if (existingGame.status === "completed") return socket.emit("winnerError", { message: "Game already completed" });
+
+    const updatedWinners = [];
+
+    const user = await User.findOneAndUpdate(
+      { telegramId },
+      { $inc: { balance: prizeAmount } },
+      { new: true }
+    );
+
+    if (user) {
+      updatedWinners.push({
+        telegramId,
+        username: user.username,
+        newBalance: user.balance
+      });
+    }
+
+    const updatedGame = await Game.findOneAndUpdate(
+      { gameId },
+      {
+        winners: [telegramId],
+        playerCount,
+        prizeAmount,
+        winnerPattern,
+        cartelaId,
+        board,
+        status: "completed",
+        endedAt: new Date(),
+        players: [],
+      },
+      { new: true }
+    );
 
     io.to(gameId.toString()).emit("winnerfound", {
-      winnerName: winner.username,
-      prizeAmount: game.prizeAmount,
-      playerCount: game.playerCount,
+      winnerName: user.username,
+      prizeAmount: updatedGame.prizeAmount,
+      playerCount: updatedGame.playerCount,
       board,
       winnerPattern,
       boardNumber: cartelaId,
-      newBalance: winner.newBalance,
+      newBalance: user.balance,
       telegramId,
       gameId,
     });
 
-    console.log(`🏆 Winner saved to DB. Game ${gameId} completed.`);
-    resetGame(gameId);
+    if (typeof resetGame === "function") {
+      resetGame(gameId);
+    }
+
     io.to(gameId).emit("gameFinished");
 
+    console.log(`🏆 Winner handled directly via socket. Game ${gameId} completed.`);
   } catch (error) {
-    console.error("🔥 Error completing game via API:", error.message);
+    console.error("🔥 Error handling winner via socket:", error.message);
     socket.emit("winnerError", { message: "Failed to complete game. Try again." });
   }
 });
+
 
 
 

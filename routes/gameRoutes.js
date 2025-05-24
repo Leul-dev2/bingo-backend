@@ -60,60 +60,60 @@ router.post("/start", async (req, res) => {
   }
 });
 
-router.post("/complete", async (req, res) => {
-  const resetGame = req.app.get("resetGame");
-  const { gameId, winners = [], board, winnerPattern, cartelaId } = req.body;
+// router.post("/complete", async (req, res) => {
+//   const resetGame = req.app.get("resetGame");
+//   const { gameId, winners = [], board, winnerPattern, cartelaId } = req.body;
 
-  try {
-    const gameRooms = req.app.get("gameRooms") || {};
-    const players = gameRooms[gameId] || [];
-    const playerCount = players.length;
-    const stakeAmount = 0; // adjust this as needed
-    const prizeAmount = stakeAmount * playerCount;
+//   try {
+//     const gameRooms = req.app.get("gameRooms") || {};
+//     const players = gameRooms[gameId] || [];
+//     const playerCount = players.length;
+//     const stakeAmount = 0; // adjust this as needed
+//     const prizeAmount = stakeAmount * playerCount;
 
-    const existingGame = await Game.findOne({ gameId });
-    if (!existingGame) return res.status(404).json({ error: "Game not found" });
-    if (existingGame.status === "completed") return res.status(400).json({ error: "Game already completed" });
+//     const existingGame = await Game.findOne({ gameId });
+//     if (!existingGame) return res.status(404).json({ error: "Game not found" });
+//     if (existingGame.status === "completed") return res.status(400).json({ error: "Game already completed" });
 
-    const updatedWinners = [];
+//     const updatedWinners = [];
 
-    for (let telegramId of winners) {
-      const user = await User.findOneAndUpdate(
-        { telegramId },
-        { $inc: { balance: prizeAmount } },
-        { new: true }
-      );
-      if (user) {
-        updatedWinners.push({ telegramId, username: user.username, newBalance: user.balance });
-      }
-    }
+//     for (let telegramId of winners) {
+//       const user = await User.findOneAndUpdate(
+//         { telegramId },
+//         { $inc: { balance: prizeAmount } },
+//         { new: true }
+//       );
+//       if (user) {
+//         updatedWinners.push({ telegramId, username: user.username, newBalance: user.balance });
+//       }
+//     }
 
-    const updatedGame = await Game.findOneAndUpdate(
-      { gameId },
-      {
-        winners,
-        playerCount,
-        prizeAmount,
-        winnerPattern,
-        cartelaId,
-        board,
-        status: "completed",
-        endedAt: new Date(),
-        players: [],
-      },
-      { new: true }
-    );
+//     const updatedGame = await Game.findOneAndUpdate(
+//       { gameId },
+//       {
+//         winners,
+//         playerCount,
+//         prizeAmount,
+//         winnerPattern,
+//         cartelaId,
+//         board,
+//         status: "completed",
+//         endedAt: new Date(),
+//         players: [],
+//       },
+//       { new: true }
+//     );
 
-    if (typeof resetGame === "function") {
-      resetGame(gameId);
-    }
+//     if (typeof resetGame === "function") {
+//       resetGame(gameId);
+//     }
 
-    return res.status(200).json({ success: true, updatedWinners, game: updatedGame });
+//     return res.status(200).json({ success: true, updatedWinners, game: updatedGame });
 
-  } catch (error) {
-    console.error("Error completing game:", error);
-    return res.status(500).json({ error: "Failed to complete game" });
-  }
-});
+//   } catch (error) {
+//     console.error("Error completing game:", error);
+//     return res.status(500).json({ error: "Failed to complete game" });
+//   }
+// });
 
 module.exports = router;
