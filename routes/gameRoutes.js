@@ -1,119 +1,59 @@
 const express = require('express');
 const router = express.Router();
 const User = require("../models/user");
-const Game = require("../models/game");
-
-const joiningUsers = new Set();
 
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
-  const io = req.app.get("io");
-  const gameRooms = req.app.get("gameRooms") || {};
+
+  const io = req.app.get("io"); // Access io
+  const gameRooms = req.app.get("gameRooms"); // Access gameRooms
 
   try {
-    if (joiningUsers.has(telegramId)) {
-      return res.status(429).json({ error: "You're already joining the game" });
-    }
-    joiningUsers.add(telegramId);
-
-    let game = await Game.findOne({ gameId });
-
-    if (!game) {
-      game = new Game({
-        gameId,
-        entryFee: Number(gameId), // Assuming entry fee is encoded in gameId
-        players: [],
-        status: "active",
-        prizePool: 0,
-      });
-      await game.save();
-    }
-
-    if (game.players.includes(telegramId)) {
-      return res.status(400).json({ error: "User already in the game" });
-    }
-
+    // Check if the user exists
     const user = await User.findOne({ telegramId });
-    if (!user) {
-      joiningUsers.delete(telegramId);
-      return res.status(400).json({ error: "User not found" });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // Check if the user has enough balance to start the game
+    if (user.balance < gameId) {
+      return res.status(400).json({ error: "Insufficient balance" });
     }
 
-    game.players.push(telegramId);
-    game.prizePool = game.players.length * game.entryFee;
-    await game.save();
+    // Deduct the player's balance
+    user.balance -= gameId;
+    await user.save();
 
-    if (!gameRooms[gameId]) gameRooms[gameId] = [];
-    gameRooms[gameId].push(telegramId);
-    req.app.set("gameRooms", gameRooms);
+    // Ensure that the game room exists
+    if (!gameRooms[gameId]) {
+      gameRooms[gameId] = {}; // Change from array to object
+    }
 
-    const playerCount = gameRooms[gameId].length;
-    io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
+    // Store player data in the game room
+    if (!gameRooms[gameId][telegramId]) {
+      gameRooms[gameId][telegramId] = {
+        telegramId,
+        // Add other properties if needed (e.g., player state, card selections, etc.)
+      };
 
-    joiningUsers.delete(telegramId);
+      // Add player to the game room (socket join)
+      io.sockets.adapter.rooms[gameId] = io.sockets.adapter.rooms[gameId] || new Set();
+      io.sockets.adapter.rooms[gameId].add(telegramId);
+
+      // Emit to game room about the new player joining
+      const playerCount = Object.keys(gameRooms[gameId]).length;
+      io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
+
+      // Emit the gameId and telegramId to notify clients
+      io.to(gameId).emit("gameId", { gameId, telegramId });
+    }
+
+    // Return success response
     return res.status(200).json({ success: true, gameId, telegramId });
 
   } catch (error) {
-    console.error("Error:", error);
-    joiningUsers.delete(telegramId);
-    return res.status(500).json({ error: "Internal server error" });
+    console.error("Error starting the game:", error);
+    return res.status(500).json({ error: "Error starting the game" });
   }
 });
 
-// router.post("/complete", async (req, res) => {
-//   const resetGame = req.app.get("resetGame");
-//   const { gameId, winners = [], board, winnerPattern, cartelaId } = req.body;
-
-//   try {
-//     const gameRooms = req.app.get("gameRooms") || {};
-//     const players = gameRooms[gameId] || [];
-//     const playerCount = players.length;
-//     const stakeAmount = 0; // adjust this as needed
-//     const prizeAmount = stakeAmount * playerCount;
-
-//     const existingGame = await Game.findOne({ gameId });
-//     if (!existingGame) return res.status(404).json({ error: "Game not found" });
-//     if (existingGame.status === "completed") return res.status(400).json({ error: "Game already completed" });
-
-//     const updatedWinners = [];
-
-//     for (let telegramId of winners) {
-//       const user = await User.findOneAndUpdate(
-//         { telegramId },
-//         { $inc: { balance: prizeAmount } },
-//         { new: true }
-//       );
-//       if (user) {
-//         updatedWinners.push({ telegramId, username: user.username, newBalance: user.balance });
-//       }
-//     }
-
-//     const updatedGame = await Game.findOneAndUpdate(
-//       { gameId },
-//       {
-//         winners,
-//         playerCount,
-//         prizeAmount,
-//         winnerPattern,
-//         cartelaId,
-//         board,
-//         status: "completed",
-//         endedAt: new Date(),
-//         players: [],
-//       },
-//       { new: true }
-//     );
-
-//     if (typeof resetGame === "function") {
-//       resetGame(gameId);
-//     }
-
-//     return res.status(200).json({ success: true, updatedWinners, game: updatedGame });
-
-//   } catch (error) {
-//     console.error("Error completing game:", error);
-//     return res.status(500).json({ error: "Failed to complete game" });
-//   }
-// });
 
 module.exports = router;
