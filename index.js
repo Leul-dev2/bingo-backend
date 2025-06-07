@@ -81,7 +81,7 @@ function resetGame(gameId) {
 
     // Delete game data
     delete gameDraws[gameId];
-   // delete gameSessions[gameId];
+    delete gameSessions[gameId];
     delete gameCards[gameId];
     delete gameRooms[gameId];
     delete drawIntervals[gameId];
@@ -207,6 +207,9 @@ function emitPlayerCount(gameId) {
 
     socket.on("gameCount", ({ gameId }) => {
     if (!gameDraws[gameId]) {
+       
+        resetGame(gameId);
+
         const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
         gameDraws[gameId] = { numbers, index: 0 };
 
