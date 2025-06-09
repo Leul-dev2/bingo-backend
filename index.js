@@ -91,6 +91,7 @@ function resetGame(gameId) {
 }
 
 
+
 function emitPlayerCount(gameId) {
   const playerCount = gameRooms[gameId]?.length || 0;
   io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
@@ -124,7 +125,22 @@ function emitPlayerCount(gameId) {
 
         // ✅ Send player count to all in room
         const numberOfPlayers = gameSessions[gameId].length;
-        io.to(gameId).emit("numPlayers", { gameId, numberOfPlayers });
+        io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
+
+        // // Initialize gameRooms if it doesn't exist
+        // if (!gameRooms[gameId]) {
+        //     gameRooms[gameId] = [];
+        // }
+
+        // // Add the player to the gameRooms
+        // if (!gameRooms[gameId].includes(telegramId)) {
+        //     gameRooms[gameId].push(telegramId);
+        // }
+
+        // // Emit the updated player count
+        // io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
+
+
     });
 
 
@@ -165,23 +181,16 @@ function emitPlayerCount(gameId) {
         socket.to(gameId).emit("otherCardSelected", { telegramId, cardId });
 
         const numberOfPlayers = gameSessions[gameId]?.length || 0;
-        io.to(gameId).emit("numPlayers", { gameId, numberOfPlayers });
+        io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
 
         console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
 
     });
 
 
+   
 
- //this getplayerCount socket is for nextpage the gamepage
-        socket.on("getPlayerCount", ({ gameId }) => {
-            socket.join(gameId);  // 👈 Join the room
-            const playerCount = gameRooms[gameId]?.length || 0;
-            socket.emit("playerCountUpdate", { gameId, playerCount });
-        });
-
-    
-     socket.on("joinGame", ({ gameId, telegramId }) => {
+    socket.on("joinGame", ({ gameId, telegramId }) => {
         socket.join(gameId);
 
         // Send back only to this player their data
@@ -190,8 +199,17 @@ function emitPlayerCount(gameId) {
         // You can store socket.telegramId = telegramId if needed
     });
 
+    socket.on("getPlayerCount", ({ gameId }) => {
+        socket.join(gameId);  // 👈 Join the room
+        const playerCount = gameRooms[gameId]?.length || 0;
+        socket.emit("playerCountUpdate", { gameId, playerCount });
+    });
 
-    //the second page for game playing the game drawing page
+
+
+
+
+    ///the second page for game playing the game drawing
 
     socket.on("gameCount", ({ gameId }) => {
     if (!gameDraws[gameId]) {
