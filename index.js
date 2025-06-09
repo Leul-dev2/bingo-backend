@@ -213,7 +213,7 @@ function emitPlayerCount(gameId) {
     socket.on("getPlayerCount", ({ gameId }) => {
         socket.join(gameId);  // 👈 Join the room
         const playerCount = gameRooms[gameId]?.length || 0;
-        io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
+        socket.emit("playerCountUpdate", { gameId, playerCount });
     });
 
     socket.on("gameCount", ({ gameId }) => {
