@@ -210,13 +210,13 @@ function emitPlayerCount(gameId) {
         // You can store socket.telegramId = telegramId if needed
     });
 
-        socket.on("getPlayerCount", ({ gameId }) => {
-        socket.join(gameId);  // Join the game room
+        socket.on("joinGameRoom", ({ gameId }) => {
+        socket.join(gameId);
+        console.log(`🟢 Socket ${socket.id} joined room ${gameId}`);
 
+        // Optionally send current player count if needed
         const playerCount = gameRooms[gameId]?.length || 0;
-
-        // 🔁 Broadcast the updated count to everyone in the room
-        io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
+        socket.emit("playerCountUpdate", { gameId, playerCount });
         });
 
 
