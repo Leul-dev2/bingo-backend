@@ -201,24 +201,18 @@ function emitPlayerCount(gameId) {
 
    
 
-   socket.on("joinGame", ({ gameId, telegramId }) => {
-    socket.join(gameId);
+            socket.on("joinGame", ({ gameId, telegramId }) => {
+            socket.join(gameId);
 
-    // Add to gameRooms
-    if (!gameRooms[gameId]) gameRooms[gameId] = [];
-    if (!gameRooms[gameId].includes(telegramId)) {
-        gameRooms[gameId].push(telegramId);
-    }
+            // Confirm room join
+            socket.emit("gameId", { gameId, telegramId });
 
-    // Inform this player
-    socket.emit("gameId", { gameId, telegramId });
+            // If gameRooms already exists, broadcast updated player count
+            const gameRooms = io.gameRooms || {};
+            const playerCount = gameRooms[gameId]?.length || 0;
+            io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
+            });
 
-    // 🔁 Broadcast updated player count to the room
-    io.to(gameId).emit("playerCountUpdate", {
-        gameId,
-        playerCount: gameRooms[gameId].length
-    });
-    });
 
     socket.on("getPlayerCount", ({ gameId }) => {
         socket.join(gameId);  // 👈 Join the room
