@@ -201,13 +201,23 @@ function emitPlayerCount(gameId) {
 
    
 
-    socket.on("joinGame", ({ gameId, telegramId }) => {
-        socket.join(gameId);
+   socket.on("joinGame", ({ gameId, telegramId }) => {
+    socket.join(gameId);
 
-        // Send back only to this player their data
-        socket.emit("gameId", { gameId, telegramId });
+    // Add to gameRooms
+    if (!gameRooms[gameId]) gameRooms[gameId] = [];
+    if (!gameRooms[gameId].includes(telegramId)) {
+        gameRooms[gameId].push(telegramId);
+    }
 
-        // You can store socket.telegramId = telegramId if needed
+    // Inform this player
+    socket.emit("gameId", { gameId, telegramId });
+
+    // 🔁 Broadcast updated player count to the room
+    io.to(gameId).emit("playerCountUpdate", {
+        gameId,
+        playerCount: gameRooms[gameId].length
+    });
     });
 
     socket.on("getPlayerCount", ({ gameId }) => {
