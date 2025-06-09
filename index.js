@@ -165,7 +165,7 @@ function emitPlayerCount(gameId) {
         socket.to(gameId).emit("otherCardSelected", { telegramId, cardId });
 
         const numberOfPlayers = gameSessions[gameId]?.length || 0;
-        io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
+        io.to(gameId).emit("numPlayers", { gameId, numberOfPlayers });
 
         console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
 
