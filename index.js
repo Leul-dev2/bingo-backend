@@ -149,7 +149,7 @@ function emitPlayerCount(gameId) {
         // }
 
         // // Emit the updated player count
-        // io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
+         io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
 
 
     });
