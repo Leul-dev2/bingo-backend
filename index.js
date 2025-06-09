@@ -139,17 +139,17 @@ function emitPlayerCount(gameId) {
         io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
 
         // // Initialize gameRooms if it doesn't exist
-        // if (!gameRooms[gameId]) {
-        //     gameRooms[gameId] = [];
-        // }
+        if (!gameRooms[gameId]) {
+            gameRooms[gameId] = [];
+        }
 
         // // Add the player to the gameRooms
-        // if (!gameRooms[gameId].includes(telegramId)) {
-        //     gameRooms[gameId].push(telegramId);
-        // }
+        if (!gameRooms[gameId].includes(telegramId)) {
+            gameRooms[gameId].push(telegramId);
+        }
 
         // // Emit the updated player count
-         //io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
+         io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
 
 
     });
