@@ -210,15 +210,11 @@ function emitPlayerCount(gameId) {
         // You can store socket.telegramId = telegramId if needed
     });
 
-        socket.on("joinGameRoom", ({ gameId }) => {
-        socket.join(gameId);
-        console.log(`🟢 Socket ${socket.id} joined room ${gameId}`);
-
-        // Optionally send current player count if needed
+    socket.on("getPlayerCount", ({ gameId }) => {
+        socket.join(gameId);  // 👈 Join the room
         const playerCount = gameRooms[gameId]?.length || 0;
         socket.emit("playerCountUpdate", { gameId, playerCount });
-        });
-
+    });
 
     socket.on("gameCount", ({ gameId }) => {
     if (!gameDraws[gameId]) {
