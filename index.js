@@ -12,12 +12,21 @@ const User = require("./models/user");
 
 const app = express();
 const server = http.createServer(app); // 👈 Create HTTP server
+// const io = new Server(server, {
+//   cors: {
+//     // origin: "https://bossbingo.netlify.app", // Allow all origins — restrict in production
+//    // origin: "http://localhost:5173",
+//       origin: " * ",
+//   },
+// });
+
 const io = new Server(server, {
   cors: {
-    // origin: "https://bossbingo.netlify.app", // Allow all origins — restrict in production
-    origin: "http://localhost:5173",
-  },
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
 });
+
 
 // Middleware
 app.use(express.json());
