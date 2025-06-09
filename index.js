@@ -139,17 +139,17 @@ function emitPlayerCount(gameId) {
         io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
 
         // // Initialize gameRooms if it doesn't exist
-        if (!gameRooms[gameId]) {
-            gameRooms[gameId] = [];
-        }
+        // if (!gameRooms[gameId]) {
+        //     gameRooms[gameId] = [];
+        // }
 
         // // Add the player to the gameRooms
-        if (!gameRooms[gameId].includes(telegramId)) {
-            gameRooms[gameId].push(telegramId);
-        }
+        // if (!gameRooms[gameId].includes(telegramId)) {
+        //     gameRooms[gameId].push(telegramId);
+        // }
 
         // // Emit the updated player count
-         io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
+         //io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
 
 
     });
@@ -210,11 +210,15 @@ function emitPlayerCount(gameId) {
         // You can store socket.telegramId = telegramId if needed
     });
 
-    socket.on("getPlayerCount", ({ gameId }) => {
-        socket.join(gameId);  // 👈 Join the room
+        socket.on("getPlayerCount", ({ gameId }) => {
+        socket.join(gameId);  // Join the game room
+
         const playerCount = gameRooms[gameId]?.length || 0;
-        socket.emit("playerCountUpdate", { gameId, playerCount });
-    });
+
+        // 🔁 Broadcast the updated count to everyone in the room
+        io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
+        });
+
 
     socket.on("gameCount", ({ gameId }) => {
     if (!gameDraws[gameId]) {
