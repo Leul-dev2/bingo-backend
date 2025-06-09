@@ -123,6 +123,7 @@ function emitPlayerCount(gameId) {
             socket.emit("currentCardSelections", gameCards[gameId]);
         }
 
+        console.log(`Emitting player count ${numberOfPlayers} for game ${gameId}`);
         // ✅ Send player count to all in room
         const numberOfPlayers = gameSessions[gameId].length;
         io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
