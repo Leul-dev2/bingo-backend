@@ -149,7 +149,7 @@ function emitPlayerCount(gameId) {
         // }
 
         // // Emit the updated player count
-         io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
+         //io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
 
 
     });
@@ -213,7 +213,7 @@ function emitPlayerCount(gameId) {
     socket.on("getPlayerCount", ({ gameId }) => {
         socket.join(gameId);  // 👈 Join the room
         const playerCount = gameRooms[gameId]?.length || 0;
-        socket.emit("playerCountUpdate", { gameId, playerCount });
+        io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
     });
 
     socket.on("gameCount", ({ gameId }) => {
