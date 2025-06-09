@@ -91,8 +91,6 @@ function resetGame(gameId) {
 }
 
 
-
-
 function emitPlayerCount(gameId) {
   const playerCount = gameRooms[gameId]?.length || 0;
   io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
@@ -174,14 +172,16 @@ function emitPlayerCount(gameId) {
     });
 
 
-    socket.on("getPlayerCount", ({ gameId }) => {
-        socket.join(gameId);  // 👈 Join the room
-        const playerCount = gameRooms[gameId]?.length || 0;
-        socket.emit("playerCountUpdate", { gameId, playerCount });
-    });
+
+ //this getplayerCount socket is for nextpage the gamepage
+        socket.on("getPlayerCount", ({ gameId }) => {
+            socket.join(gameId);  // 👈 Join the room
+            const playerCount = gameRooms[gameId]?.length || 0;
+            socket.emit("playerCountUpdate", { gameId, playerCount });
+        });
 
     
-    socket.on("joinGame", ({ gameId, telegramId }) => {
+     socket.on("joinGame", ({ gameId, telegramId }) => {
         socket.join(gameId);
 
         // Send back only to this player their data
@@ -191,10 +191,7 @@ function emitPlayerCount(gameId) {
     });
 
 
-
-    
-
-    ///the second page for game playing the game drawing page
+    //the second page for game playing the game drawing page
 
     socket.on("gameCount", ({ gameId }) => {
     if (!gameDraws[gameId]) {
