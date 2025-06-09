@@ -205,12 +205,6 @@ function emitPlayerCount(gameId) {
         socket.emit("playerCountUpdate", { gameId, playerCount });
     });
 
-
-
-
-
-    ///the second page for game playing the game drawing
-
     socket.on("gameCount", ({ gameId }) => {
     if (!gameDraws[gameId]) {
        
