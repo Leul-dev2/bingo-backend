@@ -238,7 +238,7 @@ function resetGame(gameId) {
 
       // ✅ Store GameHistory
       await GameHistory.create({
-        sessionId: uuidv4(), // Unique session per round
+        sessionId, // Unique session per round
         gameId: gameId.toString(),
         username: "system",           // optional, since no winner yet
         telegramId: "system",         // optional
@@ -347,15 +347,17 @@ function resetGame(gameId) {
     console.log(`🏆 ${winnerUsername} won ${prizeAmount}. New balance: ${winnerUser.balance}`);
 
     // Save winner details to GameHistory
-    await GameHistory.create({
-      sessionId, // optional: link to session if you have it
+    await GameHistory.findOneAndUpdate(
+        { sessionId },
+     { // optional: link to session if you have it
       gameId: gameId.toString(),
       username: winnerUsername,
       telegramId,
       winAmount: prizeAmount,
       stake: stakeAmount,
       createdAt: new Date()
-    });
+     }
+    );
 
     // Final cleanup
     await GameControl.findOneAndUpdate({ gameId }, { isActive: false });
