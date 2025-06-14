@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const User = require("../models/user");
+const GameControl = require('../models/GameControl'); // Your game model
 
 const joiningUsers = new Set(); // In-memory lock to block rapid duplicate joins
 
@@ -35,6 +36,24 @@ router.post("/start", async (req, res) => {
   } catch (err) {
     joiningUsers.delete(telegramId);
     return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
+ router.get('/:gameId/status', async (req, res) => {
+  const { gameId } = req.params;
+
+  try {
+    const game = await GameControl.findOne({ gameId });
+
+    if (!game) {
+      return res.status(404).json({ isActive: false, message: 'Game not found' });
+    }
+
+    res.json({ isActive: game.isActive });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ isActive: false, message: 'Server error' });
   }
 });
 

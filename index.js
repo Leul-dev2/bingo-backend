@@ -8,6 +8,8 @@ require("dotenv").config();
 const userRoutes = require("./routes/userRoutes");
 const gameRoutes = require("./routes/gameRoutes");
 const User = require("./models/user");
+const GameControl = require("./models/GameControl");
+
 
 const app = express();
 const server = http.createServer(app);
@@ -203,36 +205,59 @@ function resetGame(gameId) {
 
 
 
-    socket.on("gameCount", ({ gameId }) => {
+    socket.on("gameCount", async ({ gameId }) => {
     if (!gameDraws[gameId]) {
-       
-        //resetGame(gameId);
+        // Step 1: Store game control in DB
+        try {
+        const existing = await GameControl.findOne({ gameId });
 
+        if (!existing) {
+            const stakeAmount = Number(gameId); // Or customize this logic
+            const totalCards = Object.keys(gameCards[gameId] || {}).length;
+
+            await GameControl.create({
+            gameId,
+            stakeAmount,
+            totalCards,
+            isActive: true,
+            createdBy: "system", // or telegramId if you track the starter
+            });
+
+            console.log(`✅ GameControl created for game ${gameId}`);
+        }
+        } catch (err) {
+        console.error("❌ Error creating GameControl:", err.message);
+        }
+
+        // Step 2: Shuffle numbers
         const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
         gameDraws[gameId] = { numbers, index: 0 };
 
+        // Step 3: Countdown
         let countdownValue = 5;
 
-        // Broadcast the countdown every second
         countdownIntervals[gameId] = setInterval(() => {
-            if (countdownValue > 0) {
-                io.to(gameId).emit("countdownTick", { countdown: countdownValue });
-                countdownValue--;
-            } else {
-                clearInterval(countdownIntervals[gameId]);
-                // ✅ Notify frontend to start the game
-                io.to(gameId).emit("gameStart");
-                  gameCards[gameId] = {};
-                  io.to(gameId).emit("cardsReset", { gameId });
+        if (countdownValue > 0) {
+            io.to(gameId).emit("countdownTick", { countdown: countdownValue });
+            countdownValue--;
+        } else {
+            clearInterval(countdownIntervals[gameId]);
 
-                // 🎯 Begin drawing
-                startDrawing(gameId, io);
-            }
+            // Notify frontend to start the game
+            io.to(gameId).emit("gameStart");
+
+            // Reset game cards and start drawing
+            gameCards[gameId] = {};
+            io.to(gameId).emit("cardsReset", { gameId });
+
+            startDrawing(gameId, io);
+        }
         }, 1000);
     } else {
         console.log(`Game ${gameId} already initialized. Ignoring gameCount event.`);
     }
-   });
+    });
+
 
 
 
@@ -307,7 +332,7 @@ function resetGame(gameId) {
 
             console.log(`🏆 User ${winnerUsername} (telegramId: ${telegramId}) won and received ${prizeAmount}. New balance: ${winnerUser.balance}`);
             resetGame(gameId);
-             io.to(gameId).emit("gameFinished");
+            await GameControl.findOneAndUpdate({ gameId }, { isActive: false });
         } catch (error) {
             console.error("🔥 Error processing winner:", error);
             socket.emit("winnerError", { message: "Failed to update winner balance. Please try again." });
