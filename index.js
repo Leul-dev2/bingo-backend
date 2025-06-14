@@ -101,6 +101,7 @@ function resetGame(gameId) {
 
     console.log(`Game ${gameId} has been fully reset.`);
 }
+await GameControl.findOneAndUpdate({ gameId }, { isActive: false });
 
 
 
