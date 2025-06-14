@@ -81,23 +81,23 @@ const makeCardAvailable = (gameId, cardId) => {
 
 
 
-// function resetGame(gameId) {
-//     console.log(`Resetting game ${gameId}...`);
+function resetGame(gameId) {
+    console.log(`Resetting game ${gameId}...`);
 
-//     // Clear intervals
-//     clearInterval(drawIntervals[gameId]);
-//     clearInterval(countdownIntervals[gameId]);
+    // Clear intervals
+    clearInterval(drawIntervals[gameId]);
+    clearInterval(countdownIntervals[gameId]);
 
-//     // Delete game data
-//     delete gameDraws[gameId];
-//     delete gameSessions[gameId];
-//     delete gameCards[gameId];
-//     delete gameRooms[gameId];
-//     delete drawIntervals[gameId];
-//     delete countdownIntervals[gameId];
+    // Delete game data
+    delete gameDraws[gameId];
+    delete gameSessions[gameId];
+    delete gameCards[gameId];
+    delete gameRooms[gameId];
+    delete drawIntervals[gameId];
+    delete countdownIntervals[gameId];
 
-//     console.log(`Game ${gameId} has been fully reset.`);
-// }
+    console.log(`Game ${gameId} has been fully reset.`);
+}
 
 
 
@@ -131,21 +131,6 @@ const makeCardAvailable = (gameId, cardId) => {
         const numberOfPlayers = gameSessions[gameId].length;
          console.log(`Emitting player count ${numberOfPlayers} for game ${gameId}`);
         io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
-
-        // // Initialize gameRooms if it doesn't exist
-        // if (!gameRooms[gameId]) {
-        //     gameRooms[gameId] = [];
-        // }
-
-        // // Add the player to the gameRooms
-        // if (!gameRooms[gameId].includes(telegramId)) {
-        //     gameRooms[gameId].push(telegramId);
-        // }
-
-        // // Emit the updated player count
-         //io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: gameRooms[gameId].length });
-
-
     });
 
 
