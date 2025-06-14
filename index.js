@@ -107,12 +107,11 @@ function resetGame(gameId) {
     // User joins a game
     socket.on("userJoinedGame", ({ telegramId, gameId }) => {
         if (!gameSessions[gameId]) {
-            gameSessions[gameId] = [];
-        }
+    gameSessions[gameId] = new Set();
+       }
 
-        if (!gameSessions[gameId].includes(telegramId)) {
-            gameSessions[gameId].push(telegramId);
-        }
+    gameSessions[gameId].add(telegramId); // Set automatically prevents duplicates
+
 
         socket.join(gameId);
 
@@ -128,7 +127,7 @@ function resetGame(gameId) {
 
        
         // ✅ Send player count to all in room
-        const numberOfPlayers = gameSessions[gameId].length;
+        const numberOfPlayers = gameSessions[gameId]?.size || 0;
          console.log(`Emitting player count ${numberOfPlayers} for game ${gameId}`);
         io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
     });
@@ -207,7 +206,7 @@ function resetGame(gameId) {
     socket.on("gameCount", ({ gameId }) => {
     if (!gameDraws[gameId]) {
        
-        resetGame(gameId);
+        //resetGame(gameId);
 
         const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
         gameDraws[gameId] = { numbers, index: 0 };
@@ -318,7 +317,7 @@ function resetGame(gameId) {
 
 
     // Handle disconnection event
- socket.on("disconnect", () => {
+socket.on("disconnect", () => {
     console.log("🔴 Client disconnected");
 
     const user = userSelections[socket.id];
@@ -336,14 +335,14 @@ function resetGame(gameId) {
         console.log(`✅ Card ${cardId} is now available again`);
     }
 
-    // 🧹 Remove player from gameSessions (use Set)
-    if (gameSessions[gameId]) {
+    // 🧹 Remove player from gameSessions (now a Set)
+    if (gameSessions[gameId] instanceof Set) {
         gameSessions[gameId].delete(telegramId);
         console.log(`Updated gameSessions for ${gameId}:`, [...gameSessions[gameId]]);
     }
 
-    // 🧹 Remove player from gameRooms (use Set)
-    if (gameRooms[gameId]) {
+    // 🧹 Remove player from gameRooms (already a Set)
+    if (gameRooms[gameId] instanceof Set) {
         gameRooms[gameId].delete(telegramId);
         console.log(`Updated gameRooms for ${gameId}:`, [...gameRooms[gameId]]);
     }
@@ -363,10 +362,10 @@ function resetGame(gameId) {
     });
 
     // 🧨 If no players left, clean everything
-    if (
-        (!gameRooms[gameId] || gameRooms[gameId].size === 0) &&
-        (!gameSessions[gameId] || gameSessions[gameId].size === 0)
-    ) {
+    const sessionsEmpty = !gameSessions[gameId] || gameSessions[gameId].size === 0;
+    const roomsEmpty = !gameRooms[gameId] || gameRooms[gameId].size === 0;
+
+    if (sessionsEmpty && roomsEmpty) {
         console.log(`🧹 No players left in game ${gameId}. Cleaning up memory.`);
         clearInterval(drawIntervals[gameId]);
         clearInterval(countdownIntervals[gameId]);
@@ -379,6 +378,7 @@ function resetGame(gameId) {
         delete gameRooms[gameId];
     }
 });
+
 
 
 });
