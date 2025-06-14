@@ -210,22 +210,32 @@ function resetGame(gameId) {
     if (!gameDraws[gameId]) {
         // Step 1: Store game control in DB
         try {
-        const existing = await GameControl.findOne({ gameId });
+
+       const existing = await GameControl.findOne({ gameId });
+
+        const stakeAmount = Number(gameId);
+        const totalCards = Object.keys(gameCards[gameId] || {}).length;
 
         if (!existing) {
-            const stakeAmount = Number(gameId); // Or customize this logic
-            const totalCards = Object.keys(gameCards[gameId] || {}).length;
-
-            await GameControl.create({
+        // Create new GameControl if it doesn’t exist yet
+        await GameControl.create({
             gameId,
             stakeAmount,
             totalCards,
             isActive: true,
-            createdBy: "system", // or telegramId if you track the starter
-            });
-
-            console.log(`✅ GameControl created for game ${gameId}`);
+            createdBy: "system",
+        });
+        console.log(`✅ Created GameControl for game ${gameId}`);
+        } else {
+        // Update existing GameControl for new game round
+        existing.stakeAmount = stakeAmount;
+        existing.totalCards = totalCards;
+        existing.isActive = true;
+        existing.createdAt = new Date(); // refresh time
+        await existing.save();
+        console.log(`🔄 Updated GameControl for new round of game ${gameId}`);
         }
+
         } catch (err) {
         console.error("❌ Error creating GameControl:", err.message);
         }
