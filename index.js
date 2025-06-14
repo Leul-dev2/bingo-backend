@@ -184,11 +184,6 @@ function resetGame(gameId) {
     if (!gameRooms[gameId]) gameRooms[gameId] = new Set();
     gameRooms[gameId].add(telegramId);
 
-    if (!gameSessions[gameId]) gameSessions[gameId] = new Set();
-    gameSessions[gameId].add(telegramId);
-
-    userSelections[socket.id] = { telegramId, gameId };
-
     socket.join(gameId);
 
     io.to(gameId).emit("playerCountUpdate", {
