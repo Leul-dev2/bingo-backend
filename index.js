@@ -333,7 +333,6 @@ function resetGame(gameId) {
 
     // Emit winner found event
     io.to(gameId.toString()).emit("winnerfound", {
-      sessionId,
       winnerName: winnerUsername,
       prizeAmount,
       playerCount,
@@ -349,7 +348,7 @@ function resetGame(gameId) {
 
     // Save winner details to GameHistory
     await GameHistory.create({
-      sessionId: undefined, // optional: link to session if you have it
+      sessionId, // optional: link to session if you have it
       gameId: gameId.toString(),
       username: winnerUsername,
       telegramId,
