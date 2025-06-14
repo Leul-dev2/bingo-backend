@@ -1,64 +1,64 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const http = require("http");            // 👈 For raw HTTP server
-const { Server } = require("socket.io"); // 👈 For socket.io
+const http = require("http");
+const { Server } = require("socket.io");
 require("dotenv").config();
-
 
 const userRoutes = require("./routes/userRoutes");
 const gameRoutes = require("./routes/gameRoutes");
 const User = require("./models/user");
 
 const app = express();
-const server = http.createServer(app); // 👈 Create HTTP server
-// const io = new Server(server, {
-//   cors: {
-//     // origin: "https://bossbingo.netlify.app", // Allow all origins — restrict in production
-//    // origin: "http://localhost:5173",
-//       origin: " * ",
-//   },
-// });
+const server = http.createServer(app);
 
+// ⚙️ Setup Socket.IO with CORS
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
+    origin: "*", // Change to specific frontend domain in production
+    methods: ["GET", "POST"],
+  },
 });
 
+// 🔐 In-memory shared objects
+const gameRooms = {};
+const joiningUsers = new Set();
 
-// Middleware
-app.use(express.json());
-app.use(cors());
-let gameRooms = {};
-
-// Attach io to app to access inside routes
+// 📌 Attach shared objects to app for route access
 app.set("io", io);
 app.set("gameRooms", gameRooms);
-// Attach the function to the app object so it's accessible in routes
-//app.set("emitPlayerCount", emitPlayerCount);
+app.set("joiningUsers", joiningUsers);
+app.set("User", User);
 
-// Routes
+// 🌐 Middleware
+app.use(express.json());
+app.use(cors());
+
+// 🚏 Routes
 app.use("/api/users", userRoutes);
 app.use("/api/games", gameRoutes);
 
-// Default route
+// 🏠 Default route
 app.get("/", (req, res) => {
   res.send("MERN Backend with Socket.IO is Running!");
 });
 
-// Connect to MongoDB
+// 🌍 MongoDB Connection
 mongoose
-  .connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
   .then(() => console.log("✅ MongoDB Connected"))
   .catch((err) => console.error("❌ MongoDB Connection Error:", err));
 
-// Global error handler
+// 🛑 Global error handler
 app.use((err, req, res, next) => {
   console.error("🔥 Error Handler:", err.stack);
-  res.status(500).json({ message: 'Something went wrong!' });
+  res.status(500).json({ message: "Something went wrong!" });
 });
+
+
 
 // 🧠 Socket.IO Logic
 // In-memory store (optional - for game logic)
