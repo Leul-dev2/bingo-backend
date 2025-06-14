@@ -335,7 +335,6 @@ function resetGame(gameId) {
                     winner: {
                     telegramId,
                     username: winnerUsername,
-                    winnerPattern,
                     boardNumber: cartelaId,
                     prizeAmount,
                     },
