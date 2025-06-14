@@ -1,23 +1,19 @@
-const mongoose = require("mongoose");
-
-const winnerSchema = new mongoose.Schema({
-  telegramId: String,
-  username: String,
-  winnerPattern: String,
-  boardNumber: Number,
-  prizeAmount: Number,
-}, { _id: false });
+const mongoose = require('mongoose');
 
 const gameHistorySchema = new mongoose.Schema({
-  gameId: { type: String, required: true, unique: true },
-  stake: Number,
-  totalPlayers: Number,
-  startTime: Date,
-  endTime: Date,
-  numbersDrawn: [Number],
-  winner: winnerSchema, // for now a single winner
-}, {
-  timestamps: true
+  sessionId: { type: String, required: true }, // unique ID per round
+  gameId: { type: String, required: true },    // logical game ID (e.g. "10")
+
+  // Player info
+  username: { type: String, required: true },
+  telegramId: { type: String, required: true },
+
+  // Game outcome
+  winAmount: { type: Number, required: true },
+  stake: { type: Number, required: true },
+  
+  // Timestamps
+  createdAt: { type: Date, default: Date.now }, // stores date + time
 });
 
 module.exports = mongoose.model("GameHistory", gameHistorySchema);

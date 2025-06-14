@@ -10,10 +10,12 @@ const gameRoutes = require("./routes/gameRoutes");
 const User = require("./models/user");
 const GameControl = require("./models/GameControl");
 const GameHistory = require('./models/GameHistory');
+const { v4: uuidv4 } = require("uuid");
 
 
 const app = express();
 const server = http.createServer(app);
+const sessionId = uuidv4();
 
 // ⚙️ Setup Socket.IO with CORS
 const io = new Server(server, {
@@ -206,68 +208,75 @@ function resetGame(gameId) {
 
 
 
-    socket.on("gameCount", async ({ gameId }) => {
-    if (!gameDraws[gameId]) {
-        // Step 1: Store game control in DB
-        try {
+   socket.on("gameCount", async ({ gameId }) => {
+  if (!gameDraws[gameId]) {
+    try {
+      const existing = await GameControl.findOne({ gameId });
 
-       const existing = await GameControl.findOne({ gameId });
+      const stakeAmount = Number(gameId);
+      const totalCards = Object.keys(gameCards[gameId] || {}).length;
 
-        const stakeAmount = Number(gameId);
-        const totalCards = Object.keys(gameCards[gameId] || {}).length;
-
-        if (!existing) {
-        // Create new GameControl if it doesn’t exist yet
+      if (!existing) {
         await GameControl.create({
-            gameId,
-            stakeAmount,
-            totalCards,
-            isActive: true,
-            createdBy: "system",
+          gameId,
+          stakeAmount,
+          totalCards,
+          isActive: true,
+          createdBy: "system",
         });
         console.log(`✅ Created GameControl for game ${gameId}`);
-        } else {
-        // Update existing GameControl for new game round
+      } else {
         existing.stakeAmount = stakeAmount;
         existing.totalCards = totalCards;
         existing.isActive = true;
-        existing.createdAt = new Date(); // refresh time
+        existing.createdAt = new Date();
         await existing.save();
         console.log(`🔄 Updated GameControl for new round of game ${gameId}`);
-        }
+      }
 
-        } catch (err) {
-        console.error("❌ Error creating GameControl:", err.message);
-        }
+      // ✅ Store GameHistory
+      await GameHistory.create({
+        sessionId: uuidv4(), // Unique session per round
+        gameId: gameId.toString(),
+        username: "system",           // optional, since no winner yet
+        telegramId: "system",         // optional
+        winAmount: 0,                 // no winner yet
+        stake: stakeAmount,
+        createdAt: new Date()
+      });
+      console.log(`📜 GameHistory created for game ${gameId}`);
 
-        // Step 2: Shuffle numbers
-        const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
-        gameDraws[gameId] = { numbers, index: 0 };
-
-        // Step 3: Countdown
-        let countdownValue = 5;
-
-        countdownIntervals[gameId] = setInterval(() => {
-        if (countdownValue > 0) {
-            io.to(gameId).emit("countdownTick", { countdown: countdownValue });
-            countdownValue--;
-        } else {
-            clearInterval(countdownIntervals[gameId]);
-
-            // Notify frontend to start the game
-            io.to(gameId).emit("gameStart");
-
-            // Reset game cards and start drawing
-            gameCards[gameId] = {};
-            io.to(gameId).emit("cardsReset", { gameId });
-
-            startDrawing(gameId, io);
-        }
-        }, 1000);
-    } else {
-        console.log(`Game ${gameId} already initialized. Ignoring gameCount event.`);
+    } catch (err) {
+      console.error("❌ Error in GameControl or GameHistory:", err.message);
     }
-    });
+
+    // Step 2: Shuffle numbers
+    const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
+    gameDraws[gameId] = { numbers, index: 0 };
+
+    // Step 3: Countdown
+    let countdownValue = 5;
+
+    countdownIntervals[gameId] = setInterval(() => {
+      if (countdownValue > 0) {
+        io.to(gameId).emit("countdownTick", { countdown: countdownValue });
+        countdownValue--;
+      } else {
+        clearInterval(countdownIntervals[gameId]);
+
+        io.to(gameId).emit("gameStart");
+
+        gameCards[gameId] = {};
+        io.to(gameId).emit("cardsReset", { gameId });
+
+        startDrawing(gameId, io);
+      }
+    }, 1000);
+  } else {
+    console.log(`Game ${gameId} already initialized. Ignoring gameCount event.`);
+  }
+});
+
 
 
 
@@ -302,47 +311,59 @@ function resetGame(gameId) {
         }, 1000); // Draws one number every 8 seconds (adjust as needed)
     }
 
-        socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
-        try {
-            const players = gameRooms[gameId] || new Set();
-            const playerCount = players.size;
-            const stakeAmount = Number(gameId);
-            const prizeAmount = stakeAmount * playerCount;
+       socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
+  try {
+    const players = gameRooms[gameId] || new Set();
+    const playerCount = players.size;
+    const stakeAmount = Number(gameId);
+    const prizeAmount = stakeAmount * playerCount;
 
-            const winnerUser = await User.findOne({ telegramId });
-            if (!winnerUser) {
-            console.error(`❌ User with telegramId ${telegramId} not found`);
-            return;
-            }
+    const winnerUser = await User.findOne({ telegramId });
+    if (!winnerUser) {
+      console.error(`❌ User with telegramId ${telegramId} not found`);
+      return;
+    }
 
-            const winnerUsername = winnerUser.username || "Unknown";
-            winnerUser.balance += prizeAmount;
-            await winnerUser.save();
+    const winnerUsername = winnerUser.username || "Unknown";
+    winnerUser.balance += prizeAmount;
+    await winnerUser.save();
 
-            // ✅ Emit winner found
-            io.to(gameId.toString()).emit("winnerfound", {
-            winnerName: winnerUsername,
-            prizeAmount,
-            playerCount,
-            board,
-            winnerPattern,
-            boardNumber: cartelaId,
-            newBalance: winnerUser.balance,
-            telegramId,
-            gameId,
-            });
+    // Emit winner found event
+    io.to(gameId.toString()).emit("winnerfound", {
+      winnerName: winnerUsername,
+      prizeAmount,
+      playerCount,
+      board,
+      winnerPattern,
+      boardNumber: cartelaId,
+      newBalance: winnerUser.balance,
+      telegramId,
+      gameId,
+    });
 
-            console.log(`🏆 ${winnerUsername} won ${prizeAmount}. New balance: ${winnerUser.balance}`);
+    console.log(`🏆 ${winnerUsername} won ${prizeAmount}. New balance: ${winnerUser.balance}`);
 
-            // ✅ Final cleanup
-            await GameControl.findOneAndUpdate({ gameId }, { isActive: false });
-            resetGame(gameId);
+    // Save winner details to GameHistory
+    await GameHistory.create({
+      sessionId: undefined, // optional: link to session if you have it
+      gameId: gameId.toString(),
+      username: winnerUsername,
+      telegramId,
+      winAmount: prizeAmount,
+      stake: stakeAmount,
+      createdAt: new Date()
+    });
 
-        } catch (error) {
-            console.error("🔥 Error processing winner:", error);
-            socket.emit("winnerError", { message: "Failed to update winner balance. Please try again." });
-        }
-        });
+    // Final cleanup
+    await GameControl.findOneAndUpdate({ gameId }, { isActive: false });
+    resetGame(gameId);
+
+  } catch (error) {
+    console.error("🔥 Error processing winner:", error);
+    socket.emit("winnerError", { message: "Failed to update winner balance. Please try again." });
+  }
+});
+
 
 
 
