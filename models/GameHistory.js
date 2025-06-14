@@ -3,7 +3,6 @@ const mongoose = require("mongoose");
 const winnerSchema = new mongoose.Schema({
   telegramId: String,
   username: String,
-  board: [Number],
   winnerPattern: String,
   boardNumber: Number,
   prizeAmount: Number,
