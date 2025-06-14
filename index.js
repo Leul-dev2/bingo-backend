@@ -201,11 +201,11 @@ function resetGame(gameId) {
         });
 
 
-    socket.on("getPlayerCount", ({ gameId }) => {
-        socket.join(gameId);  // 👈 Join the room
-        const playerCount = gameRooms[gameId]?.length || 0;
-        socket.emit("playerCountUpdate", { gameId, playerCount });
-    });
+    // socket.on("getPlayerCount", ({ gameId }) => {
+    //     socket.join(gameId);  // 👈 Join the room
+    //     const playerCount = gameRooms[gameId]?.length || 0;
+    //     socket.emit("playerCountUpdate", { gameId, playerCount });
+    // });
 
     socket.on("gameCount", ({ gameId }) => {
     if (!gameDraws[gameId]) {
