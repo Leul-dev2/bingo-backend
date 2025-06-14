@@ -212,7 +212,7 @@ function resetGame(gameId) {
   if (!gameDraws[gameId]) {
     try {
       const existing = await GameControl.findOne({ gameId });
-
+      gameSessions[gameId] = sessionId;
       const stakeAmount = Number(gameId);
       const totalCards = Object.keys(gameCards[gameId] || {}).length;
 
@@ -313,6 +313,7 @@ function resetGame(gameId) {
 
        socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
   try {
+    const sessionId = gameSessions[gameId]; 
     const players = gameRooms[gameId] || new Set();
     const playerCount = players.size;
     const stakeAmount = Number(gameId);
