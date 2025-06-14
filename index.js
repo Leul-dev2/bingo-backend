@@ -23,7 +23,7 @@ const io = new Server(server, {
   },
 });
 
-// 🔐 In-memory shared objects
+// 🔐 In-memory shared object
 const gameRooms = {};
 const joiningUsers = new Set();
 
@@ -101,7 +101,7 @@ function resetGame(gameId) {
 
     console.log(`Game ${gameId} has been fully reset.`);
 }
-await GameControl.findOneAndUpdate({ gameId }, { isActive: false });
+ await GameControl.findOneAndUpdate({ gameId }, { isActive: false });
 
 
 
