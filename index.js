@@ -219,6 +219,7 @@ function resetGame(gameId) {
 
       if (!existing) {
         await GameControl.create({
+          sessionId: sessionId, 
           gameId,
           stakeAmount,
           totalCards,
@@ -332,6 +333,7 @@ function resetGame(gameId) {
 
     // Emit winner found event
     io.to(gameId.toString()).emit("winnerfound", {
+      sessionId,
       winnerName: winnerUsername,
       prizeAmount,
       playerCount,
