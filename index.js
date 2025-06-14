@@ -269,8 +269,8 @@ function resetGame(gameId) {
     socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
         try {
             // ✅ Use gameRooms to track players
-            const players = gameRooms[gameId] || [];
-            const playerCount = players.length;
+         const players = gameRooms[gameId] || new Set();
+         const playerCount = players.size;
 
             // ✅ Use gameId as stake amount
             const stakeAmount = Number(gameId);  // Change this logic if gameId ≠ stake
