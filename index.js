@@ -180,24 +180,26 @@ function resetGame(gameId) {
 
    
 
-   socket.on("joinGame", ({ gameId, telegramId }) => {
-    socket.join(gameId);
+        socket.on("joinGame", ({ gameId, telegramId }) => {
+        if (!gameRooms[gameId]) gameRooms[gameId] = [];
 
-    // Add to gameRooms
-    if (!gameRooms[gameId]) gameRooms[gameId] = [];
-    if (!gameRooms[gameId].includes(telegramId)) {
-        gameRooms[gameId].push(telegramId);
-    }
+        // Prevent double-join
+        if (!gameRooms[gameId].includes(telegramId)) {
+            gameRooms[gameId].push(telegramId);
+        }
 
-    // Inform this player
-    socket.emit("gameId", { gameId, telegramId });
+        userSelections[socket.id] = { telegramId, gameId };
 
-    // 🔁 Broadcast updated player count to the room
-    io.to(gameId).emit("playerCountUpdate", {
-        gameId,
-        playerCount: gameRooms[gameId].length
-    });
-    });
+        socket.join(gameId);
+
+        io.to(gameId).emit("playerCountUpdate", {
+            gameId,
+            playerCount: gameRooms[gameId].length,
+        });
+
+        socket.emit("gameId", { gameId, telegramId });
+        });
+
 
     socket.on("getPlayerCount", ({ gameId }) => {
         socket.join(gameId);  // 👈 Join the room
