@@ -180,26 +180,25 @@ function resetGame(gameId) {
 
    
 
-        socket.on("joinGame", ({ gameId, telegramId }) => {
-        if (!gameRooms[gameId]) gameRooms[gameId] = [];
+      socket.on("joinGame", ({ gameId, telegramId }) => {
+    if (!gameRooms[gameId]) gameRooms[gameId] = new Set();
+    gameRooms[gameId].add(telegramId);
 
-        // Prevent double-join
-        if (!gameRooms[gameId].includes(telegramId)) {
-            gameRooms[gameId].push(telegramId);
-        }
+    if (!gameSessions[gameId]) gameSessions[gameId] = new Set();
+    gameSessions[gameId].add(telegramId);
 
-        userSelections[socket.id] = { telegramId, gameId };
+    userSelections[socket.id] = { telegramId, gameId };
 
-        socket.join(gameId);
-        
+    socket.join(gameId);
 
-        io.to(gameId).emit("playerCountUpdate", {
-            gameId,
-            playerCount: gameRooms[gameId].length,
-        });
+    io.to(gameId).emit("playerCountUpdate", {
+        gameId,
+        playerCount: gameRooms[gameId].size,
+    });
 
-        socket.emit("gameId", { gameId, telegramId });
-        });
+    socket.emit("gameId", { gameId, telegramId });
+    });
+
 
 
     socket.on("getPlayerCount", ({ gameId }) => {
@@ -207,6 +206,8 @@ function resetGame(gameId) {
         const playerCount = gameRooms[gameId]?.length || 0;
         socket.emit("playerCountUpdate", { gameId, playerCount });
     });
+
+
 
     socket.on("gameCount", ({ gameId }) => {
     if (!gameDraws[gameId]) {
@@ -322,7 +323,7 @@ function resetGame(gameId) {
 
 
     // Handle disconnection event
-   socket.on("disconnect", () => {
+ socket.on("disconnect", () => {
     console.log("🔴 Client disconnected");
 
     const user = userSelections[socket.id];
@@ -340,36 +341,36 @@ function resetGame(gameId) {
         console.log(`✅ Card ${cardId} is now available again`);
     }
 
-    // 🧹 Remove player from gameSessions
+    // 🧹 Remove player from gameSessions (use Set)
     if (gameSessions[gameId]) {
-        gameSessions[gameId] = gameSessions[gameId].filter(id => id !== telegramId);
-        console.log(`Updated gameSessions for ${gameId}:`, gameSessions[gameId]);
+        gameSessions[gameId].delete(telegramId);
+        console.log(`Updated gameSessions for ${gameId}:`, [...gameSessions[gameId]]);
     }
 
-    // 🧹 Remove player from gameRooms
+    // 🧹 Remove player from gameRooms (use Set)
     if (gameRooms[gameId]) {
-        gameRooms[gameId] = gameRooms[gameId].filter(id => id !== telegramId);
-        console.log(`Updated gameRooms for ${gameId}:`, gameRooms[gameId]);
+        gameRooms[gameId].delete(telegramId);
+        console.log(`Updated gameRooms for ${gameId}:`, [...gameRooms[gameId]]);
     }
 
     // 🧼 Clean userSelections
     delete userSelections[socket.id];
 
-    // 📢 Emit updated player counts to others
+    // 📢 Emit updated player count to the room
     io.to(gameId).emit("playerCountUpdate", {
         gameId,
-        playerCount: gameRooms[gameId]?.length || 0,
+        playerCount: gameRooms[gameId]?.size || 0,
     });
 
     io.to(gameId).emit("gameid", {
         gameId,
-        numberOfPlayers: gameSessions[gameId]?.length || 0,
+        numberOfPlayers: gameSessions[gameId]?.size || 0,
     });
 
-    // 🧨 If no players are left in the room, clean up the game data
+    // 🧨 If no players left, clean everything
     if (
-        (!gameRooms[gameId] || gameRooms[gameId].length === 0) &&
-        (!gameSessions[gameId] || gameSessions[gameId].length === 0)
+        (!gameRooms[gameId] || gameRooms[gameId].size === 0) &&
+        (!gameSessions[gameId] || gameSessions[gameId].size === 0)
     ) {
         console.log(`🧹 No players left in game ${gameId}. Cleaning up memory.`);
         clearInterval(drawIntervals[gameId]);
@@ -383,6 +384,7 @@ function resetGame(gameId) {
         delete gameRooms[gameId];
     }
 });
+
 
 });
 
