@@ -195,11 +195,11 @@ function resetGame(gameId) {
 
 
 
-    socket.on("getPlayerCount", ({ gameId }) => {
+    // socket.on("getPlayerCount", ({ gameId }) => {
        
-        const playerCount = gameRooms[gameId]?.length || 0;
-        socket.emit("playerCountUpdate", { gameId, playerCount });
-    });
+    //     const playerCount = gameRooms[gameId]?.length || 0;
+    //     socket.emit("playerCountUpdate", { gameId, playerCount });
+    // });
 
 
 
