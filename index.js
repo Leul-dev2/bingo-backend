@@ -37,7 +37,7 @@ let gameRooms = {};
 app.set("io", io);
 app.set("gameRooms", gameRooms);
 // Attach the function to the app object so it's accessible in routes
-app.set("emitPlayerCount", emitPlayerCount);
+//app.set("emitPlayerCount", emitPlayerCount);
 
 // Routes
 app.use("/api/users", userRoutes);
