@@ -101,12 +101,6 @@ function resetGame(gameId) {
 
 
 
-function emitPlayerCount(gameId) {
-  const playerCount = gameRooms[gameId]?.length || 0;
-  io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
-}
-
-
   io.on("connection", (socket) => {
     console.log("🟢 New client connected");
 
@@ -222,7 +216,7 @@ function emitPlayerCount(gameId) {
 
     socket.on("getPlayerCount", ({ gameId }) => {
         socket.join(gameId);  // 👈 Join the room
-        const playerCount = gameRooms[gameId]?.length || 0;
+        const playerCount = gameRooms[gameId].length;
         socket.emit("playerCountUpdate", { gameId, playerCount });
     });
 
