@@ -207,6 +207,8 @@ function resetGame(gameId) {
 
 
     socket.on("gameCount", async ({ gameId }) => {
+ console.log("gameCount event received for gameId:", gameId);
+  console.log("Does gameDraws[gameId] exist?", !!gameDraws[gameId]);
   if (!gameDraws[gameId]) {
     try {
       const existing = await GameControl.findOne({ gameId });
@@ -224,6 +226,7 @@ function resetGame(gameId) {
         });
 
         await GameHistory.create({
+
           gameId,
           startTime: new Date(),
           stake: stakeAmount,
