@@ -15,7 +15,7 @@ const { v4: uuidv4 } = require("uuid");
 
 const app = express();
 const server = http.createServer(app);
-const sessionId = uuidv4();
+
 
 // ⚙️ Setup Socket.IO with CORS
 const io = new Server(server, {
@@ -212,6 +212,7 @@ function resetGame(gameId) {
   if (!gameDraws[gameId]) {
     try {
       const existing = await GameControl.findOne({ gameId });
+      const sessionId = uuidv4();
       gameSessions[gameId] = sessionId;
       const stakeAmount = Number(gameId);
       const totalCards = Object.keys(gameCards[gameId] || {}).length;
