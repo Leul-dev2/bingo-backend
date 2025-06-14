@@ -40,24 +40,22 @@ router.post("/start", async (req, res) => {
 });
 
 
-router.get('/:gameId/status', async (req, res) => {
+ router.get('/:gameId/status', async (req, res) => {
   const { gameId } = req.params;
 
   try {
     const game = await GameControl.findOne({ gameId });
 
     if (!game) {
-      // No record → no game started yet
-      return res.json({ isActive: false, exists: false });
+      return res.status(404).json({ isActive: false, message: 'Game not found' });
     }
 
-    res.json({ isActive: game.isActive, exists: true });
+    res.json({ isActive: game.isActive });
   } catch (error) {
     console.error(error);
     res.status(500).json({ isActive: false, message: 'Server error' });
   }
 });
-
 
 
 module.exports = router;
