@@ -214,27 +214,32 @@ function resetGame(gameId) {
       const existing = await GameControl.findOne({ gameId });
 
       if (!existing) {
-        const stakeAmount = Number(gameId);
-        const totalCards = Object.keys(gameCards[gameId] || {}).length;
+  try {
+    const control = await GameControl.create({
+      gameId,
+      stakeAmount,
+      totalCards,
+      isActive: true,
+      createdBy: "system",
+    });
+    console.log("✅ GameControl created:", control);
+  } catch (err) {
+    console.error("❌ Failed to create GameControl:", err.message);
+  }
 
-        await GameControl.create({
-          gameId,
-          stakeAmount,
-          totalCards,
-          isActive: true,
-          createdBy: "system",
-        });
+  try {
+    const history = await GameHistory.create({
+      gameId,
+      startTime: new Date(),
+      stake: stakeAmount,
+      totalCards,
+    });
+    console.log("✅ GameHistory created:", history);
+  } catch (err) {
+    console.error("❌ Failed to create GameHistory:", err.message);
+  }
+}
 
-        await GameHistory.create({
-
-          gameId,
-          startTime: new Date(),
-          stake: stakeAmount,
-          totalCards,
-        });
-
-        console.log(`✅ GameControl and GameHistory created for game ${gameId}`);
-      }
     } catch (err) {
       console.error("❌ Error creating GameControl or GameHistory:", err.message);
     }
