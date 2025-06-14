@@ -107,7 +107,7 @@ function resetGame(gameId) {
     // User joins a game
     socket.on("userJoinedGame", ({ telegramId, gameId }) => {
         if (!gameSessions[gameId]) {
-    gameSessions[gameId] = new Set();
+         gameSessions[gameId] = new Set();
        }
 
     gameSessions[gameId].add(telegramId); // Set automatically prevents duplicates
@@ -169,7 +169,7 @@ function resetGame(gameId) {
         // Notify others
         socket.to(gameId).emit("otherCardSelected", { telegramId, cardId });
 
-        const numberOfPlayers = gameSessions[gameId]?.length || 0;
+        const numberOfPlayers = gameSessions[gameId]?.size || 0;
         io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
 
         console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
