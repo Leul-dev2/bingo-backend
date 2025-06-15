@@ -320,17 +320,19 @@ const makeCardAvailable = (gameId, cardId) => {
 
         // ❌ Invalid game or finished drawing
         if (!game || game.index >= game.numbers.length) {
-            clearInterval(drawIntervals[gameId]);
-            delete drawIntervals[gameId];
-            delete activeDrawLocks[gameId];
+        clearInterval(drawIntervals[gameId]);
+        delete drawIntervals[gameId];
+        delete activeDrawLocks[gameId];
 
-            io.to(gameId).emit("allNumbersDrawn");
-            console.log(`✅ All numbers drawn for gameId: ${gameId}`);
+        io.to(gameId).emit("allNumbersDrawn");
+        console.log(`✅ All numbers drawn for gameId: ${gameId}`);
 
-            // Reset game state
-            delete gameDraws[gameId];
-            return;
-        }
+        // Reset game state fully
+        resetGame(gameId, io);
+
+        return;
+    }
+
 
         // ✅ Draw one number
         const number = game.numbers[game.index++];
