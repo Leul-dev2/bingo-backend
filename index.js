@@ -127,7 +127,7 @@ const makeCardAvailable = (gameId, cardId) => {
 
   io.on("connection", (socket) => {
     console.log("🟢 New client connected");
-
+    console.log("Client connected with socket ID:", socket.id);
     // User joins a game
     socket.on("userJoinedGame", ({ telegramId, gameId }) => {
         if (!gameSessions[gameId]) {
