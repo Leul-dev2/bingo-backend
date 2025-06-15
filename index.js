@@ -86,23 +86,42 @@ const makeCardAvailable = (gameId, cardId) => {
 
 
 
-function resetGame(gameId) {
-    console.log(`Resetting game ${gameId}...`);
+  function resetGame(gameId, io) {
+      console.log(`🔄 Resetting game ${gameId}...`);
 
-    // Clear intervals
-    clearInterval(drawIntervals[gameId]);
-    clearInterval(countdownIntervals[gameId]);
+      // 1. Free up selected cards and clean userSelections
+      for (const socketId in userSelections) {
+          const user = userSelections[socketId];
+          if (user?.gameId === gameId) {
+              const { telegramId, cardId } = user;
 
-    // Delete game data
-    delete gameDraws[gameId];
-    delete gameSessions[gameId];
-    delete gameCards[gameId];
-    delete gameRooms[gameId];
-    delete drawIntervals[gameId];
-    delete countdownIntervals[gameId];
+              // 🃏 Free up the card
+              if (cardId && gameCards[gameId]?.[cardId] === telegramId) {
+                  delete gameCards[gameId][cardId];
+                  io.to(gameId).emit("cardAvailable", { cardId });
+                  console.log(`✅ Card ${cardId} is now available again`);
+              }
 
-    console.log(`Game ${gameId} has been fully reset.`);
-}
+              // 🧹 Clean userSelections
+              delete userSelections[socketId];
+          }
+      }
+
+      // 3. Clear intervals
+      clearInterval(drawIntervals[gameId]);
+      clearInterval(countdownIntervals[gameId]);
+
+      // 4. Delete all game data
+      delete gameDraws[gameId];
+      delete gameSessions[gameId];
+      delete gameCards[gameId];
+      delete gameRooms[gameId];
+      delete drawIntervals[gameId];
+      delete countdownIntervals[gameId];
+
+      console.log(`🧼 Game ${gameId} has been fully reset.`);
+  }
+
 
 
 
@@ -313,61 +332,61 @@ function resetGame(gameId) {
         }, 3000); // Draws one number every 8 seconds (adjust as needed)
     }
 
-       socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
-  try {
-    const sessionId = gameSessions[gameId]; 
-    const players = gameRooms[gameId] || new Set();
-    const playerCount = players.size;
-    const stakeAmount = Number(gameId);
-    const prizeAmount = stakeAmount * playerCount;
+    socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
+        try {
+          const sessionId = gameSessions[gameId]; 
+          const players = gameRooms[gameId] || new Set();
+          const playerCount = players.size;
+          const stakeAmount = Number(gameId);
+          const prizeAmount = stakeAmount * playerCount;
 
-    const winnerUser = await User.findOne({ telegramId });
-    if (!winnerUser) {
-      console.error(`❌ User with telegramId ${telegramId} not found`);
-      return;
-    }
+          const winnerUser = await User.findOne({ telegramId });
+          if (!winnerUser) {
+            console.error(`❌ User with telegramId ${telegramId} not found`);
+            return;
+          }
 
-    const winnerUsername = winnerUser.username || "Unknown";
-    winnerUser.balance += prizeAmount;
-    await winnerUser.save();
+          const winnerUsername = winnerUser.username || "Unknown";
+          winnerUser.balance += prizeAmount;
+          await winnerUser.save();
 
-    // Emit winner found event
-    io.to(gameId.toString()).emit("winnerfound", {
-      winnerName: winnerUsername,
-      prizeAmount,
-      playerCount,
-      board,
-      winnerPattern,
-      boardNumber: cartelaId,
-      newBalance: winnerUser.balance,
-      telegramId,
-      gameId,
-    });
+          // Emit winner found event
+          io.to(gameId.toString()).emit("winnerfound", {
+            winnerName: winnerUsername,
+            prizeAmount,
+            playerCount,
+            board,
+            winnerPattern,
+            boardNumber: cartelaId,
+            newBalance: winnerUser.balance,
+            telegramId,
+            gameId,
+          });
 
-    console.log(`🏆 ${winnerUsername} won ${prizeAmount}. New balance: ${winnerUser.balance}`);
+          console.log(`🏆 ${winnerUsername} won ${prizeAmount}. New balance: ${winnerUser.balance}`);
 
-    // Save winner details to GameHistory
-    await GameHistory.findOneAndUpdate(
-        { sessionId },
-     { // optional: link to session if you have it
-      gameId: gameId.toString(),
-      username: winnerUsername,
-      telegramId,
-      winAmount: prizeAmount,
-      stake: stakeAmount,
-      createdAt: new Date()
-     }
-    );
+          // Save winner details to GameHistory
+          await GameHistory.findOneAndUpdate(
+              { sessionId },
+          { // optional: link to session if you have it
+            gameId: gameId.toString(),
+            username: winnerUsername,
+            telegramId,
+            winAmount: prizeAmount,
+            stake: stakeAmount,
+            createdAt: new Date()
+          }
+          );
 
-    // Final cleanup
-    await GameControl.findOneAndUpdate({ gameId }, { isActive: false });
-    resetGame(gameId);
+          // Final cleanup
+          await GameControl.findOneAndUpdate({ gameId }, { isActive: false });
+          resetGame(gameId);
 
-  } catch (error) {
-    console.error("🔥 Error processing winner:", error);
-    socket.emit("winnerError", { message: "Failed to update winner balance. Please try again." });
-  }
-});
+        } catch (error) {
+          console.error("🔥 Error processing winner:", error);
+          socket.emit("winnerError", { message: "Failed to update winner balance. Please try again." });
+        }
+  });
 
 
 
