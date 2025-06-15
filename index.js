@@ -112,6 +112,7 @@ const makeCardAvailable = (gameId, cardId) => {
       // 3. Clear intervals
       clearInterval(drawIntervals[gameId]);
       clearInterval(countdownIntervals[gameId]);
+      delete activeDrawLocks[gameId];
 
       // 4. Delete all game data
       delete gameDraws[gameId];
@@ -457,6 +458,7 @@ socket.on("disconnect", () => {
         console.log(`🧹 No players left in game ${gameId}. Cleaning up memory.`);
         clearInterval(drawIntervals[gameId]);
         clearInterval(countdownIntervals[gameId]);
+        delete activeDrawLocks[gameId];
 
         delete gameDraws[gameId];
         delete drawIntervals[gameId];
