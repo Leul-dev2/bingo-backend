@@ -13,6 +13,7 @@ const GameHistory = require('./models/GameHistory');
 const { v4: uuidv4 } = require("uuid");
 
 
+
 const app = express();
 const server = http.createServer(app);
 
@@ -76,6 +77,8 @@ const gameDraws = {}; // { [gameId]: { numbers: [...], index: 0 } };
 const countdownIntervals = {}; // { gameId: intervalId }
 const drawIntervals = {}; // { gameId: intervalId }
 const activeDrawLocks = {}; // Prevents multiple starts
+const gameReadyToStart = {};
+
 
 
 
@@ -108,6 +111,8 @@ const makeCardAvailable = (gameId, cardId) => {
               delete userSelections[socketId];
           }
       }
+
+      gameReadyToStart[gameId] = false;
 
       // 3. Clear intervals
       clearInterval(drawIntervals[gameId]);
@@ -293,6 +298,7 @@ const makeCardAvailable = (gameId, cardId) => {
         gameCards[gameId] = {};
         io.to(gameId).emit("cardsReset", { gameId });
 
+        gameReadyToStart[gameId] = true;
         startDrawing(gameId, io);
       }
     }, 1000);
@@ -311,6 +317,12 @@ const makeCardAvailable = (gameId, cardId) => {
         console.log(`⚠️ Drawing already in progress for gameId: ${gameId}`);
         return;
     }
+
+    if (!gameReadyToStart[gameId]) {
+      console.log(`⛔ Game ${gameId} not ready to start yet.`);
+      return;
+    }
+
 
     console.log(`🎯 Starting the drawing process for gameId: ${gameId}`);
     activeDrawLocks[gameId] = true;
