@@ -112,13 +112,13 @@ const makeCardAvailable = (gameId, cardId) => {
           }
       }
 
-      gameReadyToStart[gameId] = false;
+      
 
       // 3. Clear intervals
       clearInterval(drawIntervals[gameId]);
       clearInterval(countdownIntervals[gameId]);
       delete activeDrawLocks[gameId];
-
+      delete gameReadyToStart[gameId];
       // 4. Delete all game data
       delete gameDraws[gameId];
       delete gameSessions[gameId];
@@ -318,11 +318,13 @@ const makeCardAvailable = (gameId, cardId) => {
         return;
     }
 
-    if (!gameReadyToStart[gameId]) {
-      console.log(`⛔ Game ${gameId} not ready to start yet.`);
-      return;
-    }
+   if (!gameReadyToStart[gameId]) {
+    console.log(`⛔ Game ${gameId} not ready to start yet.`);
+    return;
+  }
 
+// Clear readiness after confirming start
+  gameReadyToStart[gameId] = false;
 
     console.log(`🎯 Starting the drawing process for gameId: ${gameId}`);
     activeDrawLocks[gameId] = true;
