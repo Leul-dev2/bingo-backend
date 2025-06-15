@@ -345,6 +345,7 @@ const makeCardAvailable = (gameId, cardId) => {
     }, 3000); // Adjust interval as needed
 }
 
+
     socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
         try {
           const sessionId = gameSessionIds[gameId];
@@ -402,9 +403,6 @@ const makeCardAvailable = (gameId, cardId) => {
   });
 
 
-
-
-
     // Handle disconnection event
 socket.on("disconnect", () => {
     console.log("🔴 Client disconnected");
@@ -455,18 +453,26 @@ socket.on("disconnect", () => {
     const roomsEmpty = !gameRooms[gameId] || gameRooms[gameId].size === 0;
 
     if (sessionsEmpty && roomsEmpty) {
-        console.log(`🧹 No players left in game ${gameId}. Cleaning up memory.`);
-        clearInterval(drawIntervals[gameId]);
-        clearInterval(countdownIntervals[gameId]);
-        delete activeDrawLocks[gameId];
+    console.log(`🧹 No players left in game ${gameId}. Cleaning up memory.`);
 
-        delete gameDraws[gameId];
-        delete drawIntervals[gameId];
-        delete countdownIntervals[gameId];
-        delete gameCards[gameId];
-        delete gameSessions[gameId];
-        delete gameRooms[gameId];
-    }
+    // Clear any intervals
+    clearInterval(drawIntervals[gameId]);
+    clearInterval(countdownIntervals[gameId]);
+
+    // Remove locks, draws, and states
+    delete activeDrawLocks[gameId];
+    delete gameDraws[gameId];
+    delete drawIntervals[gameId];
+    delete countdownIntervals[gameId];
+    delete gameCards[gameId];
+    delete gameSessions[gameId];
+    delete gameRooms[gameId];
+
+    // Optional: delete any flags or game state
+    delete gameStartFlags?.[gameId]; // only if used
+    delete someOtherState?.[gameId]; // if needed
+  }  
+
 });
 
 
