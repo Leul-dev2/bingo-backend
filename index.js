@@ -69,6 +69,7 @@ app.use((err, req, res, next) => {
 // In-memory store (optional - for game logic)
 
 let gameSessions = {}; // Store game sessions: gameId -> [telegramId]
+let gameSessionIds = {}; 
 let userSelections = {}; // Store user selections: socket.id -> { telegramId, gameId }
 let gameCards = {}; // Store game card selections: gameId -> { cardId: telegramId }
 const gameDraws = {}; // { [gameId]: { numbers: [...], index: 0 } };
@@ -232,7 +233,7 @@ const makeCardAvailable = (gameId, cardId) => {
     try {
       const existing = await GameControl.findOne({ gameId });
       const sessionId = uuidv4();
-      gameSessions[gameId] = sessionId;
+      gameSessionIds[gameId] = sessionId;
       const stakeAmount = Number(gameId);
       const totalCards = Object.keys(gameCards[gameId] || {}).length;
 
@@ -334,7 +335,7 @@ const makeCardAvailable = (gameId, cardId) => {
 
     socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
         try {
-          const sessionId = gameSessions[gameId]; 
+          const sessionId = gameSessionIds[gameId];
           const players = gameRooms[gameId] || new Set();
           const playerCount = players.size;
           const stakeAmount = Number(gameId);
