@@ -115,8 +115,8 @@ function resetGame(gameId) {
          gameSessions[gameId] = new Set();
        }
 
-    gameSessions[gameId].add(telegramId); // Set automatically prevents duplicates
-
+     gameSessions[gameId].add(telegramId); // Set automatically prevents duplicates
+ 
 
         socket.join(gameId);
 
@@ -310,7 +310,7 @@ function resetGame(gameId) {
             // Emit the drawn number
             io.to(gameId).emit("numberDrawn", { number, label });
 
-        }, 1000); // Draws one number every 8 seconds (adjust as needed)
+        }, 3000); // Draws one number every 8 seconds (adjust as needed)
     }
 
        socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
