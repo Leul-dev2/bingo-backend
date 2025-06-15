@@ -469,10 +469,6 @@ socket.on("disconnect", () => {
     delete gameCards[gameId];
     delete gameSessions[gameId];
     delete gameRooms[gameId];
-
-    // Optional: delete any flags or game state
-    delete gameStartFlags?.[gameId]; // only if used
-    delete someOtherState?.[gameId]; // if needed
   }  
 
 });
