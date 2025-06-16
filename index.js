@@ -318,32 +318,30 @@ function resetGame(gameId, io) {
 
 
 function startDrawing(gameId, io) {
-  // If there's already a pending or running drawing, don't start again
+  // Prevent duplicate call before or during timeout
   if (activeDrawLocks[gameId] || drawStartTimeouts[gameId]) {
     console.log(`⚠️ Drawing already in progress or starting soon for gameId: ${gameId}`);
     return;
   }
 
-  // ✅ Lock immediately to prevent another call within 1 second
-  activeDrawLocks[gameId] = true;
-
+  // Immediately set timeout guard to block repeated calls
   drawStartTimeouts[gameId] = setTimeout(() => {
-    delete drawStartTimeouts[gameId]; // Clean timeout lock
+    delete drawStartTimeouts[gameId]; // Clean it up
 
     if (!gameReadyToStart[gameId]) {
       console.log(`⛔ Game ${gameId} not ready to start yet.`);
-      delete activeDrawLocks[gameId]; // Unlock if it never started
       return;
     }
 
     const game = gameDraws[gameId];
+
     if (!game || game.index >= game.numbers.length) {
       console.log(`⚠️ Attempted to start a finished or invalid game: ${gameId}`);
-      delete activeDrawLocks[gameId]; // Unlock if invalid
       return;
     }
 
     console.log(`🎯 Starting the drawing process for gameId: ${gameId}`);
+    activeDrawLocks[gameId] = true;
 
     drawIntervals[gameId] = setInterval(() => {
       const game = gameDraws[gameId];
@@ -352,7 +350,6 @@ function startDrawing(gameId, io) {
         clearInterval(drawIntervals[gameId]);
         delete drawIntervals[gameId];
         delete activeDrawLocks[gameId];
-
         io.to(gameId).emit("allNumbersDrawn");
         console.log(`✅ All numbers drawn for gameId: ${gameId}`);
         resetGame(gameId, io);
@@ -363,10 +360,10 @@ function startDrawing(gameId, io) {
       const label = ["B", "I", "N", "G", "O"][Math.floor((number - 1) / 15)] + "-" + number;
       console.log(`🎲 Drawing number: ${number}, Label: ${label}, Index: ${game.index - 1}`);
       io.to(gameId).emit("numberDrawn", { number, label });
-
     }, 3000);
-  }, 1000); // 1-second delay before drawing starts
+  }, 1000); // Start after 1s delay
 }
+
 
 
 
