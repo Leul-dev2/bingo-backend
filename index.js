@@ -111,6 +111,8 @@ function resetGame(gameId) {
   delete gameReadyToStart[gameId];
   delete gameSessionIds[gameId];
 
+  activeDrawLocks[gameId] = false;
+
   if (gameSessions[gameId]) delete gameSessions[gameId];
   if (gameRooms[gameId]) delete gameRooms[gameId];
 
