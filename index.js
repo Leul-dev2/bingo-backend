@@ -499,26 +499,13 @@ socket.on("disconnect", () => {
     });
 
     // 🧨 If no players left, clean everything
-    const sessionsEmpty = !gameSessions[gameId] || gameSessions[gameId].size === 0;
-    const roomsEmpty = !gameRooms[gameId] || gameRooms[gameId].size === 0;
+    const currentSessionPlayers = gameSessions[gameId]?.size || 0; // Use a more descriptive variable name
+    const currentRoomPlayers = gameRooms[gameId]?.size || 0; // Use a more descriptive variable name
 
-    if (sessionsEmpty && roomsEmpty) {
-    console.log(`🧹 No players left in game ${gameId}. Cleaning up memory.`);
-
-    // Clear any intervals
-    clearInterval(drawIntervals[gameId]);
-    clearInterval(countdownIntervals[gameId]);
-
-    // Remove locks, draws, and states
-    delete activeDrawLocks[gameId];
-    delete gameDraws[gameId];
-    delete drawIntervals[gameId];
-    delete countdownIntervals[gameId];
-    delete gameCards[gameId];
-    delete gameSessions[gameId];
-    delete gameRooms[gameId];
-  }  
-
+    if (currentSessionPlayers === 0 && currentRoomPlayers === 0) {
+        console.log(`🧹 No players left in game ${gameId}. Triggering full game reset.`);
+        resetGame(gameId); // Call the dedicated reset function
+    }
 });
 
 
