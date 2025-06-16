@@ -92,30 +92,38 @@ const makeCardAvailable = (gameId, cardId) => {
 
 
 
-function resetGame(gameId) {
-   console.log(`🧹 Starting reset for game ${gameId}`);
-  clearInterval(drawIntervals[gameId]);
-  clearInterval(countdownIntervals[gameId]);
+function resetGame(gameId, io) {
+  console.log(`🧹 Starting reset for game ${gameId}`);
 
+  // Clear drawing interval if running
   if (drawIntervals[gameId]) {
-  clearInterval(drawIntervals[gameId]);
-  delete drawIntervals[gameId];
-  console.log(`🛑 Force-cleared draw interval for gameId: ${gameId}`);
-}
+    clearInterval(drawIntervals[gameId]);
+    delete drawIntervals[gameId];
+    console.log(`🛑 Force-cleared draw interval for gameId: ${gameId}`);
+  }
 
+  // Clear countdown interval
+  if (countdownIntervals[gameId]) {
+    clearInterval(countdownIntervals[gameId]);
+    delete countdownIntervals[gameId];
+  }
+
+  // 🧠 New: clear pending draw start if it exists
+  if (drawStartTimeouts[gameId]) {
+    clearTimeout(drawStartTimeouts[gameId]);
+    delete drawStartTimeouts[gameId];
+  }
+
+  // ✅ Remove everything else
   delete activeDrawLocks[gameId];
   delete gameDraws[gameId];
-  delete drawIntervals[gameId];
-  delete countdownIntervals[gameId];
   delete gameCards[gameId];
   delete gameReadyToStart[gameId];
   delete gameSessionIds[gameId];
+  delete gameSessions[gameId];
+  delete gameRooms[gameId];
 
-  activeDrawLocks[gameId] = false;
-
-  if (gameSessions[gameId]) delete gameSessions[gameId];
-  if (gameRooms[gameId]) delete gameRooms[gameId];
-
+  // Remove user selections from this game
   for (let socketId in userSelections) {
     if (userSelections[socketId]?.gameId === gameId) {
       delete userSelections[socketId];
@@ -124,6 +132,7 @@ function resetGame(gameId) {
 
   console.log(`🧼 Game ${gameId} has been fully reset.`);
 }
+
 
 
 
@@ -309,30 +318,32 @@ function resetGame(gameId) {
 
 
 function startDrawing(gameId, io) {
-  if (drawStartTimeouts[gameId]) {
-    clearTimeout(drawStartTimeouts[gameId]);
+  // If there's already a pending or running drawing, don't start again
+  if (activeDrawLocks[gameId] || drawStartTimeouts[gameId]) {
+    console.log(`⚠️ Drawing already in progress or starting soon for gameId: ${gameId}`);
+    return;
   }
 
+  // ✅ Lock immediately to prevent another call within 1 second
+  activeDrawLocks[gameId] = true;
+
   drawStartTimeouts[gameId] = setTimeout(() => {
-    if (activeDrawLocks[gameId]) {
-      console.log(`⚠️ Drawing already in progress for gameId: ${gameId}`);
-      return;
-    }
+    delete drawStartTimeouts[gameId]; // Clean timeout lock
 
     if (!gameReadyToStart[gameId]) {
       console.log(`⛔ Game ${gameId} not ready to start yet.`);
+      delete activeDrawLocks[gameId]; // Unlock if it never started
       return;
     }
 
     const game = gameDraws[gameId];
-
     if (!game || game.index >= game.numbers.length) {
       console.log(`⚠️ Attempted to start a finished or invalid game: ${gameId}`);
+      delete activeDrawLocks[gameId]; // Unlock if invalid
       return;
     }
 
     console.log(`🎯 Starting the drawing process for gameId: ${gameId}`);
-    activeDrawLocks[gameId] = true;
 
     drawIntervals[gameId] = setInterval(() => {
       const game = gameDraws[gameId];
@@ -341,6 +352,7 @@ function startDrawing(gameId, io) {
         clearInterval(drawIntervals[gameId]);
         delete drawIntervals[gameId];
         delete activeDrawLocks[gameId];
+
         io.to(gameId).emit("allNumbersDrawn");
         console.log(`✅ All numbers drawn for gameId: ${gameId}`);
         resetGame(gameId, io);
@@ -351,9 +363,11 @@ function startDrawing(gameId, io) {
       const label = ["B", "I", "N", "G", "O"][Math.floor((number - 1) / 15)] + "-" + number;
       console.log(`🎲 Drawing number: ${number}, Label: ${label}, Index: ${game.index - 1}`);
       io.to(gameId).emit("numberDrawn", { number, label });
+
     }, 3000);
-  }, 1000); // Delay 1 sec before actual start
+  }, 1000); // 1-second delay before drawing starts
 }
+
 
 
 
