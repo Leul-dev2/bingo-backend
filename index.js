@@ -245,8 +245,13 @@ function resetGame(gameId, io) {
 
    socket.on("gameCount", async ({ gameId }) => {
 
-    if (!gameIsActive[gameId]) {
-    console.log(`⚠️ Game ${gameId} is not active, ignoring gameCount.`);
+   // Initialize active state if undefined
+  if (gameIsActive[gameId] === undefined) {
+    gameIsActive[gameId] = true;
+  }
+
+  if (!gameIsActive[gameId]) {
+    console.log(`⚠️ Game ${gameId} is not active. Ignoring gameCount event.`);
     return;
   }
 
