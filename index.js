@@ -93,8 +93,15 @@ const makeCardAvailable = (gameId, cardId) => {
 
 
 function resetGame(gameId) {
+   console.log(`🧹 Starting reset for game ${gameId}`);
   clearInterval(drawIntervals[gameId]);
   clearInterval(countdownIntervals[gameId]);
+
+  if (drawIntervals[gameId]) {
+  clearInterval(drawIntervals[gameId]);
+  delete drawIntervals[gameId];
+  console.log(`🛑 Force-cleared draw interval for gameId: ${gameId}`);
+}
 
   delete activeDrawLocks[gameId];
   delete gameDraws[gameId];
