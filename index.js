@@ -78,6 +78,7 @@ const countdownIntervals = {}; // { gameId: intervalId }
 const drawIntervals = {}; // { gameId: intervalId }
 const activeDrawLocks = {}; // Prevents multiple starts
 const gameReadyToStart = {};
+let drawStartTimeouts = {};
 
 
 
@@ -298,53 +299,51 @@ function resetGame(gameId) {
 
 
 
- function startDrawing(gameId, io) {
-  // 🛑 Prevent duplicate drawing intervals
-  if (activeDrawLocks[gameId]) {
-    console.log(`⚠️ Drawing already in progress for gameId: ${gameId}`);
-    return;
+function startDrawing(gameId, io) {
+  if (drawStartTimeouts[gameId]) {
+    clearTimeout(drawStartTimeouts[gameId]);
   }
 
-  if (!gameReadyToStart[gameId]) {
-    console.log(`⛔ Game ${gameId} not ready to start yet.`);
-    return;
-  }
-
-  const game = gameDraws[gameId];
-
-  // 🛑 Prevent starting drawing if game is already finished
-  if (!game || game.index >= game.numbers.length) {
-    console.log(`⚠️ Attempted to start a finished or invalid game: ${gameId}`);
-    return;
-  }
-
-  console.log(`🎯 Starting the drawing process for gameId: ${gameId}`);
-  activeDrawLocks[gameId] = true;
-
-  drawIntervals[gameId] = setInterval(() => {
-    const game = gameDraws[gameId];
-
-    if (!game || game.index >= game.numbers.length) {
-      clearInterval(drawIntervals[gameId]);
-      delete drawIntervals[gameId];
-      delete activeDrawLocks[gameId];
-
-      io.to(gameId).emit("allNumbersDrawn");
-      console.log(`✅ All numbers drawn for gameId: ${gameId}`);
-
-      resetGame(gameId, io);
+  drawStartTimeouts[gameId] = setTimeout(() => {
+    if (activeDrawLocks[gameId]) {
+      console.log(`⚠️ Drawing already in progress for gameId: ${gameId}`);
       return;
     }
 
-    const number = game.numbers[game.index++];
-    const letterIndex = Math.floor((number - 1) / 15);
-    const letter = ["B", "I", "N", "G", "O"][letterIndex];
-    const label = `${letter}-${number}`;
+    if (!gameReadyToStart[gameId]) {
+      console.log(`⛔ Game ${gameId} not ready to start yet.`);
+      return;
+    }
 
-    console.log(`🎲 Drawing number: ${number}, Label: ${label}, Index: ${game.index - 1}`);
-    io.to(gameId).emit("numberDrawn", { number, label });
+    const game = gameDraws[gameId];
 
-  }, 3000);
+    if (!game || game.index >= game.numbers.length) {
+      console.log(`⚠️ Attempted to start a finished or invalid game: ${gameId}`);
+      return;
+    }
+
+    console.log(`🎯 Starting the drawing process for gameId: ${gameId}`);
+    activeDrawLocks[gameId] = true;
+
+    drawIntervals[gameId] = setInterval(() => {
+      const game = gameDraws[gameId];
+
+      if (!game || game.index >= game.numbers.length) {
+        clearInterval(drawIntervals[gameId]);
+        delete drawIntervals[gameId];
+        delete activeDrawLocks[gameId];
+        io.to(gameId).emit("allNumbersDrawn");
+        console.log(`✅ All numbers drawn for gameId: ${gameId}`);
+        resetGame(gameId, io);
+        return;
+      }
+
+      const number = game.numbers[game.index++];
+      const label = ["B", "I", "N", "G", "O"][Math.floor((number - 1) / 15)] + "-" + number;
+      console.log(`🎲 Drawing number: ${number}, Label: ${label}, Index: ${game.index - 1}`);
+      io.to(gameId).emit("numberDrawn", { number, label });
+    }, 3000);
+  }, 1000); // Delay 1 sec before actual start
 }
 
 
