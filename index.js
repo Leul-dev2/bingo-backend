@@ -364,7 +364,7 @@ console.log(`🚨 startDrawing CALLED for gameId: ${gameId} at ${new Date().toIS
         delete activeDrawLocks[gameId];
         io.to(gameId).emit("allNumbersDrawn");
         console.log(`✅ All numbers drawn for gameId: ${gameId}`);
-        resetGame(gameId, io);
+        resetGame(gameId);
         return;
       }
 
