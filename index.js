@@ -366,8 +366,6 @@ function startDrawing(gameId, io) {
 
 
 
-
-
     socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
         try {
           const sessionId = gameSessionIds[gameId];
@@ -425,7 +423,7 @@ function startDrawing(gameId, io) {
   });
 
 
-    // Handle disconnection event
+    // Handle disconnection events
 socket.on("disconnect", () => {
     console.log("🔴 Client disconnected");
 
