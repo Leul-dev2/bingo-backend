@@ -76,7 +76,7 @@ let gameCards = {}; // Store game card selections: gameId -> { cardId: telegramI
 const gameDraws = {}; // { [gameId]: { numbers: [...], index: 0 } };
 const countdownIntervals = {}; // { gameId: intervalId }
 const drawIntervals = {}; // { gameId: intervalId }
-const activeDrawLocks = {}; // Prevents multiple starts
+//const activeDrawLocks = {}; // Prevents multiple starts
 const gameReadyToStart = {};
 let drawStartTimeouts = {};
 
@@ -115,7 +115,7 @@ function resetGame(gameId, io) {
   }
 
   // ✅ Remove everything else
-  delete activeDrawLocks[gameId];
+  //delete activeDrawLocks[gameId];
   delete gameDraws[gameId];
   delete gameCards[gameId];
   delete gameReadyToStart[gameId];
@@ -319,10 +319,10 @@ function resetGame(gameId, io) {
 
 function startDrawing(gameId, io) {
   // Prevent duplicate call before or during timeout
-  if (activeDrawLocks[gameId] || drawStartTimeouts[gameId]) {
-    console.log(`⚠️ Drawing already in progress or starting soon for gameId: ${gameId}`);
-    return;
-  }
+  // if (activeDrawLocks[gameId] || drawStartTimeouts[gameId]) {
+  //   console.log(`⚠️ Drawing already in progress or starting soon for gameId: ${gameId}`);
+  //   return;
+  // }
 
   // Immediately set timeout guard to block repeated calls
   drawStartTimeouts[gameId] = setTimeout(() => {
@@ -341,7 +341,7 @@ function startDrawing(gameId, io) {
     }
 
     console.log(`🎯 Starting the drawing process for gameId: ${gameId}`);
-    activeDrawLocks[gameId] = true;
+    //activeDrawLocks[gameId] = true;
 
     drawIntervals[gameId] = setInterval(() => {
       const game = gameDraws[gameId];
@@ -349,7 +349,7 @@ function startDrawing(gameId, io) {
       if (!game || game.index >= game.numbers.length) {
         clearInterval(drawIntervals[gameId]);
         delete drawIntervals[gameId];
-        delete activeDrawLocks[gameId];
+        //delete activeDrawLocks[gameId];
         io.to(gameId).emit("allNumbersDrawn");
         console.log(`✅ All numbers drawn for gameId: ${gameId}`);
         resetGame(gameId, io);
@@ -480,7 +480,7 @@ socket.on("disconnect", () => {
     clearInterval(countdownIntervals[gameId]);
 
     // Remove locks, draws, and states
-    delete activeDrawLocks[gameId];
+    //delete activeDrawLocks[gameId];
     delete gameDraws[gameId];
     delete drawIntervals[gameId];
     delete countdownIntervals[gameId];
