@@ -40,7 +40,7 @@ const GameHistory = mongoose.model('GameHistory', gameHistorySchema);
 
 // --- MongoDB Connection ---
 // Replace with your actual MongoDB connection string
-const MONGODB_URI = "mongodb://localhost:27017/your_bingo_db";
+const MONGODB_URI = process.env.MONGODB_URI; // This will read from your Render environment
 mongoose.connect(MONGODB_URI)
   .then(() => console.log('MongoDB connected successfully'))
   .catch(err => console.error('MongoDB connection error:', err));
