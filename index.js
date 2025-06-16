@@ -245,6 +245,11 @@ function resetGame(gameId, io) {
 
    socket.on("gameCount", async ({ gameId }) => {
 
+      if (!gameIsActive[gameId]) {
+    console.log(`Activating game ${gameId} on demand.`);
+    gameIsActive[gameId] = true;
+  }
+
    // Initialize active state if undefined
   if (gameIsActive[gameId] === undefined) {
     gameIsActive[gameId] = true;
