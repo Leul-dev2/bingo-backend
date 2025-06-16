@@ -315,9 +315,8 @@ function resetGame(gameId, io) {
 
 
 
-
-
 function startDrawing(gameId, io) {
+console.log(`🚨 startDrawing CALLED for gameId: ${gameId} at ${new Date().toISOString()}`);
 
   console.log("✅ Checking locks before start:", {
   drawLock: activeDrawLocks[gameId],
