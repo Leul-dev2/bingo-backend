@@ -1,59 +1,69 @@
-// server.js (or your main server file)
+const express = require("express");
+const mongoose = require("mongoose");
+const cors = require("cors");
+const http = require("http");
+const { Server } = require("socket.io");
+require("dotenv").config();
 
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const mongoose = require('mongoose'); // Assuming you use Mongoose for MongoDB
-const { v4: uuidv4 } = require("uuid"); // For generating unique session IDs
+const userRoutes = require("./routes/userRoutes");
+const gameRoutes = require("./routes/gameRoutes");
+const User = require("./models/user");
+const GameControl = require("./models/GameControl");
+const GameHistory = require('./models/GameHistory');
+const { v4: uuidv4 } = require("uuid");
 
-// --- Mongoose Model Placeholders ---
-// You need to define these models based on your MongoDB schema.
-// For example:
-const userSchema = new mongoose.Schema({
-  telegramId: { type: String, unique: true, required: true },
-  username: { type: String },
-  balance: { type: Number, default: 0 },
-});
-const User = mongoose.model('User', userSchema);
 
-const gameControlSchema = new mongoose.Schema({
-  sessionId: { type: String, required: true, unique: true },
-  gameId: { type: String, required: true }, // The game type/stake amount
-  stakeAmount: { type: Number, required: true },
-  totalCards: { type: Number, default: 0 },
-  isActive: { type: Boolean, default: true },
-  createdBy: { type: String, default: "system" },
-  createdAt: { type: Date, default: Date.now },
-});
-const GameControl = mongoose.model('GameControl', gameControlSchema);
 
-const gameHistorySchema = new mongoose.Schema({
-  sessionId: { type: String, required: true },
-  gameId: { type: String, required: true },
-  username: { type: String },
-  telegramId: { type: String },
-  winAmount: { type: Number, default: 0 },
-  stake: { type: Number, required: true },
-  createdAt: { type: Date, default: Date.now },
-});
-const GameHistory = mongoose.model('GameHistory', gameHistorySchema);
-
-// --- MongoDB Connection ---
-// Replace with your actual MongoDB connection string
-const MONGODB_URI = process.env.MONGODB_URI; // This will read from your Render environment
-mongoose.connect(MONGODB_URI)
-  .then(() => console.log('MongoDB connected successfully'))
-  .catch(err => console.error('MongoDB connection error:', err));
-
-// --- Express App and Socket.IO Server Setup ---
 const app = express();
 const server = http.createServer(app);
+
+
+// ⚙️ Setup Socket.IO with CORS
 const io = new Server(server, {
   cors: {
-    origin: "*", // Adjust this to your client's origin in production
-    methods: ["GET", "POST"]
-  }
+    origin: "*", // Change to specific frontend domain in production
+    methods: ["GET", "POST"],
+  },
 });
+
+// 🔐 In-memory shared objects
+const gameRooms = {};
+const joiningUsers = new Set();
+
+// 📌 Attach shared objects to app for route access
+app.set("io", io);
+app.set("gameRooms", gameRooms);
+app.set("joiningUsers", joiningUsers);
+app.set("User", User);
+
+// 🌐 Middleware
+app.use(express.json());
+app.use(cors());
+
+// 🚏 Routes
+app.use("/api/users", userRoutes);
+app.use("/api/games", gameRoutes);
+
+// 🏠 Default route
+app.get("/", (req, res) => {
+  res.send("MERN Backend with Socket.IO is Running!");
+});
+
+// 🌍 MongoDB Connection
+mongoose
+  .connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log("✅ MongoDB Connected"))
+  .catch((err) => console.error("❌ MongoDB Connection Error:", err));
+
+// 🛑 Global error handler
+app.use((err, req, res, next) => {
+  console.error("🔥 Error Handler:", err.stack);
+  res.status(500).json({ message: "Something went wrong!" });
+});
+
 
 // --- Global State Objects ---
 // These objects hold the current state of your games in memory.
