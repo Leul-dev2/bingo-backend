@@ -79,6 +79,7 @@ const drawIntervals = {}; // { gameId: intervalId }
 const activeDrawLocks = {}; // Prevents multiple starts
 const gameReadyToStart = {};
 let drawStartTimeouts = {};
+const gameIsActive = {};
 
 
 
@@ -94,6 +95,8 @@ const makeCardAvailable = (gameId, cardId) => {
 
 function resetGame(gameId, io) {
   console.log(`🧹 Starting reset for game ${gameId}`);
+
+   gameIsActive[gameId] = false;
 
   // Clear drawing interval if running
   if (drawIntervals[gameId]) {
@@ -241,6 +244,11 @@ function resetGame(gameId, io) {
 
 
    socket.on("gameCount", async ({ gameId }) => {
+
+    if (!gameIsActive[gameId]) {
+    console.log(`⚠️ Game ${gameId} is not active, ignoring gameCount.`);
+    return;
+  }
 
     // 🚨 PREVENT MULTIPLE INITIALIZATIONS
     if (gameDraws[gameId] || countdownIntervals[gameId] || activeDrawLocks[gameId]) {
