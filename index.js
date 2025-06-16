@@ -318,6 +318,12 @@ function resetGame(gameId, io) {
 
 
 function startDrawing(gameId, io) {
+
+  console.log("✅ Checking locks before start:", {
+  drawLock: activeDrawLocks[gameId],
+  timeout: drawStartTimeouts[gameId]
+});
+
   // Prevent duplicate call before or during timeout
   if (activeDrawLocks[gameId] || drawStartTimeouts[gameId]) {
     console.log(`⚠️ Drawing already in progress or starting soon for gameId: ${gameId}`);
