@@ -119,7 +119,7 @@ const gameIsActive = {};
       delete activeDrawLocks[gameId];
       delete gameDraws[gameId];
       delete gameCards[gameId];
-      delete gameReadyToStart[gameId];
+      gameReadyToStart[gameId] = false; 
       delete gameSessionIds[gameId];
       delete gameSessions[gameId];
       delete gameRooms[gameId];
