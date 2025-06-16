@@ -241,6 +241,13 @@ function resetGame(gameId, io) {
 
 
    socket.on("gameCount", async ({ gameId }) => {
+
+    // 🚨 PREVENT MULTIPLE INITIALIZATIONS
+    if (gameDraws[gameId] || countdownIntervals[gameId] || activeDrawLocks[gameId]) {
+      console.log(`⚠️ Game ${gameId} is already preparing or running. Ignoring gameCount event.`);
+      return;
+    }
+
   if (!gameDraws[gameId]) {
     try {
       const existing = await GameControl.findOne({ gameId });
