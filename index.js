@@ -91,44 +91,30 @@ const makeCardAvailable = (gameId, cardId) => {
 
 
 
-  function resetGame(gameId, io) {
-      console.log(`🔄 Resetting game ${gameId}...`);
+function resetGame(gameId) {
+  clearInterval(drawIntervals[gameId]);
+  clearInterval(countdownIntervals[gameId]);
 
-      // 1. Free up selected cards and clean userSelections
-      for (const socketId in userSelections) {
-          const user = userSelections[socketId];
-          if (user?.gameId === gameId) {
-              const { telegramId, cardId } = user;
+  delete activeDrawLocks[gameId];
+  delete gameDraws[gameId];
+  delete drawIntervals[gameId];
+  delete countdownIntervals[gameId];
+  delete gameCards[gameId];
+  delete gameReadyToStart[gameId];
+  delete gameSessionIds[gameId];
 
-              // 🃏 Free up the card
-              if (cardId && gameCards[gameId]?.[cardId] === telegramId) {
-                  delete gameCards[gameId][cardId];
-                  io.to(gameId).emit("cardAvailable", { cardId });
-                  console.log(`✅ Card ${cardId} is now available again`);
-              }
+  if (gameSessions[gameId]) delete gameSessions[gameId];
+  if (gameRooms[gameId]) delete gameRooms[gameId];
 
-              // 🧹 Clean userSelections
-              delete userSelections[socketId];
-          }
-      }
-
-      
-
-      // 3. Clear intervals
-      clearInterval(drawIntervals[gameId]);
-      clearInterval(countdownIntervals[gameId]);
-      delete activeDrawLocks[gameId];
-      delete gameReadyToStart[gameId];
-      // 4. Delete all game data
-      delete gameDraws[gameId];
-      delete gameSessions[gameId];
-      delete gameCards[gameId];
-      delete gameRooms[gameId];
-      delete drawIntervals[gameId];
-      delete countdownIntervals[gameId];
-
-      console.log(`🧼 Game ${gameId} has been fully reset.`);
+  for (let socketId in userSelections) {
+    if (userSelections[socketId]?.gameId === gameId) {
+      delete userSelections[socketId];
+    }
   }
+
+  console.log(`🧼 Game ${gameId} has been fully reset.`);
+}
+
 
 
 
@@ -293,10 +279,11 @@ const makeCardAvailable = (gameId, cardId) => {
       } else {
         clearInterval(countdownIntervals[gameId]);
 
-        io.to(gameId).emit("gameStart");
-
         gameCards[gameId] = {};
         io.to(gameId).emit("cardsReset", { gameId });
+
+        io.to(gameId).emit("gameStart");
+
 
         gameReadyToStart[gameId] = true;
         startDrawing(gameId, io);
