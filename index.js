@@ -391,7 +391,7 @@ io.on("connection", (socket) => {
 });
 
 
-// Start the server with WebSockets
+// Start the server with WebSocket
 const PORT = process.env.PORT || 5002;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
