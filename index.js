@@ -79,6 +79,7 @@ const activeDrawLocks = {}; // Prevents multiple starts
 const gameReadyToStart = {};
 let drawStartTimeouts = {};
 const gameIsActive = {};
+const startDrawingInProgress = {};
 
 
 
@@ -123,6 +124,7 @@ const gameIsActive = {};
       delete gameSessionIds[gameId];
       delete gameSessions[gameId];
       delete gameRooms[gameId];
+      delete startDrawingInProgress[gameId];
 
       // Remove user selections from this game
       for (let socketId in userSelections) {
@@ -315,9 +317,10 @@ const gameIsActive = {};
 
       gameReadyToStart[gameId] = true;
 
-      if (gameIsActive[gameId] && gameDraws[gameId]) {
+     if (gameIsActive[gameId] && gameDraws[gameId] && !startDrawingInProgress[gameId]) {
         startDrawing(gameId, io);
-      } else {
+      } 
+       else {
         console.warn(`⛔ Prevented startDrawing: game ${gameId} is inactive or reset`);
       }
     }
@@ -328,58 +331,68 @@ const gameIsActive = {};
 
 
   function startDrawing(gameId, io) {
-  console.log(`🚨 startDrawing CALLED for gameId: ${gameId} at ${new Date().toISOString()}`);
+  // ✅ Prevent duplicate call before or during timeout
+  if (startDrawingInProgress[gameId]) {
+    console.log(`⛔ startDrawing already in progress for gameId: ${gameId}`);
+    return;
+  }
 
-    console.log("✅ Checking locks before start:", {
+  if (activeDrawLocks[gameId] || drawStartTimeouts[gameId]) {
+    console.log(`⚠️ Drawing already in progress or starting soon for gameId: ${gameId}`);
+    return;
+  }
+
+  // ✅ Set lock only after passing checks
+  startDrawingInProgress[gameId] = true;
+
+  console.log(`🚨 startDrawing CALLED for gameId: ${gameId} at ${new Date().toISOString()}`);
+  console.log("✅ Checking locks before start:", {
     drawLock: activeDrawLocks[gameId],
     timeout: drawStartTimeouts[gameId]
   });
 
-    // Prevent duplicate call before or during timeout
-    if (activeDrawLocks[gameId] || drawStartTimeouts[gameId]) {
-      console.log(`⚠️ Drawing already in progress or starting soon for gameId: ${gameId}`);
+  // ✅ Set timeout to begin drawing
+  drawStartTimeouts[gameId] = setTimeout(() => {
+    delete drawStartTimeouts[gameId]; // Clean up timeout lock
+
+    if (!gameReadyToStart[gameId]) {
+      console.log(`⛔ Game ${gameId} not ready to start yet.`);
+      delete startDrawingInProgress[gameId]; // Reset lock if aborted
       return;
     }
 
-    // Immediately set timeout guard to block repeated calls
-    drawStartTimeouts[gameId] = setTimeout(() => {
-      delete drawStartTimeouts[gameId]; // Clean it up
+    const game = gameDraws[gameId];
+    if (!game || game.index >= game.numbers.length) {
+      console.log(`⚠️ Attempted to start a finished or invalid game: ${gameId}`);
+      delete startDrawingInProgress[gameId]; // Reset lock
+      return;
+    }
 
-      if (!gameReadyToStart[gameId]) {
-        console.log(`⛔ Game ${gameId} not ready to start yet.`);
-        return;
-      }
+    console.log(`🎯 Starting the drawing process for gameId: ${gameId}`);
+    activeDrawLocks[gameId] = true;
 
+    drawIntervals[gameId] = setInterval(() => {
       const game = gameDraws[gameId];
 
       if (!game || game.index >= game.numbers.length) {
-        console.log(`⚠️ Attempted to start a finished or invalid game: ${gameId}`);
+        clearInterval(drawIntervals[gameId]);
+        delete drawIntervals[gameId];
+        delete activeDrawLocks[gameId];
+        delete startDrawingInProgress[gameId]; // ✅ CLEAR the lock when done
+        io.to(gameId).emit("allNumbersDrawn");
+        console.log(`✅ All numbers drawn for gameId: ${gameId}`);
+        resetGame(gameId);
         return;
       }
 
-      console.log(`🎯 Starting the drawing process for gameId: ${gameId}`);
-      activeDrawLocks[gameId] = true;
+      const number = game.numbers[game.index++];
+      const label = ["B", "I", "N", "G", "O"][Math.floor((number - 1) / 15)] + "-" + number;
+      console.log(`🎲 Drawing number: ${number}, Label: ${label}, Index: ${game.index - 1}`);
+      io.to(gameId).emit("numberDrawn", { number, label });
+    }, 3000);
+  }, 1000); // Delay before first draw
+}
 
-      drawIntervals[gameId] = setInterval(() => {
-        const game = gameDraws[gameId];
-
-        if (!game || game.index >= game.numbers.length) {
-          clearInterval(drawIntervals[gameId]);
-          delete drawIntervals[gameId];
-          delete activeDrawLocks[gameId];
-          io.to(gameId).emit("allNumbersDrawn");
-          console.log(`✅ All numbers drawn for gameId: ${gameId}`);
-          resetGame(gameId);
-          return;
-        }
-
-        const number = game.numbers[game.index++];
-        const label = ["B", "I", "N", "G", "O"][Math.floor((number - 1) / 15)] + "-" + number;
-        console.log(`🎲 Drawing number: ${number}, Label: ${label}, Index: ${game.index - 1}`);
-        io.to(gameId).emit("numberDrawn", { number, label });
-      }, 3000);
-    }, 1000); // Start after 1s delay
-  }
 
 
 
