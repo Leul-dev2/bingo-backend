@@ -241,6 +241,8 @@ const startDrawingInProgress = {};
 
 
   socket.on("gameCount", async ({ gameId }) => {
+
+      console.log(`🟢 Received gameCount for game ${gameId}`)
   // ✅ Reactivate game if reset or never set
   if (!gameIsActive[gameId]) {
     console.log(`🔁 Reactivating game ${gameId}`);
