@@ -244,16 +244,16 @@ const startDrawingInProgress = {};
 
       console.log(`🟢 Received gameCount for game ${gameId}`)
   // ✅ Reactivate game if reset or never set
-  if (!gameIsActive[gameId]) {
-    console.log(`🔁 Reactivating game ${gameId}`);
-    gameIsActive[gameId] = true;
-  }
+  // if (!gameIsActive[gameId]) {
+  //   console.log(`🔁 Reactivating game ${gameId}`);
+  //   gameIsActive[gameId] = true;
+  // }
 
-  // 🚨 PREVENT MULTIPLE INITIALIZATIONS
-  if (countdownIntervals[gameId] || activeDrawLocks[gameId] || drawStartTimeouts[gameId]) {
-    console.log(`⚠️ Game ${gameId} is already preparing or running. Ignoring gameCount event.`);
-    return;
-  }
+  // // 🚨 PREVENT MULTIPLE INITIALIZATIONS
+  // if (countdownIntervals[gameId] || activeDrawLocks[gameId] || drawStartTimeouts[gameId]) {
+  //   console.log(`⚠️ Game ${gameId} is already preparing or running. Ignoring gameCount event.`);
+  //   return;
+  // }
 
   try {
     const existing = await GameControl.findOne({ gameId });
@@ -317,14 +317,16 @@ const startDrawingInProgress = {};
 
       io.to(gameId).emit("gameStart");
 
-      gameReadyToStart[gameId] = true;
+      // gameReadyToStart[gameId] = true;
 
-     if (gameIsActive[gameId] && gameDraws[gameId] && !startDrawingInProgress[gameId]) {
-        startDrawing(gameId, io);
-      } 
-       else {
-        console.warn(`⛔ Prevented startDrawing: game ${gameId} is inactive or reset`);
-      }
+      startDrawing(gameId, io);
+
+    //  if (gameIsActive[gameId] && gameDraws[gameId] && !startDrawingInProgress[gameId]) {
+    //     
+    //   } 
+    //    else {
+    //     console.warn(`⛔ Prevented startDrawing: game ${gameId} is inactive or reset`);
+    //   }
     }
   }, 1000);
 });
@@ -334,34 +336,34 @@ const startDrawingInProgress = {};
 
   function startDrawing(gameId, io) {
   // ✅ Prevent duplicate call before or during timeout
-  if (startDrawingInProgress[gameId]) {
-    console.log(`⛔ startDrawing already in progress for gameId: ${gameId}`);
-    return;
-  }
+  // if (startDrawingInProgress[gameId]) {
+  //   console.log(`⛔ startDrawing already in progress for gameId: ${gameId}`);
+  //   return;
+  // }
 
-  if (activeDrawLocks[gameId] || drawStartTimeouts[gameId]) {
-    console.log(`⚠️ Drawing already in progress or starting soon for gameId: ${gameId}`);
-    return;
-  }
+  // if (activeDrawLocks[gameId] || drawStartTimeouts[gameId]) {
+  //   console.log(`⚠️ Drawing already in progress or starting soon for gameId: ${gameId}`);
+  //   return;
+  // }
 
   // ✅ Set lock only after passing checks
-  startDrawingInProgress[gameId] = true;
+  // startDrawingInProgress[gameId] = true;
 
-  console.log(`🚨 startDrawing CALLED for gameId: ${gameId} at ${new Date().toISOString()}`);
-  console.log("✅ Checking locks before start:", {
-    drawLock: activeDrawLocks[gameId],
-    timeout: drawStartTimeouts[gameId]
-  });
+  // console.log(`🚨 startDrawing CALLED for gameId: ${gameId} at ${new Date().toISOString()}`);
+  // console.log("✅ Checking locks before start:", {
+  //   drawLock: activeDrawLocks[gameId],
+  //   timeout: drawStartTimeouts[gameId]
+  // });
 
   // ✅ Set timeout to begin drawing
   drawStartTimeouts[gameId] = setTimeout(() => {
     delete drawStartTimeouts[gameId]; // Clean up timeout lock
 
-    if (!gameReadyToStart[gameId]) {
-      console.log(`⛔ Game ${gameId} not ready to start yet.`);
-      delete startDrawingInProgress[gameId]; // Reset lock if aborted
-      return;
-    }
+    // if (!gameReadyToStart[gameId]) {
+    //   console.log(`⛔ Game ${gameId} not ready to start yet.`);
+    //   delete startDrawingInProgress[gameId]; // Reset lock if aborted
+    //   return;
+    // }
 
     const game = gameDraws[gameId];
     if (!game || game.index >= game.numbers.length) {
@@ -371,7 +373,7 @@ const startDrawingInProgress = {};
     }
 
     console.log(`🎯 Starting the drawing process for gameId: ${gameId}`);
-    activeDrawLocks[gameId] = true;
+    // activeDrawLocks[gameId] = true;
 
     drawIntervals[gameId] = setInterval(() => {
       const game = gameDraws[gameId];
