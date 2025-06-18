@@ -240,100 +240,97 @@ let drawStartTimeouts = {};
 
 
 
-  socket.on("gameCount", async ({ gameId }) => {
+socket.on("gameCount", async ({ gameId }) => {
+  // ✅ Block if the game has already completed
+  if (gameDraws[gameId]?.index >= gameDraws[gameId]?.numbers?.length) {
+    console.log(`⛔ Game ${gameId} already finished. Rejecting gameCount`);
+    return;
+  }
 
-  //   if (manualStartOnly[gameId]) {
-  //   console.log(`⛔ gameCount blocked for game ${gameId}: manual start only.`);
-  //   return;
-  // }
-
-
-  // 🚨 PREVENT MULTIPLE INITIALIZATIONS
+  // ✅ Prevent multiple starts or countdowns
   if (gameDraws[gameId] || countdownIntervals[gameId] || activeDrawLocks[gameId]) {
     console.log(`⚠️ Game ${gameId} is already preparing or running. Ignoring gameCount event.`);
     return;
   }
 
-  if (!gameDraws[gameId]) {
-    try {
-      const existing = await GameControl.findOne({ gameId });
-      const sessionId = uuidv4();
-      gameSessionIds[gameId] = sessionId;
-      const stakeAmount = Number(gameId);
-      const totalCards = Object.keys(gameCards[gameId] || {}).length;
+  try {
+    const existing = await GameControl.findOne({ gameId });
+    const sessionId = uuidv4();
+    gameSessionIds[gameId] = sessionId;
+    const stakeAmount = Number(gameId);
+    const totalCards = Object.keys(gameCards[gameId] || {}).length;
 
-      if (!existing) {
-        await GameControl.create({
-          sessionId,
-          gameId,
-          stakeAmount,
-          totalCards,
-          isActive: true,
-          createdBy: "system",
-        });
-        console.log(`✅ Created GameControl for game ${gameId}`);
-      } else {
-        existing.stakeAmount = stakeAmount;
-        existing.totalCards = totalCards;
-        existing.isActive = true;
-        existing.createdAt = new Date();
-        await existing.save();
-        console.log(`🔄 Updated GameControl for new round of game ${gameId}`);
-      }
-
-      await GameHistory.create({
+    if (!existing) {
+      await GameControl.create({
         sessionId,
-        gameId: gameId.toString(),
-        username: "system",
-        telegramId: "system",
-        winAmount: 0,
-        stake: stakeAmount,
-        createdAt: new Date(),
+        gameId,
+        stakeAmount,
+        totalCards,
+        isActive: true,
+        createdBy: "system",
       });
-      console.log(`📜 GameHistory created for game ${gameId}`);
-
-    } catch (err) {
-      console.error("❌ Error in GameControl or GameHistory:", err.message);
+      console.log(`✅ Created GameControl for game ${gameId}`);
+    } else {
+      existing.stakeAmount = stakeAmount;
+      existing.totalCards = totalCards;
+      existing.isActive = true;
+      existing.createdAt = new Date();
+      await existing.save();
+      console.log(`🔄 Updated GameControl for new round of game ${gameId}`);
     }
 
-    // Step 2: Shuffle numbers
-    const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
-    gameDraws[gameId] = { numbers, index: 0 };
-
-    // Step 3: Countdown
-    let countdownValue = 5;
-
-    countdownIntervals[gameId] = setInterval(() => {
-      if (countdownValue > 0) {
-        io.to(gameId).emit("countdownTick", { countdown: countdownValue });
-        countdownValue--;
-      } else {
-        clearInterval(countdownIntervals[gameId]);
-
-        gameCards[gameId] = {};
-        io.to(gameId).emit("cardsReset", { gameId });
-
-        io.to(gameId).emit("gameStart");
-
-        gameReadyToStart[gameId] = true;
-
-          startDrawing(gameId, io);
-
-        // if (gameDraws[gameId]) {
-        //   startDrawing(gameId, io);
-        // } else {
-        //   console.warn(`⛔ Prevented startDrawing: game ${gameId} is inactive or reset`);
-        // }
-      }
-    }, 1000);
-  } else {
-    console.log(`Game ${gameId} already initialized. Ignoring gameCount event.`);
+    await GameHistory.create({
+      sessionId,
+      gameId: gameId.toString(),
+      username: "system",
+      telegramId: "system",
+      winAmount: 0,
+      stake: stakeAmount,
+      createdAt: new Date(),
+    });
+    console.log(`📜 GameHistory created for game ${gameId}`);
+  } catch (err) {
+    console.error("❌ Error in GameControl or GameHistory:", err.message);
+    return; // 🛑 Don't continue if DB fails
   }
+
+  // ✅ Step 2: Shuffle numbers
+  const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
+  gameDraws[gameId] = { numbers, index: 0 };
+
+  // ✅ Step 3: Countdown
+  let countdownValue = 5;
+  countdownIntervals[gameId] = setInterval(() => {
+    if (countdownValue > 0) {
+      io.to(gameId).emit("countdownTick", { countdown: countdownValue });
+      countdownValue--;
+    } else {
+      clearInterval(countdownIntervals[gameId]);
+      delete countdownIntervals[gameId];
+
+      gameCards[gameId] = {};
+      io.to(gameId).emit("cardsReset", { gameId });
+
+      io.to(gameId).emit("gameStart");
+
+      gameReadyToStart[gameId] = true;
+
+      // ✅ Final guard before calling startDrawing
+      if (gameDraws[gameId]?.index >= gameDraws[gameId]?.numbers?.length) {
+        console.log(`⛔ Not starting: All numbers already drawn for game ${gameId}`);
+        gameReadyToStart[gameId] = false;
+        return;
+      }
+
+      startDrawing(gameId);
+    }
+  }, 1000);
 });
 
 
 
-  function startDrawing(gameId, io) {
+
+  function startDrawing(gameId) {
   console.log(`🚨 startDrawing CALLED for gameId: ${gameId} at ${new Date().toISOString()}`);
 
     console.log("✅ Checking locks before start:", {
