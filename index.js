@@ -132,6 +132,8 @@ const drawingLocks = {};
         }
       }
 
+      io.to(gameId).emit("gameReset");
+
       //  manualStartOnly[gameId] = true;
       //  console.log(`🔒 Game ${gameId} is now locked. Awaiting manual start.`);
 
