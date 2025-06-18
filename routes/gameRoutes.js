@@ -4,7 +4,7 @@ const User = require("../models/user");
 const GameControl = require('../models/GameControl'); // Your game model
 
 const joiningUsers = new Set(); // In-memory lock to block rapid duplicate joins
-const manualStartOnly = {}; // global state map
+// const manualStartOnly = {}; // global state map
 
 
 // routes/start.js
@@ -19,10 +19,10 @@ router.post("/start", async (req, res) => {
       return res.status(429).json({ error: "You're already joining the game" });
     }
 
-    if (manualStartOnly[gameId]) {
-      delete manualStartOnly[gameId];
-      console.log(`✅ Game ${gameId} manually unlocked via API /start`);
-    }
+    // if (manualStartOnly[gameId]) {
+    //   delete manualStartOnly[gameId];
+    //   console.log(`✅ Game ${gameId} manually unlocked via API /start`);
+    // }
 
     joiningUsers.add(telegramId);
 

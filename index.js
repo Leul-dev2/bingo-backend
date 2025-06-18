@@ -78,7 +78,7 @@ const drawIntervals = {}; // { gameId: intervalId }
 const activeDrawLocks = {}; // Prevents multiple starts
 const gameReadyToStart = {};
 let drawStartTimeouts = {};
-const manualStartOnly = {}; // gameId: true/false
+//const manualStartOnly = {}; // gameId: true/false
 
 
 
@@ -130,8 +130,8 @@ const manualStartOnly = {}; // gameId: true/false
         }
       }
 
-       manualStartOnly[gameId] = true;
-       console.log(`🔒 Game ${gameId} is now locked. Awaiting manual start.`);
+      //  manualStartOnly[gameId] = true;
+      //  console.log(`🔒 Game ${gameId} is now locked. Awaiting manual start.`);
 
       console.log(`🧼 Game ${gameId} has been fully reset.`);
     }
@@ -242,10 +242,10 @@ const manualStartOnly = {}; // gameId: true/false
 
   socket.on("gameCount", async ({ gameId }) => {
 
-    if (manualStartOnly[gameId]) {
-    console.log(`⛔ gameCount blocked for game ${gameId}: manual start only.`);
-    return;
-  }
+  //   if (manualStartOnly[gameId]) {
+  //   console.log(`⛔ gameCount blocked for game ${gameId}: manual start only.`);
+  //   return;
+  // }
 
 
   // 🚨 PREVENT MULTIPLE INITIALIZATIONS
