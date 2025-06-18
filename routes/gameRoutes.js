@@ -19,10 +19,10 @@ router.post("/start", async (req, res) => {
       return res.status(429).json({ error: "You're already joining the game" });
     }
 
-    // if (manualStartOnly[gameId]) {
-    //   delete manualStartOnly[gameId];
+    // // if (manualStartOnly[gameId]) {
+    // //   delete manualStartOnly[gameId];
     //   console.log(`✅ Game ${gameId} manually unlocked via API /start`);
-    // }
+    // // }
 
     joiningUsers.add(telegramId);
 

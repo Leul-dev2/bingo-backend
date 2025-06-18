@@ -317,11 +317,13 @@ let drawStartTimeouts = {};
 
         gameReadyToStart[gameId] = true;
 
-        if (gameDraws[gameId]) {
           startDrawing(gameId, io);
-        } else {
-          console.warn(`⛔ Prevented startDrawing: game ${gameId} is inactive or reset`);
-        }
+
+        // if (gameDraws[gameId]) {
+        //   startDrawing(gameId, io);
+        // } else {
+        //   console.warn(`⛔ Prevented startDrawing: game ${gameId} is inactive or reset`);
+        // }
       }
     }, 1000);
   } else {
