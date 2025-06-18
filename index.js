@@ -404,7 +404,7 @@ const drawingLocks = {};
 
             // Final cleanup
             await GameControl.findOneAndUpdate({ gameId }, { isActive: false });
-            resetGame(gameId);
+            resetGame(gameId, io);
 
           } catch (error) {
             console.error("🔥 Error processing winner:", error);
@@ -464,7 +464,7 @@ const drawingLocks = {};
 
       if (currentSessionPlayers === 0 && currentRoomPlayers === 0) {
           console.log(`🧹 No players left in game ${gameId}. Triggering full game reset.`);
-          resetGame(gameId); // Call the dedicated reset function
+          resetGame(gameId, io); // Call the dedicated reset function
       }
   });
 
