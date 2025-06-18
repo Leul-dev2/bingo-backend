@@ -78,7 +78,6 @@ const drawIntervals = {}; // { gameId: intervalId }
 const activeDrawLocks = {}; // Prevents multiple starts
 const gameReadyToStart = {};
 let drawStartTimeouts = {};
-const gameIsActive = {};
 const manualStartOnly = {}; // gameId: true/false
 
 
@@ -95,9 +94,6 @@ const manualStartOnly = {}; // gameId: true/false
 
     function resetGame(gameId, io) {
       console.log(`🧹 Starting reset for game ${gameId}`);
-     
-
-      gameIsActive[gameId] = false;
 
       // Clear drawing interval if running
       if (drawIntervals[gameId]) {
@@ -251,11 +247,6 @@ const manualStartOnly = {}; // gameId: true/false
     return;
   }
 
-  // ✅ Reactivate game if reset or never set
-  if (!gameIsActive[gameId]) {
-    console.log(`🔁 Reactivating game ${gameId}`);
-    gameIsActive[gameId] = true;
-  }
 
   // 🚨 PREVENT MULTIPLE INITIALIZATIONS
   if (gameDraws[gameId] || countdownIntervals[gameId] || activeDrawLocks[gameId]) {
@@ -326,7 +317,7 @@ const manualStartOnly = {}; // gameId: true/false
 
         gameReadyToStart[gameId] = true;
 
-        if (gameIsActive[gameId] && gameDraws[gameId]) {
+        if (gameDraws[gameId]) {
           startDrawing(gameId, io);
         } else {
           console.warn(`⛔ Prevented startDrawing: game ${gameId} is inactive or reset`);
