@@ -292,7 +292,7 @@ socket.on("gameCount", async ({ gameId }) => {
     gameDraws[gameId] = { numbers, index: 0 };
 
     // Step 3: Countdown
-    let countdownValue = 15;
+    let countdownValue = 5;
 
     countdownIntervals[gameId] = setInterval(() => {
       if (countdownValue > 0) {
