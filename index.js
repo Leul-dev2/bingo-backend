@@ -78,6 +78,7 @@ const drawIntervals = {}; // { gameId: intervalId }
 const activeDrawLocks = {}; // Prevents multiple starts
 const gameReadyToStart = {};
 let drawStartTimeouts = {};
+const gameIsActive = {};
 //const manualStartOnly = {}; // gameId: true/false
 
 
@@ -122,6 +123,7 @@ let drawStartTimeouts = {};
       delete gameSessionIds[gameId];
       delete gameSessions[gameId];
       delete gameRooms[gameId];
+      delete gameIsActive[gameId];
 
       // Remove user selections from this game
       for (let socketId in userSelections) {
