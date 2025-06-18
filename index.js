@@ -64,7 +64,6 @@ app.use((err, req, res, next) => {
 });
 
 
-
 // 🧠 Socket.IO Logic
 // In-memory store (optional - for game logic)
 
@@ -79,8 +78,7 @@ const activeDrawLocks = {}; // Prevents multiple starts
 const gameReadyToStart = {};
 let drawStartTimeouts = {};
 const gameIsActive = {};
-//const manualStartOnly = {}; // gameId: true/false
-
+const gamePlayers = {};
 
 
 
@@ -124,6 +122,8 @@ const gameIsActive = {};
       delete gameSessions[gameId];
       delete gameRooms[gameId];
       delete gameIsActive[gameId];
+      delete gamePlayers[gameId];
+
 
       // Remove user selections from this game
       for (let socketId in userSelections) {
@@ -149,7 +149,7 @@ const gameIsActive = {};
           gameSessions[gameId] = new Set();
         }
 
-      gameSessions[gameId].add(telegramId); // Set automatically prevents duplicates
+       gameSessions[gameId].add(telegramId); // Set automatically prevents duplicates
   
 
           socket.join(gameId);
@@ -201,7 +201,6 @@ const gameIsActive = {};
           gameCards[gameId][cardId] = telegramId;
           userSelections[socket.id] = { telegramId, cardId, card, gameId };
 
-
           // Confirm to this user
           io.to(telegramId).emit("cardConfirmed", { cardId, card });
 
@@ -214,7 +213,6 @@ const gameIsActive = {};
           console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
 
       });
-
 
 
 
@@ -285,17 +283,6 @@ const gameIsActive = {};
           console.log(`🔄 Updated GameControl for new round of game ${gameId}`);
         }
 
-        await GameHistory.create({
-          sessionId,
-          gameId: gameId.toString(),
-          username: "system",
-          telegramId: "system",
-          winAmount: 0,
-          stake: stakeAmount,
-          createdAt: new Date(),
-        });
-        console.log(`📜 GameHistory created for game ${gameId}`);
-
         // 🔢 Generate shuffled numbers
         const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
         gameDraws[gameId].numbers = numbers;
@@ -337,8 +324,6 @@ const gameIsActive = {};
 
 
 
-
-
     function startDrawing(gameId, io) {
             console.log(`Starting the drawing process for gameId: ${gameId}`);
             drawIntervals[gameId] = setInterval(() => {
@@ -373,64 +358,82 @@ const gameIsActive = {};
 
 
       socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
-          try {
-            const sessionId = gameSessionIds[gameId];
-            const players = gameRooms[gameId] || new Set();
-            const playerCount = players.size;
-            const stakeAmount = Number(gameId);
-            const prizeAmount = stakeAmount * playerCount;
+    try {
+      const sessionId = gameSessionIds[gameId];
+      const players = gameRooms[gameId] || new Set();
+      const playerCount = players.size;
+      const stakeAmount = Number(gameId);
+      const prizeAmount = stakeAmount * playerCount;
 
-            const winnerUser = await User.findOne({ telegramId });
-            if (!winnerUser) {
-              console.error(`❌ User with telegramId ${telegramId} not found`);
-              return;
-            }
+      const winnerUser = await User.findOne({ telegramId });
+      if (!winnerUser) {
+        console.error(`❌ User with telegramId ${telegramId} not found`);
+        return;
+      }
 
-            const winnerUsername = winnerUser.username || "Unknown";
-            winnerUser.balance += prizeAmount;
-            await winnerUser.save();
+      const winnerUsername = winnerUser.username || "Unknown";
+      winnerUser.balance += prizeAmount;
+      await winnerUser.save();
 
-            // Emit winner found event
-            io.to(gameId.toString()).emit("winnerfound", {
-              winnerName: winnerUsername,
-              prizeAmount,
-              playerCount,
-              board,
-              winnerPattern,
-              boardNumber: cartelaId,
-              newBalance: winnerUser.balance,
-              telegramId,
-              gameId,
-            });
+      // Emit winner found event
+      io.to(gameId.toString()).emit("winnerfound", {
+        winnerName: winnerUsername,
+        prizeAmount,
+        playerCount,
+        board,
+        winnerPattern,
+        boardNumber: cartelaId,
+        newBalance: winnerUser.balance,
+        telegramId,
+        gameId,
+      });
 
-            console.log(`🏆 ${winnerUsername} won ${prizeAmount}. New balance: ${winnerUser.balance}`);
+      console.log(`🏆 ${winnerUsername} won ${prizeAmount}. New balance: ${winnerUser.balance}`);
 
-            // Save winner details to GameHistory
-            await GameHistory.findOneAndUpdate(
-                { sessionId },
-            { // optional: link to session if you have it
-              gameId: gameId.toString(),
-              username: winnerUsername,
-              telegramId,
-              winAmount: prizeAmount,
-              stake: stakeAmount,
-              createdAt: new Date()
-            }
-            );
+      // Save winner details to GameHistory with eventType "win"
+      await GameHistory.create({
+        sessionId,
+        gameId: gameId.toString(),
+        username: winnerUsername,
+        telegramId,
+        eventType: "win",
+        winAmount: prizeAmount,
+        stake: stakeAmount,
+        createdAt: new Date(),
+      });
 
-            // Final cleanup
-            await GameControl.findOneAndUpdate({ gameId }, { isActive: false });
-            resetGame(gameId);
+      // Save losers details for all other players
+      for (const playerTelegramId of players) {
+        if (playerTelegramId !== telegramId) {
+          const playerUser = await User.findOne({ telegramId: playerTelegramId });
+          if (!playerUser) continue;
 
-          } catch (error) {
-            console.error("🔥 Error processing winner:", error);
-            socket.emit("winnerError", { message: "Failed to update winner balance. Please try again." });
-          }
+          await GameHistory.create({
+            sessionId,
+            gameId: gameId.toString(),
+            username: playerUser.username || "Unknown",
+            telegramId: playerTelegramId,
+            eventType: "lose",
+            winAmount: 0,
+            stake: stakeAmount,
+            createdAt: new Date(),
+          });
+        }
+      }
+
+      // Final cleanup
+      await GameControl.findOneAndUpdate({ gameId }, { isActive: false });
+      resetGame(gameId);
+
+    } catch (error) {
+      console.error("🔥 Error processing winner:", error);
+      socket.emit("winnerError", { message: "Failed to update winner balance. Please try again." });
+    }
     });
 
 
       // Handle disconnection events
-  socket.on("disconnect", () => {
+   socket.on("disconnect", () => {
       console.log("🔴 Client disconnected");
 
       const user = userSelections[socket.id];

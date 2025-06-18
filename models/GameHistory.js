@@ -8,12 +8,12 @@ const gameHistorySchema = new mongoose.Schema({
   username: { type: String, required: true },
   telegramId: { type: String, required: true },
 
-  // Game outcome
-  winAmount: { type: Number, required: true },
-  stake: { type: Number, required: true },
-  
-  // Timestamps
-  createdAt: { type: Date, default: Date.now }, // stores date + time
+  eventType: { type: String, required: true, enum: ['win', 'lose'] },
+
+  winAmount: { type: Number, default: 0 },  // Amount won, 0 if lost
+  stake: { type: Number, required: true },  // Amount staked
+
+  createdAt: { type: Date, default: Date.now },
 });
 
 module.exports = mongoose.model("GameHistory", gameHistorySchema);
