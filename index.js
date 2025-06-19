@@ -257,7 +257,7 @@ const gamePlayers = {};
       gameDraws[gameId] = { numbers: [], index: 0 }; 
 
       try {
-        const existing = await GameControl.findOne({ where: { gameId } });
+        const existing = await GameControl.findOne({  gameId });
         const sessionId = uuidv4();
         gameSessionIds[gameId] = sessionId;
 
