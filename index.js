@@ -488,7 +488,7 @@ const gamePlayers = {};
           numberOfPlayers: gameSessions[gameId]?.size || 0,
       });
 
-      // 🧨 If no players left, clean everything
+      // 🧨 If no players left, clean every
       const currentSessionPlayers = gameSessions[gameId]?.size || 0; // Use a more descriptive variable name
       const currentRoomPlayers = gameRooms[gameId]?.size || 0; // Use a more descriptive variable name
 
