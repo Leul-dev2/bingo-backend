@@ -383,7 +383,8 @@ const gamePlayers = {};
         }
 
         const winnerUsername = winnerUser.username || "Unknown";
-        winnerUser.balance += prizeAmount;
+        console.log("🔍 prizeAmount:", prizeAmount, "original balance:", winnerUser.balance);
+        winnerUser.balance = Number(winnerUser.balance || 0) + Number(prizeAmount || 0);
         await winnerUser.save();
 
         io.to(gameId.toString()).emit("winnerfound", {
