@@ -367,7 +367,7 @@ const gamePlayers = {};
       try {
         const sessionId = gameSessionIds[gameId];
 
-        const gameData = await GameControl.findOne({ gameId });
+        const gameData = await GameControl.findOne({ gameId: gameId.toString() });
         if (!gameData) {
           console.error(`❌ Game data not found for gameId ${gameId}`);
           return;
