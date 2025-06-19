@@ -264,7 +264,8 @@ const gamePlayers = {};
         const stakeAmount = Number(gameId); // TODO: Replace with actual stake logic if needed
         const totalCards = Object.keys(gameCards[gameId] || {}).length;
 
-       const prizeAmount = stakeAmount * totalCards;
+      const prizeAmount = Number(stakeAmount || 0) * Number(totalCards || 0);
+
 
           if (!existing) {
             await GameControl.create({
