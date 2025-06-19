@@ -380,17 +380,18 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
       return;
     }
 
+    console.log("🔍 Fetched gameData:", gameData);
+
     const prizeAmount = gameData.prizeAmount;
     const stakeAmount = gameData.stakeAmount;
     const playerCount = gameData.totalCards;
 
     if (typeof prizeAmount !== "number" || isNaN(prizeAmount)) {
-      console.error(`❌ Invalid prizeAmount (${prizeAmount}) for gameId: ${gameId}`);
+      console.error(`❌ Invalid or missing prizeAmount (${prizeAmount}) for gameId: ${gameId}`);
       return;
     }
 
     const winnerUser = await User.findOne({ telegramId });
-
     if (!winnerUser) {
       console.error(`❌ User with telegramId ${telegramId} not found`);
       return;
@@ -404,7 +405,6 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
 
     console.log(`🏆 ${winnerUser.username || "Unknown"} won ${prizeAmount}. New balance: ${winnerUser.balance}`);
 
-    // Emit winner info to clients
     io.to(gameId.toString()).emit("winnerfound", {
       winnerName: winnerUser.username || "Unknown",
       prizeAmount,
@@ -417,7 +417,6 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
       gameId,
     });
 
-    // Save winner event in history
     await GameHistory.create({
       sessionId,
       gameId: gameId.toString(),
@@ -429,7 +428,6 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
       createdAt: new Date(),
     });
 
-    // Save losers history
     const players = gameRooms[gameId] || new Set();
     for (const playerTelegramId of players) {
       if (playerTelegramId !== telegramId) {
@@ -449,7 +447,6 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
       }
     }
 
-    // Mark game as inactive and reset
     await GameControl.findOneAndUpdate({ gameId: gameId.toString() }, { isActive: false });
     resetGame(gameId);
 
@@ -458,6 +455,7 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
     socket.emit("winnerError", { message: "Failed to update winner balance. Please try again." });
   }
 });
+
 
 
 
