@@ -140,7 +140,7 @@ const gamePlayers = {};
 
 
 
-io.on("`connection`", (socket) => {
+io.on("connection", (socket) => {
       console.log("🟢 New client connected");
       console.log("Client connected with socket ID:", socket.id);
       // User joins a game
