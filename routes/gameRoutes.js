@@ -24,6 +24,7 @@ router.post("/start", async (req, res) => {
 
     joiningUsers.add(telegramId);
 
+
     // 🏦 Deduct balance and join
     const user = await User.findOneAndUpdate(
       { telegramId, balance: { $gte: gameId } },  // Assume gameId is used like price
