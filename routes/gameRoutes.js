@@ -1,33 +1,32 @@
 const express = require('express');
 const router = express.Router();
 const User = require("../models/user");
-const GameControl = require('../models/GameControl'); // Your game model
+const GameControl = require('../models/GameControl');
 
-const joiningUsers = new Set(); // In-memory lock to block rapid duplicate joins
-// const manualStartOnly = {}; // global state map
+// Shared memory (outside route, initialized once)
+const joiningUsers = new Set();
 
-
-// routes/start.js
+// POST /api/games/start
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
 
-  const joiningUsers = req.app.get("joiningUsers");
-  const User = req.app.get("User");
-
   try {
+    // 🧠 Block duplicate rapid joins (double-click protection)
     if (joiningUsers.has(telegramId)) {
       return res.status(429).json({ error: "You're already joining the game" });
     }
 
-    // // if (manualStartOnly[gameId]) {
-    // //   delete manualStartOnly[gameId];
-    //   console.log(`✅ Game ${gameId} manually unlocked via API /start`);
-    // // }s
+    // 🚫 Check if game is already active in DB
+    const game = await GameControl.findOne({ gameId });
+    if (game?.isActive) {
+      return res.status(400).json({ error: "Game is already active" });
+    }
 
     joiningUsers.add(telegramId);
 
+    // 🏦 Deduct balance and join
     const user = await User.findOneAndUpdate(
-      { telegramId, balance: { $gte: gameId } },
+      { telegramId, balance: { $gte: gameId } },  // Assume gameId is used like price
       { $inc: { balance: -gameId } },
       { new: true }
     );
@@ -37,32 +36,34 @@ router.post("/start", async (req, res) => {
       return res.status(400).json({ error: "Insufficient balance" });
     }
 
+    // ✅ Success
     joiningUsers.delete(telegramId);
     return res.status(200).json({ success: true, gameId, telegramId });
 
   } catch (err) {
     joiningUsers.delete(telegramId);
+    console.error("Start game error:", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-
- router.get('/:gameId/status', async (req, res) => {
+// GET /api/games/:gameId/status
+router.get('/:gameId/status', async (req, res) => {
   const { gameId } = req.params;
 
   try {
     const game = await GameControl.findOne({ gameId });
 
     if (!game) {
-      return res.status(404).json({ isActive: false, message: 'Game not found' });
+      return res.status(404).json({ isActive: false, message: 'Game not found', exists: false });
     }
 
-    res.json({ isActive: game.isActive });
+    return res.json({ isActive: game.isActive, exists: true });
+
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ isActive: false, message: 'Server error' });
+    console.error("Status check error:", error);
+    return res.status(500).json({ isActive: false, message: 'Server error', exists: false });
   }
 });
-
 
 module.exports = router;
