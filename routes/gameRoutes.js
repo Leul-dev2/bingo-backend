@@ -1,31 +1,33 @@
 const express = require('express');
 const router = express.Router();
+
+// Assume these are initialized and passed from main app.js
 const User = require("../models/user");
-const GameControl = require('../models/GameControl'); // Your game model
+const GameControl = require('../models/GameControl');
 
-const joiningUsers = new Set(); // In-memory lock to block rapid duplicate joins
-// const manualStartOnly = {}; // global state map
+// Global lock to prevent rapid double joins
+const joiningUsers = new Set();
 
-
-// routes/start.js
+// POST /api/games/start
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
 
-  const joiningUsers = req.app.get("joiningUsers");
-  const User = req.app.get("User");
-
   try {
+    // Prevent double join
     if (joiningUsers.has(telegramId)) {
       return res.status(429).json({ error: "You're already joining the game" });
     }
 
-    // // if (manualStartOnly[gameId]) {
-    // //   delete manualStartOnly[gameId];
-    //   console.log(`✅ Game ${gameId} manually unlocked via API /start`);
-    // // }
-
     joiningUsers.add(telegramId);
 
+    // 🔍 Check if game is already active
+    const game = await GameControl.findOne({ gameId });
+    if (game?.isActive) {
+      joiningUsers.delete(telegramId);
+      return res.status(409).json({ error: "Game already active" });
+    }
+
+    // 💰 Deduct balance if enough
     const user = await User.findOneAndUpdate(
       { telegramId, balance: { $gte: gameId } },
       { $inc: { balance: -gameId } },
@@ -37,17 +39,27 @@ router.post("/start", async (req, res) => {
       return res.status(400).json({ error: "Insufficient balance" });
     }
 
+    // ✅ Optionally mark game as active here (only for first player)
+    if (!game?.isActive) {
+      await GameControl.updateOne(
+        { gameId },
+        { $set: { isActive: true } },
+        { upsert: true }
+      );
+    }
+
     joiningUsers.delete(telegramId);
     return res.status(200).json({ success: true, gameId, telegramId });
 
   } catch (err) {
+    console.error("Start error:", err);
     joiningUsers.delete(telegramId);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-
- router.get('/:gameId/status', async (req, res) => {
+// GET /api/games/:gameId/status
+router.get('/:gameId/status', async (req, res) => {
   const { gameId } = req.params;
 
   try {
@@ -63,6 +75,5 @@ router.post("/start", async (req, res) => {
     res.status(500).json({ isActive: false, message: 'Server error' });
   }
 });
-
 
 module.exports = router;
