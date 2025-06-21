@@ -254,7 +254,6 @@ io.on("connection", (socket) => {
       const existing = await GameControl.findOne({ gameId });
       const sessionId = uuidv4();
       gameSessionIds[gameId] = sessionId;
-
       const stakeAmount = Number(gameId); // You can replace with real stake
       const totalCards = Object.keys(gameCards[gameId] || {}).length;
       const prizeAmount = stakeAmount * totalCards;
@@ -278,7 +277,7 @@ io.on("connection", (socket) => {
         existing.isActive = false; // ✅ wait for drawing to mark active
         existing.createdAt = new Date();
         await existing.save();
-        console.log(`🔄 Updated GameControl for new round of game ${gameId}`);
+        console.log(`🔄 Updated GameControl for new round of game ${gameId} ${playerCount}`);
       }
 
       // 🎲 Shuffle numbers
