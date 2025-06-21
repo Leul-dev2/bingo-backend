@@ -445,6 +445,8 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
 
     await GameControl.findOneAndUpdate({ gameId: gameId.toString() }, { isActive: false });
     resetGame(gameId);
+    io.to(gameId).emit("gameEnded");
+
 
   } catch (error) {
     console.error("🔥 Error processing winner:", error);
@@ -508,6 +510,7 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
       if (currentSessionPlayers === 0 && currentRoomPlayers === 0) {
           console.log(`🧹 No players left in game ${gameId}. Triggering full game reset.`);
           resetGame(gameId); // Call the dedicated reset function
+           io.to(gameId).emit("gameEnded");
       }
   });
 
