@@ -277,7 +277,7 @@ io.on("connection", (socket) => {
         existing.isActive = false; // ✅ wait for drawing to mark active
         existing.createdAt = new Date();
         await existing.save();
-        console.log(`🔄 Updated GameControl for new round of game ${gameId} ${playerCount}`);
+        console.log(`🔄 Updated GameControl for new round of game ${gameId}`);
       }
 
       // 🎲 Shuffle numbers
