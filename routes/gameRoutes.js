@@ -4,11 +4,12 @@ const User = require("../models/user");
 const GameControl = require('../models/GameControl');
 
 // Shared memory (outside route, initialized once)
-const joiningUsers = new Set();
+//const joiningUsers = new Set();
 
 // POST /api/games/start
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
+   const joiningUsers = req.app.get("joiningUsers");
 
   try {
     // 🧠 Block duplicate rapid joins (double-click protection)

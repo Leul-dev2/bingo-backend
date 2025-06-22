@@ -145,74 +145,72 @@ io.on("connection", (socket) => {
       console.log("Client connected with socket ID:", socket.id);
       // User joins a game
       socket.on("userJoinedGame", ({ telegramId, gameId }) => {
-          if (!gameSessions[gameId]) {
-          gameSessions[gameId] = new Set();
-        }
+  if (!gameRooms[gameId] || !gameRooms[gameId].has(telegramId)) {
+    console.warn(`🚫 Blocked unpaid user ${telegramId} from joining game session ${gameId}`);
+    return;
+  }
 
-       gameSessions[gameId].add(telegramId); // Set automatically prevents duplicates
-  
+  if (!gameSessions[gameId]) {
+    gameSessions[gameId] = new Set();
+  }
 
-          socket.join(gameId);
+  gameSessions[gameId].add(telegramId);
+  socket.join(gameId);
 
-          // 🔁 Store user selection
-          userSelections[socket.id] = { telegramId, gameId };
+  userSelections[socket.id] = { telegramId, gameId };
 
-          console.log(`User ${telegramId} joined game room: ${gameId}`);
+  // Send current selected cards
+  if (gameCards[gameId]) {
+    socket.emit("currentCardSelections", gameCards[gameId]);
+  }
 
-          // ✅ Send current selected cards to this user only
-          if (gameCards[gameId]) {
-              socket.emit("currentCardSelections", gameCards[gameId]);
-          }
+  // Emit current player count
+  const numberOfPlayers = gameSessions[gameId]?.size || 0;
+  io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
 
-        
-          // ✅ Send player count to all in room
-          const numberOfPlayers = gameSessions[gameId]?.size || 0;
-          console.log(`Emitting player count ${numberOfPlayers} for game ${gameId}`);
-          io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
-          });
-
-
-          socket.on("cardSelected", (data) => {
-          const { telegramId, cardId, card, gameId } = data;
-
-          if (!gameCards[gameId]) {
-              gameCards[gameId] = {}; // initialize if not present
-          }
-
-          // Check if the card is already taken by another user
-          if (gameCards[gameId][cardId] && gameCards[gameId][cardId] !== telegramId) {
-              io.to(telegramId).emit("cardUnavailable", { cardId });
-              console.log(`Card ${cardId} is already selected by another user`);
-              return;
-          }
-
-          // ✅ Check if the user had selected a card before
-          const prevSelection = userSelections[socket.id];
-          const prevCardId = prevSelection?.cardId;
-
-          // ✅ Free up old card if exists and different from new one
-          if (prevCardId && prevCardId !== cardId) {
-              delete gameCards[gameId][prevCardId];
-              socket.to(gameId).emit("cardAvailable", { cardId: prevCardId });
-              console.log(`Card ${prevCardId} is now available again`);
-          }
-
-          // ✅ Store the new selected card
-          gameCards[gameId][cardId] = telegramId;
-          userSelections[socket.id] = { telegramId, cardId, card, gameId };
-
-          // Confirm to this user
-          io.to(telegramId).emit("cardConfirmed", { cardId, card });
-
-          // Notify others
-          socket.to(gameId).emit("otherCardSelected", { telegramId, cardId });
-
-          const numberOfPlayers = gameSessions[gameId]?.size || 0;
-          io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
-
-          console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
-
+  console.log(`User ${telegramId} joined game room: ${gameId}`);
       });
+
+
+
+     socket.on("cardSelected", (data) => {
+      const { telegramId, cardId, card, gameId } = data;
+
+      // ✅ Only allow if user paid (is in gameRooms)
+      if (!gameRooms[gameId] || !gameRooms[gameId].has(telegramId)) {
+        console.warn(`🚫 Blocked unpaid user ${telegramId} from selecting card in game ${gameId}`);
+        return;
+      }
+
+      if (!gameCards[gameId]) {
+        gameCards[gameId] = {};
+      }
+
+      if (gameCards[gameId][cardId] && gameCards[gameId][cardId] !== telegramId) {
+        io.to(telegramId).emit("cardUnavailable", { cardId });
+        return;
+      }
+
+      const prevSelection = userSelections[socket.id];
+      const prevCardId = prevSelection?.cardId;
+
+      if (prevCardId && prevCardId !== cardId) {
+        delete gameCards[gameId][prevCardId];
+        socket.to(gameId).emit("cardAvailable", { cardId: prevCardId });
+      }
+
+      gameCards[gameId][cardId] = telegramId;
+      userSelections[socket.id] = { telegramId, cardId, card, gameId };
+
+      io.to(telegramId).emit("cardConfirmed", { cardId, card });
+      socket.to(gameId).emit("otherCardSelected", { telegramId, cardId });
+
+      const numberOfPlayers = gameSessions[gameId]?.size || 0;
+      io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
+
+      console.log(`User ${telegramId} selected card ${cardId} in game ${gameId}`);
+    });
+
 
 
 
@@ -255,7 +253,7 @@ io.on("connection", (socket) => {
       const sessionId = uuidv4();
       gameSessionIds[gameId] = sessionId;
       const stakeAmount = Number(gameId); // You can replace with real stake
-      const totalCards = Object.keys(gameCards[gameId] || {}).length;
+      const totalCards = gameRooms[gameId]?.size || 0;
       const prizeAmount = stakeAmount * totalCards;
 
       if (!existing) {
