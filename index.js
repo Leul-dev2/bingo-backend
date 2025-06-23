@@ -145,10 +145,10 @@ io.on("connection", (socket) => {
       console.log("Client connected with socket ID:", socket.id);
       // User joins a game
       socket.on("userJoinedGame", ({ telegramId, gameId }) => {
-  if (!gameRooms[gameId] || !gameRooms[gameId].has(telegramId)) {
-    console.warn(`🚫 Blocked unpaid user ${telegramId} from joining game session ${gameId}`);
-    return;
-  }
+  // if (!gameRooms[gameId] || !gameRooms[gameId].has(telegramId)) {
+  //   console.warn(`🚫 Blocked unpaid user ${telegramId} from joining game session ${gameId}`);
+  //   return;
+  // }
 
   if (!gameSessions[gameId]) {
     gameSessions[gameId] = new Set();
