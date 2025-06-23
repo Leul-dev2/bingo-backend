@@ -177,10 +177,10 @@ io.on("connection", (socket) => {
       const { telegramId, cardId, card, gameId } = data;
 
       // ✅ Only allow if user paid (is in gameRooms)
-      if (!gameRooms[gameId] || !gameRooms[gameId].has(telegramId)) {
-        console.warn(`🚫 Blocked unpaid user ${telegramId} from selecting card in game ${gameId}`);
-        return;
-      }
+      // if (!gameRooms[gameId] || !gameRooms[gameId].has(telegramId)) {
+      //   console.warn(`🚫 Blocked unpaid user ${telegramId} from selecting card in game ${gameId}`);
+      //   return;
+      // }
 
       if (!gameCards[gameId]) {
         gameCards[gameId] = {};
