@@ -7,11 +7,21 @@ router.get('/:telegramId', async (req, res) => {
   const { telegramId } = req.params;
   try {
     const gamesWon = await GameHistory.countDocuments({ telegramId, eventType: 'win' });
-    const user = await GameHistory.findOne({ telegramId }).sort({ createdAt: -1 });
-    return res.json({ username: user?.username || '', gamesWon });
+    const latestEntry = await GameHistory.findOne({ telegramId }).sort({ createdAt: -1 });
+
+    const username = latestEntry && latestEntry.username ? latestEntry.username : '';
+
+    return res.json({
+      success: true,
+      username,
+      gamesWon,
+    });
   } catch (err) {
     console.error('Profile fetch error:', err);
-    return res.status(500).json({ message: 'Profile data fetch failed' });
+    return res.status(500).json({
+      success: false,
+      message: 'Profile data fetch failed',
+    });
   }
 });
 
