@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const GameHistory = require('../models/GameHistory');
 
-// GET /api/top-players?time=24hr|7days|30days|all
 router.get('/', async (req, res) => {
   const timeframe = req.query.time || 'all';
   let dateFilter = null;
