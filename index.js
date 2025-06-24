@@ -10,6 +10,9 @@ const gameRoutes = require("./routes/gameRoutes");
 const topPlayers=require('./routes/topPlayers')
 const historyRoutes = require('./routes/history');
 const walletRoute = require('./routes/api/wallet');
+const profileRoutes = require('./routes/profile');
+
+
 
 const User = require("./models/user");
 const GameControl = require("./models/GameControl");
@@ -49,6 +52,8 @@ app.use("/api/games", gameRoutes);
 app.use("/api/Score", topPlayers); 
 app.use('/api/history', historyRoutes);
 app.use('/api/wallet', walletRoute);
+app.use('/api/profile', profileRoutes);
+
 
 
 // 🏠 Default route
