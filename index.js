@@ -7,6 +7,7 @@ require("dotenv").config();
 
 const userRoutes = require("./routes/userRoutes");
 const gameRoutes = require("./routes/gameRoutes");
+const topPlayers=require('./routes/topPlayers')
 const User = require("./models/user");
 const GameControl = require("./models/GameControl");
 const GameHistory = require('./models/GameHistory');
@@ -42,6 +43,8 @@ app.use(cors());
 // 🚏 Routes
 app.use("/api/users", userRoutes);
 app.use("/api/games", gameRoutes);
+app.use("/api/Score", topPlayers); 
+
 
 // 🏠 Default route
 app.get("/", (req, res) => {
