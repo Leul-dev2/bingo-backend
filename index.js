@@ -8,7 +8,7 @@ require("dotenv").config();
 const userRoutes = require("./routes/userRoutes");
 const gameRoutes = require("./routes/gameRoutes");
 const topPlayers=require('./routes/topPlayers')
-const historyRoutes = require('./routes/history');
+//const historyRoutes = require('./routes/history');
 
 const User = require("./models/user");
 const GameControl = require("./models/GameControl");
@@ -46,7 +46,7 @@ app.use(cors());
 app.use("/api/users", userRoutes);
 app.use("/api/games", gameRoutes);
 app.use("/api/Score", topPlayers); 
-app.use('/api/history', historyRoutes);
+//app.use('/api/history', historyRoutes);
 
 
 // 🏠 Default route
