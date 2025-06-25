@@ -1,27 +1,34 @@
 const express = require('express');
 const router = express.Router();
 const GameHistory = require('../models/GameHistory');
+const User = require('../models/user');
 
 router.get('/:telegramId', async (req, res) => {
   const { telegramId } = req.params;
 
   try {
-    const games = await GameHistory.find({ telegramId });
+    // Fetch user and game history in parallel
+    const [user, games] = await Promise.all([
+      User.findOne({ telegramId }),
+      GameHistory.find({ telegramId }),
+    ]);
 
-    const balance = games.reduce((sum, g) => sum + (g.winAmount - g.stake), 0);
-    const bonus = 0; // You can add real bonus logic later
+    // Check if user exists
+    if (!user) {
+      return res.status(404).json({ success: false, error: "User not found" });
+    }
+
+    const bonus = 0; // 🔧 Placeholder for future bonus logic
     const coins = Math.floor(games.length / 3);
-
     const gamesWon = games.filter(g => g.eventType === 'win').length;
-
-    const latestEntry = games[0]; // Already sorted by latest if you want
-    const username = latestEntry && latestEntry.username ? latestEntry.username : '';
+    const latestEntry = games[0];
+    const username = latestEntry?.username || user.username || 'Unknown';
 
     return res.status(200).json({
       success: true,
       username,
       gamesWon,
-      balance,
+      balance: user.balance,
       bonus,
       coins,
     });
