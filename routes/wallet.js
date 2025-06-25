@@ -1,23 +1,32 @@
 // routes/api/wallet.js
 const express = require('express');
 const router = express.Router();
-const GameHistory = require('../../models/GameHistory');
+const User = require("../models/user"); // Import the User model
 
-router.get('/:telegramId', async (req, res) => {
-  const { telegramId } = req.params;
+
+router.get('/', async (req, res) => {
+  const { telegramId } = req.query;
+
+  if (!telegramId) {
+    return res.status(400).json({ error: "Missing telegramId" });
+  }
 
   try {
-    const games = await GameHistory.find({ telegramId });
+    const user = await User.findOne({ telegramId });
 
-    const balance = games.reduce((sum, g) => sum + (g.winAmount - g.stake), 0);
-    const bonus = 0; // You can customize logic if needed
-    const coins = Math.floor(games.length / 3);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
 
-    res.status(200).json({ balance, bonus, coins });
+    res.json({
+      balance: user.balance,
+      phoneNumber: user.phoneNumber,
+    });
   } catch (error) {
-    console.error('Wallet fetch error:', error);
-    res.status(500).json({ message: 'Failed to fetch wallet' });
+    console.error("Error fetching user data:", error);
+    res.status(500).json({ error: "Server error" });
   }
 });
+
 
 module.exports = router;
