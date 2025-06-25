@@ -9,7 +9,7 @@ const userRoutes = require("./routes/userRoutes");
 const gameRoutes = require("./routes/gameRoutes");
 const topPlayers=require('./routes/topPlayers')
 const historyRoutes = require('./routes/history');
-const walletRoute = require('./routes/api/wallet');
+const walletRoute = require('./routes/wallet');
 const profileRoutes = require('./routes/profile');
 
 
