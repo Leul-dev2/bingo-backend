@@ -7,45 +7,18 @@ router.get('/:telegramId', async (req, res) => {
   const { telegramId } = req.params;
 
   try {
+    // Fetch user and game history in parallel
     const [user, games] = await Promise.all([
       User.findOne({ telegramId }),
-      GameHistory.aggregate([
-        { $match: { telegramId } },
-        {
-          $lookup: {
-            from: 'gamehistories',
-            localField: 'sessionId',
-            foreignField: 'sessionId',
-            as: 'allPlayersInGame'
-          }
-        },
-        {
-          $addFields: {
-            totalPlayers: { $size: '$allPlayersInGame' }
-          }
-        },
-        {
-          $project: {
-            sessionId: 1,
-            gameId: 1,
-            username: 1,
-            telegramId: 1,
-            eventType: 1,
-            winAmount: 1,
-            stake: 1,
-            createdAt: 1,
-            totalPlayers: 1
-          }
-        },
-        { $sort: { createdAt: -1 } }
-      ])
+      GameHistory.find({ telegramId }),
     ]);
 
+    // Check if user exists
     if (!user) {
       return res.status(404).json({ success: false, error: "User not found" });
     }
 
-    const bonus = 0;
+    const bonus = 0; // 🔧 Placeholder for future bonus logic
     const coins = Math.floor(games.length / 3);
     const gamesWon = games.filter(g => g.eventType === 'win').length;
     const latestEntry = games[0];
@@ -58,7 +31,6 @@ router.get('/:telegramId', async (req, res) => {
       balance: user.balance,
       bonus,
       coins,
-      games
     });
   } catch (err) {
     console.error('Profile fetch error:', err);
@@ -69,3 +41,4 @@ router.get('/:telegramId', async (req, res) => {
   }
 });
 
+module.exports = router;
