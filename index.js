@@ -105,8 +105,8 @@ const gamePlayers = {};
 
 // ✅ Helper function to check if the game should be reset
 function checkAndResetIfEmpty(gameId, io) {
-  const sessionEmpty = !gameSessions[gameId] || gameSessions[gameId].size === 0;
-  const roomEmpty = !gameRooms[gameId] || gameRooms[gameId].size === 0;
+  const sessionEmpty =  gameSessions[gameId].size === 0;
+  const roomEmpty =  gameRooms[gameId].size === 0;
 
   if (sessionEmpty && roomEmpty) {
     console.log(`🧹 No players left in game ${gameId}. Resetting game...`);
