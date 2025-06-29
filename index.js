@@ -507,7 +507,7 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
       console.log(`🧹 No players left in game ${gameId}. Resetting game...`);
 
       // ✅ Reset game in memory
-      resetGame(gameId);
+      resetGame(gameId, io); // ✔️ Correct — pass io
 
       // ✅ Mark game inactive in database
       await GameControl.findOneAndUpdate(
@@ -527,6 +527,7 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
     if (callback) callback();
   }
 });
+
 
       // Handle disconnection events
    socket.on("disconnect", () => {
