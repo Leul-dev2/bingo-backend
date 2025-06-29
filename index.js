@@ -373,7 +373,7 @@ io.on("connection", (socket) => {
                     delete drawIntervals[gameId];
 
                     resetGame(gameId, io);
-                    GameControl.findOneAndUpdate({ gameId }, { isActive: false });
+                     GameControl.findOneAndUpdate({ gameId: gameId.toString() }, { isActive: false });
 
                     io.to(gameId).emit("gameEnded");
                     return;
