@@ -103,6 +103,29 @@ const gamePlayers = {};
     };
 
 
+// ✅ Helper function to check if the game should be reset
+function checkAndResetIfEmpty(gameId, io) {
+  const sessionEmpty = !gameSessions[gameId] || gameSessions[gameId].size === 0;
+  const roomEmpty = !gameRooms[gameId] || gameRooms[gameId].size === 0;
+
+  if (sessionEmpty && roomEmpty) {
+    console.log(`🧹 No players left in game ${gameId}. Resetting game...`);
+    resetGame(gameId, io);
+
+    GameControl.findOneAndUpdate(
+      { gameId },
+      { isActive: false }
+    ).catch(err => console.error("❌ Error updating game status:", err));
+
+    io.to(gameId).emit("gameEnded");
+    return true;
+  } else {
+    console.log(`🟢 Game ${gameId} continues with ${gameRooms[gameId]?.size || 0} players.`);
+    return false;
+  }
+}
+
+
 
     function resetGame(gameId, io) {
       console.log(`🧹 Starting reset for game ${gameId}`);
@@ -464,15 +487,16 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
   }
 });
 
+// ✅ Handle playerLeave event
 socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
   try {
     console.log(`🚪 Player ${telegramId} is leaving game ${gameId}`);
 
-    // ✅ Remove from sessions and rooms
+    // Remove from sessions and rooms
     if (gameSessions[gameId]) gameSessions[gameId].delete(telegramId);
     if (gameRooms[gameId]) gameRooms[gameId].delete(telegramId);
 
-    // ✅ Free any selected card by this player
+    // Free selected card
     const user = Object.values(userSelections).find(
       (u) => u.telegramId === telegramId && u.gameId === gameId
     );
@@ -481,14 +505,14 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
       io.to(gameId).emit("cardAvailable", { cardId: user.cardId });
     }
 
-    // ✅ Clean userSelections for this player
+    // Clean userSelections for this player
     for (const [key, value] of Object.entries(userSelections)) {
       if (value.telegramId === telegramId && value.gameId === gameId) {
         delete userSelections[key];
       }
     }
 
-    // ✅ Emit updated player count to all players in the room
+    // Emit updated player count
     io.to(gameId).emit("playerCountUpdate", {
       gameId,
       playerCount: gameRooms[gameId]?.size || 0,
@@ -499,28 +523,10 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
       numberOfPlayers: gameSessions[gameId]?.size || 0,
     });
 
-    // ✅ Check remaining players
-    const currentSessionPlayers = gameSessions[gameId]?.size || 0;
-    const currentRoomPlayers = gameRooms[gameId]?.size || 0;
+    // Check if game needs to reset
+    checkAndResetIfEmpty(gameId, io);
 
-    if (currentSessionPlayers === 0 && currentRoomPlayers === 0) {
-      console.log(`🧹 No players left in game ${gameId}. Resetting game...`);
-
-      // ✅ Reset game in memory
-      resetGame(gameId, io); // ✔️ Correct — pass io
-
-      // ✅ Mark game inactive in database
-      await GameControl.findOneAndUpdate(
-        { gameId },
-        { isActive: false }
-      );
-
-      io.to(gameId).emit("gameEnded");
-    } else {
-      console.log(`🟢 Game ${gameId} continues with ${currentRoomPlayers} players.`);
-    }
-
-    // ✅ Inform client that leave was successful
+    // Inform client that leave was successful
     if (callback) callback();
   } catch (error) {
     console.error("❌ Error handling playerLeave:", error);
