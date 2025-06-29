@@ -366,6 +366,19 @@ io.on("connection", (socket) => {
             drawIntervals[gameId] = setInterval(() => {
                 const game = gameDraws[gameId];
 
+                  const currentPlayers = gameRooms[gameId]?.size ?? 0;
+                  if (currentPlayers === 0) {
+                    console.log(`🛑 No players left in game ${gameId}. Stopping drawing...`);
+                    clearInterval(drawIntervals[gameId]);
+                    delete drawIntervals[gameId];
+
+                    resetGame(gameId, io);
+                    GameControl.findOneAndUpdate({ gameId }, { isActive: false });
+
+                    io.to(gameId).emit("gameEnded");
+                    return;
+                  }
+
                 // Ensure the game and numbers are valid, and index hasn't exceeded the numbers
                 if (!game || game.index >= game.numbers.length) {
                     clearInterval(drawIntervals[gameId]);
