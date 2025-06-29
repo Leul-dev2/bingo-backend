@@ -103,7 +103,7 @@ const gamePlayers = {};
     };
 
 
-// ✅ Helper function to check if the game should be reset
+// ✅ Helper function to check if the game should be resetS
   function checkAndResetIfEmpty(gameId, io) {
   // Use optional chaining ?.size and fallback to 0 if undefined
   const sessionSize = gameSessions[gameId]?.size ?? 0;
