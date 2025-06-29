@@ -464,9 +464,69 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
   }
 });
 
+socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
+  try {
+    console.log(`🚪 Player ${telegramId} is leaving game ${gameId}`);
 
+    // ✅ Remove from sessions and rooms
+    if (gameSessions[gameId]) gameSessions[gameId].delete(telegramId);
+    if (gameRooms[gameId]) gameRooms[gameId].delete(telegramId);
 
+    // ✅ Free any selected card by this player
+    const user = Object.values(userSelections).find(
+      (u) => u.telegramId === telegramId && u.gameId === gameId
+    );
+    if (user?.cardId && gameCards[gameId]?.[user.cardId] === telegramId) {
+      delete gameCards[gameId][user.cardId];
+      io.to(gameId).emit("cardAvailable", { cardId: user.cardId });
+    }
 
+    // ✅ Clean userSelections for this player
+    for (const [key, value] of Object.entries(userSelections)) {
+      if (value.telegramId === telegramId && value.gameId === gameId) {
+        delete userSelections[key];
+      }
+    }
+
+    // ✅ Emit updated player count to all players in the room
+    io.to(gameId).emit("playerCountUpdate", {
+      gameId,
+      playerCount: gameRooms[gameId]?.size || 0,
+    });
+
+    io.to(gameId).emit("gameid", {
+      gameId,
+      numberOfPlayers: gameSessions[gameId]?.size || 0,
+    });
+
+    // ✅ Check remaining players
+    const currentSessionPlayers = gameSessions[gameId]?.size || 0;
+    const currentRoomPlayers = gameRooms[gameId]?.size || 0;
+
+    if (currentSessionPlayers === 0 && currentRoomPlayers === 0) {
+      console.log(`🧹 No players left in game ${gameId}. Resetting game...`);
+
+      // ✅ Reset game in memory
+      resetGame(gameId);
+
+      // ✅ Mark game inactive in database
+      await GameControl.findOneAndUpdate(
+        { gameId },
+        { isActive: false }
+      );
+
+      io.to(gameId).emit("gameEnded");
+    } else {
+      console.log(`🟢 Game ${gameId} continues with ${currentRoomPlayers} players.`);
+    }
+
+    // ✅ Inform client that leave was successful
+    if (callback) callback();
+  } catch (error) {
+    console.error("❌ Error handling playerLeave:", error);
+    if (callback) callback();
+  }
+});
 
       // Handle disconnection events
    socket.on("disconnect", () => {
