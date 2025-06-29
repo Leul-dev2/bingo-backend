@@ -361,48 +361,62 @@ io.on("connection", (socket) => {
 
 
 
-    function startDrawing(gameId, io) {
-            console.log(`Starting the drawing process for gameId: ${gameId}`);
-            drawIntervals[gameId] = setInterval(() => {
-                const game = gameDraws[gameId];
+  async function startDrawing(gameId, io) {
+  console.log(`🎯 Starting the drawing process for gameId: ${gameId}`);
 
-                  const currentPlayers = gameRooms[gameId]?.size ?? 0;
-                  if (currentPlayers === 0) {
-                    console.log(`🛑 No players left in game ${gameId}. Stopping drawing...`);
-                    clearInterval(drawIntervals[gameId]);
-                    delete drawIntervals[gameId];
+  drawIntervals[gameId] = setInterval(async () => {
+    const game = gameDraws[gameId];
 
-                    resetGame(gameId, io);
-                     GameControl.findOneAndUpdate({ gameId: gameId.toString() }, { isActive: false });
+    const currentPlayers = gameRooms[gameId]?.size ?? 0;
+    if (currentPlayers === 0) {
+      console.log(`🛑 No players left in game ${gameId}. Stopping drawing...`);
 
-                    io.to(gameId).emit("gameEnded");
-                    return;
-                  }
+      clearInterval(drawIntervals[gameId]);
+      delete drawIntervals[gameId];
 
-                // Ensure the game and numbers are valid, and index hasn't exceeded the numbers
-                if (!game || game.index >= game.numbers.length) {
-                    clearInterval(drawIntervals[gameId]);
-                    io.to(gameId).emit("allNumbersDrawn");
-                    console.log(`All numbers drawn for gameId: ${gameId}`);
+      resetGame(gameId, io);
 
-                    // Reset the game state when all numbers are drawn
-                    delete gameDraws[gameId];
-                    return;
-                }
+      try {
+        await GameControl.findOneAndUpdate(
+          { gameId: gameId.toString() },
+          { isActive: false }
+        );
+        console.log(`✅ GameControl updated: game ${gameId} set to inactive.`);
+      } catch (err) {
+        console.error(`❌ Failed to update GameControl for game ${gameId}:`, err);
+      }
 
-                // Draw one number
-                const number = game.numbers[game.index++];
-                const letterIndex = Math.floor((number - 1) / 15);
-                const letter = ["B", "I", "N", "G", "O"][letterIndex];
-                const label = `${letter}-${number}`;
+      io.to(gameId).emit("gameEnded");
+      return;
+    }
 
-                console.log(`Drawing number: ${number}, Label: ${label}, Index: ${game.index - 1}`);
+    // ✔️ Check if game has valid numbers to draw
+    if (!game || game.index >= game.numbers.length) {
+      clearInterval(drawIntervals[gameId]);
+      delete drawIntervals[gameId];
 
-                // Emit the drawn number
-                io.to(gameId).emit("numberDrawn", { number, label });
+      io.to(gameId).emit("allNumbersDrawn");
+      console.log(`🎯 All numbers drawn for game ${gameId}`);
 
-            }, 3000); // Draws one number every 8 seconds (adjust as needed)
-        }
+      // Optional: reset game after all numbers drawn
+      resetGame(gameId, io);
+
+      return;
+    }
+
+    // ✔️ Draw one number
+    const number = game.numbers[game.index++];
+    const letterIndex = Math.floor((number - 1) / 15);
+    const letter = ["B", "I", "N", "G", "O"][letterIndex];
+    const label = `${letter}-${number}`;
+
+    console.log(`🔢 Drawing number: ${label}, Index: ${game.index - 1}`);
+
+    io.to(gameId).emit("numberDrawn", { number, label });
+
+  }, 3000); // Draw every 3 seconds
+}
+
 
 
 
