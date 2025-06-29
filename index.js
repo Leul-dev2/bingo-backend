@@ -104,11 +104,12 @@ const gamePlayers = {};
 
 
 // ✅ Helper function to check if the game should be reset
-function checkAndResetIfEmpty(gameId, io) {
-  const sessionEmpty =  gameSessions[gameId].size === 0;
-  const roomEmpty =  gameRooms[gameId].size === 0;
+  function checkAndResetIfEmpty(gameId, io) {
+  // Use optional chaining ?.size and fallback to 0 if undefined
+  const sessionSize = gameSessions[gameId]?.size ?? 0;
+  const roomSize = gameRooms[gameId]?.size ?? 0;
 
-  if (sessionEmpty && roomEmpty) {
+  if (sessionSize === 0 && roomSize === 0) {
     console.log(`🧹 No players left in game ${gameId}. Resetting game...`);
     resetGame(gameId, io);
 
@@ -120,10 +121,11 @@ function checkAndResetIfEmpty(gameId, io) {
     io.to(gameId).emit("gameEnded");
     return true;
   } else {
-    console.log(`🟢 Game ${gameId} continues with ${gameRooms[gameId]?.size || 0} players.`);
+    console.log(`🟢 Game ${gameId} continues with ${roomSize} players.`);
     return false;
   }
 }
+
 
 
 
