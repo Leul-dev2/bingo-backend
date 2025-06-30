@@ -3,69 +3,80 @@ const router = express.Router();
 const User = require("../models/user");
 const GameControl = require('../models/GameControl');
 
-// ✅ Game Start Route with Mongo Locking
+// ✅ Game Start Route
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
-  const price = gameId; // Replace this with actual price if needed
 
   try {
-    // 🔐 Step 1: Attempt to set a lock atomically AND check balance
+    const game = await GameControl.findOne({ gameId });
+
+    if (!game) {
+      return res.status(404).json({ error: "Game not found." });
+    }
+
+    // 🔍 Check if user already joined
+    if (!game.players) {
+      game.players = []; // In case players array not initialized
+    }
+
+    if (game.players.includes(telegramId)) {
+      return res.status(400).json({ error: "You already joined this game." });
+    }
+
+    // 🔐 Apply Lock (check no transfer in progress + enough balance)
     const user = await User.findOneAndUpdate(
-      { 
-        telegramId, 
-        transferInProgress: null, 
-        balance: { $gte: price }
+      {
+        telegramId,
+        transferInProgress: null,
+        balance: { $gte: game.stakeAmount }
       },
-      { 
+      {
         $set: { transferInProgress: { type: 'gameStart', at: Date.now() } },
-        $inc: { balance: -price }
+        $inc: { balance: -game.stakeAmount }
       },
       { new: true }
     );
 
     if (!user) {
       return res.status(400).json({ 
-        error: "Either another transaction is in progress or insufficient balance." 
+        error: "Insufficient balance or transaction already in progress." 
       });
     }
 
-    // 🔥 Step 2: Check Game Status (optional if managed by socket separately)
-    const game = await GameControl.findOne({ gameId });
-
-    if (game?.isActive) {
-      // Refund since game is active
-      await User.updateOne(
-        { telegramId },
-        { 
-          $inc: { balance: price }, 
-          $set: { transferInProgress: null }
-        }
-      );
-
-      return res.status(400).json({ error: "Game is already active." });
-    }
-
-    // ✅ Step 3: Success — Release the lock
-    await User.updateOne(
-      { telegramId },
-      // { $set: { transferInProgress: null } }
+    // ✅ Add player to the game
+    await GameControl.updateOne(
+      { gameId },
+      { $addToSet: { players: telegramId } } // Add to players if not exists
     );
 
-    return res.status(200).json({ success: true, gameId, telegramId });
-
-  } catch (error) {
-    console.error("🔥 Game Start Error:", error);
-
-    // 🔓 Step 4: Always release the lock on failure
+    // 🔓 Release lock
     await User.updateOne(
       { telegramId },
       { $set: { transferInProgress: null } }
     );
 
+    return res.status(200).json({ 
+      success: true, 
+      gameId, 
+      telegramId, 
+      message: "Joined game successfully."
+    });
+
+  } catch (error) {
+    console.error("🔥 Game Start Error:", error);
+
+    // 🛑 Rollback balance & unlock
+    await User.updateOne(
+      { telegramId },
+      {
+        $inc: { balance: game?.stakeAmount || 0 },
+        $set: { transferInProgress: null }
+      }
+    );
+
     return res.status(500).json({ error: "Internal server error." });
   }
 });
-
 
 // ✅ Game Status Check
 router.get('/:gameId/status', async (req, res) => {

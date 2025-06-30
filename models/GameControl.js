@@ -10,7 +10,10 @@ const gameControlSchema = new mongoose.Schema({
   totalCards: { type: Number, required: true },   // players at game start
   prizeAmount: { type: Number, required: true },  // stake * totalCards
 
+  players: { type: [Number], default: [] }, // 🟢 Add this line to track telegramId list
+
   endedAt: { type: Date }, // optional: to mark when game finishes
 });
+
 
 module.exports = mongoose.model("GameControl", gameControlSchema);
