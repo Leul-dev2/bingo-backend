@@ -38,7 +38,7 @@ router.post("/start", async (req, res) => {
         { telegramId },
         { 
           $inc: { balance: price }, 
-          // $set: { transferInProgress: null }
+          $set: { transferInProgress: null }
         }
       );
 
@@ -48,7 +48,7 @@ router.post("/start", async (req, res) => {
     // ✅ Step 3: Success — Release the lock
     await User.updateOne(
       { telegramId },
-      { $set: { transferInProgress: null } }
+      // { $set: { transferInProgress: null } }
     );
 
     return res.status(200).json({ success: true, gameId, telegramId });
