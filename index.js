@@ -18,7 +18,7 @@ const User = require("./models/user");
 const GameControl = require("./models/GameControl");
 const GameHistory = require('./models/GameHistory');
 const { v4: uuidv4 } = require("uuid");
-
+const { createClient } = require('redis');
 
 const app = express();
 const server = http.createServer(app);
@@ -35,12 +35,22 @@ const io = new Server(server, {
 // 🔐 In-memory shared objects
 const gameRooms = {};
 const joiningUsers = new Set();
+const redisClient = createClient();
+
+redisClient.on('error', (err) => console.error('❌ Redis Client Error', err));
+
+(async () => {
+  await redisClient.connect();
+  console.log('✅ Redis connected');
+})();
+
 
 // 📌 Attach shared objects to app for route access
 app.set("io", io);
 app.set("gameRooms", gameRooms);
 app.set("joiningUsers", joiningUsers);
 app.set("User", User);
+app.set('redis', redisClient);
 
 // 🌐 Middleware
 app.use(express.json());
@@ -75,6 +85,9 @@ app.use((err, req, res, next) => {
   console.error("🔥 Error Handler:", err.stack);
   res.status(500).json({ message: "Something went wrong!" });
 });
+
+
+
 
 
 // 🧠 Socket.IO Logic

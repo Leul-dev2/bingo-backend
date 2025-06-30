@@ -5,27 +5,27 @@ const GameControl = require('../models/GameControl');
 
 // POST /api/games/start
 router.post("/start", async (req, res) => {
-  const { gameId, telegramId } = req.body;
-  const joiningUsers = req.app.get("joiningUsers");
-  const lockKey = `${gameId}:${telegramId}`;
+  const { gameId, telegramId, price } = req.body;
+  const redisClient = req.app.get('redis');
 
-  // 🔒 Apply lock immediately (sync, before any async calls)
-  if (joiningUsers.has(lockKey)) {
-    return res.status(429).json({ error: "You're already joining the game. Please wait." });
-  }
-  joiningUsers.add(lockKey); // Apply lock first
+  const lockKey = `joining:${gameId}:${telegramId}`;
+  const lockTTL = 10; // Lock expires automatically in 10 seconds as backup
 
   try {
-    // 🚦 Check if the game is active (optional, based on your logic)
-    const game = await GameControl.findOne({ gameId });
-    if (game?.isActive) {
-      return res.status(400).json({ error: "Game is already active." });
+    // 🔐 Try to set lock
+    const isLocked = await redisClient.set(lockKey, 'locked', {
+      NX: true, // Only set if not exists
+      EX: lockTTL // Auto-expire in 10 seconds
+    });
+
+    if (!isLocked) {
+      return res.status(429).json({ error: "You're already joining the game. Please wait." });
     }
 
-    // 💰 Deduct balance
+    // ✅ Atomic balance deduction
     const user = await User.findOneAndUpdate(
-      { telegramId, balance: { $gte: gameId } }, // 👉 You probably should use "price" instead of gameId
-      { $inc: { balance: -gameId } },
+      { telegramId, balance: { $gte: price } },
+      { $inc: { balance: -price } },
       { new: true }
     );
 
@@ -33,7 +33,18 @@ router.post("/start", async (req, res) => {
       return res.status(400).json({ error: "Insufficient balance." });
     }
 
-    // ✅ Success
+    // 🚦 (Optional) Check game active status
+    const game = await GameControl.findOne({ gameId });
+    if (game?.isActive) {
+      // Optional refund
+      await User.findOneAndUpdate(
+        { telegramId },
+        { $inc: { balance: price } }
+      );
+      return res.status(400).json({ error: "Game is already active." });
+    }
+
+    // 🎯 Success
     return res.status(200).json({ success: true, gameId, telegramId });
 
   } catch (err) {
@@ -41,8 +52,8 @@ router.post("/start", async (req, res) => {
     return res.status(500).json({ error: "Internal server error" });
 
   } finally {
-    // 🔓 Always release the lock, success or error
-    joiningUsers.delete(lockKey);
+    // 🔓 Always release the lock
+    await redisClient.del(lockKey);
   }
 });
 
