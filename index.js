@@ -109,6 +109,9 @@ const gamePlayers = {};
   const sessionSize = gameSessions[gameId]?.size ?? 0;
   const roomSize = gameRooms[gameId]?.size ?? 0;
 
+  console.log("room size", roomSize);
+   console.log("session size", sessionSize);
+
   if (sessionSize === 0 && roomSize === 0) {
     console.log(`🧹 No players left in game ${gameId}. Resetting game...`);
     resetGame(gameId, io);
