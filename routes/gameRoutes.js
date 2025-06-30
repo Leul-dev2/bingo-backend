@@ -9,45 +9,52 @@ const GameControl = require('../models/GameControl');
 // POST /api/games/start
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
-   const joiningUsers = req.app.get("joiningUsers");
+  const joiningUsers = req.app.get("joiningUsers");
 
   try {
-    // 🧠 Block duplicate rapid joins (double-click protection)
+    // 🔐 Lock FIRST to prevent race conditions
     if (joiningUsers.has(telegramId)) {
-      return res.status(429).json({ error: "You're already joining the game" });
+      return res.status(429).json({ error: "You are already joining the game. Please wait." });
     }
-
-    // 🚫 Check if game is already active in DB
-    const game = await GameControl.findOne({ gameId });
-    if (game?.isActive) {
-      return res.status(400).json({ error: "Game is already active" });
-    }
-
     joiningUsers.add(telegramId);
 
+    // 🚩 Check if game is already active
+    const game = await GameControl.findOne({ gameId });
+    if (game?.isActive) {
+      joiningUsers.delete(telegramId);
+      return res.status(400).json({ error: "Game is already active." });
+    }
 
-    // 🏦 Deduct balance and join
+    // 💰 Deduct balance
     const user = await User.findOneAndUpdate(
-      { telegramId, balance: { $gte: gameId } },  // Assume gameId is used like price
+      { telegramId, balance: { $gte: gameId } }, // Assuming gameId is the price
       { $inc: { balance: -gameId } },
       { new: true }
     );
 
     if (!user) {
       joiningUsers.delete(telegramId);
-      return res.status(400).json({ error: "Insufficient balance" });
+      return res.status(400).json({ error: "Insufficient balance." });
     }
 
-    // ✅ Success
+    // ✅ Mark game as active
+    await GameControl.updateOne(
+      { gameId },
+      { $set: { isActive: true } },
+      { upsert: true }
+    );
+
+    // ✅ Success response
     joiningUsers.delete(telegramId);
     return res.status(200).json({ success: true, gameId, telegramId });
 
-  } catch (err) {
+  } catch (error) {
+    console.error("Start game error:", error);
     joiningUsers.delete(telegramId);
-    console.error("Start game error:", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
+
 
 // GET /api/games/:gameId/status
 router.get('/:gameId/status', async (req, res) => {
