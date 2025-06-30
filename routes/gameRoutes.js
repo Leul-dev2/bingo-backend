@@ -44,7 +44,7 @@ router.post("/start", async (req, res) => {
       { upsert: true }
     );
 
-    // ✅ Success response
+    // ✅ Success responses
     joiningUsers.delete(telegramId);
     return res.status(200).json({ success: true, gameId, telegramId });
 
