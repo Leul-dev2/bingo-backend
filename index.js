@@ -518,50 +518,58 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
 
 // ✅ Handle playerLeave event
 socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
-  try {
-    console.log(`🚪 Player ${telegramId} is leaving game ${gameId}`);
+    const joiningUsers = app.get("joiningUsers");
+    const lockKey = `${gameId}:${telegramId}`;
 
-    // Remove from sessions and rooms
-    if (gameSessions[gameId]) gameSessions[gameId].delete(telegramId);
-    if (gameRooms[gameId]) gameRooms[gameId].delete(telegramId);
+    try {
+      console.log(`🚪 Player ${telegramId} is leaving game ${gameId}`);
 
-    // Free selected card
-    const user = Object.values(userSelections).find(
-      (u) => u.telegramId === telegramId && u.gameId === gameId
-    );
-    if (user?.cardId && gameCards[gameId]?.[user.cardId] === telegramId) {
-      delete gameCards[gameId][user.cardId];
-      io.to(gameId).emit("cardAvailable", { cardId: user.cardId });
-    }
-
-    // Clean userSelections for this player
-    for (const [key, value] of Object.entries(userSelections)) {
-      if (value.telegramId === telegramId && value.gameId === gameId) {
-        delete userSelections[key];
+      // 🔓 Release lock
+      if (joiningUsers.has(lockKey)) {
+        joiningUsers.delete(lockKey);
+        console.log(`🔓 Lock released for ${lockKey}`);
       }
+
+      // 🔥 Remove from gameRooms, gameSessions, userSelections, gameCards
+      const gameRooms = app.get("gameRooms");
+      const gameSessions = app.get("gameSessions");
+      const userSelections = app.get("userSelections");
+      const gameCards = app.get("gameCards");
+
+      if (gameSessions[gameId]) gameSessions[gameId].delete(telegramId);
+      if (gameRooms[gameId]) gameRooms[gameId].delete(telegramId);
+
+      const user = Object.values(userSelections).find(
+        (u) => u.telegramId === telegramId && u.gameId === gameId
+      );
+      if (user?.cardId && gameCards[gameId]?.[user.cardId] === telegramId) {
+        delete gameCards[gameId][user.cardId];
+        io.to(gameId).emit("cardAvailable", { cardId: user.cardId });
+      }
+
+      for (const [key, value] of Object.entries(userSelections)) {
+        if (value.telegramId === telegramId && value.gameId === gameId) {
+          delete userSelections[key];
+        }
+      }
+
+      io.to(gameId).emit("playerCountUpdate", {
+        gameId,
+        playerCount: gameRooms[gameId]?.size || 0,
+      });
+
+      io.to(gameId).emit("gameid", {
+        gameId,
+        numberOfPlayers: gameSessions[gameId]?.size || 0,
+      });
+
+      if (callback) callback();
+
+    } catch (error) {
+      console.error("❌ Error handling playerLeave:", error);
+      if (callback) callback();
     }
-
-    // Emit updated player count
-    io.to(gameId).emit("playerCountUpdate", {
-      gameId,
-      playerCount: gameRooms[gameId]?.size || 0,
-    });
-
-    io.to(gameId).emit("gameid", {
-      gameId,
-      numberOfPlayers: gameSessions[gameId]?.size || 0,
-    });
-
-    // Check if game needs to reset
-    checkAndResetIfEmpty(gameId, io);
-
-    // Inform client that leave was successful
-    if (callback) callback();
-  } catch (error) {
-    console.error("❌ Error handling playerLeave:", error);
-    if (callback) callback();
-  }
-});
+  });
 
 
       // Handle disconnection events

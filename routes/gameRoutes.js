@@ -1,77 +1,85 @@
 const express = require('express');
 const router = express.Router();
-const User = require("../models/user");
+
 const GameControl = require('../models/GameControl');
+const User = require('../models/user');
 
-// Shared memory (outside route, initialized once)
-//const joiningUsers = new Set();
-
-// POST /api/games/start
+// ✅ Game Start
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
   const joiningUsers = req.app.get("joiningUsers");
+  const lockKey = `${gameId}:${telegramId}`;
 
   try {
-    // 🔐 Lock FIRST to prevent race conditions
-    if (joiningUsers.has(telegramId)) {
-      return res.status(429).json({ error: "You are already joining the game. Please wait." });
+    if (joiningUsers.has(lockKey)) {
+      return res.status(429).json({ error: "You're already joining this game. Please wait." });
     }
-    joiningUsers.add(telegramId);
+    joiningUsers.add(lockKey);
 
-    // 🚩 Check if game is already active
     const game = await GameControl.findOne({ gameId });
     if (game?.isActive) {
-      joiningUsers.delete(telegramId);
+      joiningUsers.delete(lockKey);
       return res.status(400).json({ error: "Game is already active." });
     }
 
-    // 💰 Deduct balance
     const user = await User.findOneAndUpdate(
-      { telegramId, balance: { $gte: gameId } }, // Assuming gameId is the price
+      { telegramId, balance: { $gte: gameId } },
       { $inc: { balance: -gameId } },
       { new: true }
     );
 
     if (!user) {
-      joiningUsers.delete(telegramId);
+      joiningUsers.delete(lockKey);
       return res.status(400).json({ error: "Insufficient balance." });
     }
 
-    // ✅ Mark game as active
     await GameControl.updateOne(
       { gameId },
       { $set: { isActive: true } },
       { upsert: true }
     );
 
-    // ✅ Success responses
-    joiningUsers.delete(telegramId);
+    joiningUsers.delete(lockKey);
     return res.status(200).json({ success: true, gameId, telegramId });
 
   } catch (error) {
     console.error("Start game error:", error);
-    joiningUsers.delete(telegramId);
-    return res.status(500).json({ error: "Internal server error" });
+    joiningUsers.delete(lockKey);
+    return res.status(500).json({ error: "Server error" });
   }
 });
 
+// ✅ Game Leave
+router.post("/leave", async (req, res) => {
+  const { gameId, telegramId } = req.body;
+  const joiningUsers = req.app.get("joiningUsers");
+  const lockKey = `${gameId}:${telegramId}`;
 
-// GET /api/games/:gameId/status
-router.get('/:gameId/status', async (req, res) => {
-  const { gameId } = req.params;
+  if (joiningUsers.has(lockKey)) {
+    joiningUsers.delete(lockKey);
+    return res.json({ success: true, message: "Left the game successfully." });
+  } else {
+    return res.status(400).json({ success: false, message: "You are not in the game." });
+  }
+});
+
+// ✅ Game Status Check
+router.get('/:gameId/status/:telegramId', async (req, res) => {
+  const { gameId, telegramId } = req.params;
+  const joiningUsers = req.app.get("joiningUsers");
+  const lockKey = `${gameId}:${telegramId}`;
 
   try {
     const game = await GameControl.findOne({ gameId });
 
-    if (!game) {
-      return res.status(404).json({ isActive: false, message: 'Game not found', exists: false });
-    }
-
-    return res.json({ isActive: game.isActive, exists: true });
-
+    return res.json({
+      gameExists: !!game,
+      isActive: game?.isActive || false,
+      isInGame: joiningUsers.has(lockKey)
+    });
   } catch (error) {
     console.error("Status check error:", error);
-    return res.status(500).json({ isActive: false, message: 'Server error', exists: false });
+    return res.status(500).json({ error: "Server error" });
   }
 });
 
