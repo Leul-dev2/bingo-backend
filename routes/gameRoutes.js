@@ -7,48 +7,44 @@ const GameControl = require('../models/GameControl');
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
   const joiningUsers = req.app.get("joiningUsers");
-
-  // 🔐 Lock per game + per user
   const lockKey = `${gameId}:${telegramId}`;
 
-  try {
-    // 🧠 Block double clicks or rapid joins
-    if (joiningUsers.has(lockKey)) {
-      return res.status(429).json({ error: "You're already joining the game. Please wait." });
-    }
-    joiningUsers.add(lockKey);
+  // 🔒 Apply lock immediately (sync, before any async calls)
+  if (joiningUsers.has(lockKey)) {
+    return res.status(429).json({ error: "You're already joining the game. Please wait." });
+  }
+  joiningUsers.add(lockKey); // Apply lock first
 
-    // 🚦 Check if game is active in GameControl
+  try {
+    // 🚦 Check if the game is active (optional, based on your logic)
     const game = await GameControl.findOne({ gameId });
     if (game?.isActive) {
-      joiningUsers.delete(lockKey);
       return res.status(400).json({ error: "Game is already active." });
     }
 
-    // 💰 Deduct user balance (assuming gameId as price — update if price is separate)
+    // 💰 Deduct balance
     const user = await User.findOneAndUpdate(
-      { telegramId, balance: { $gte: gameId } },
+      { telegramId, balance: { $gte: gameId } }, // 👉 You probably should use "price" instead of gameId
       { $inc: { balance: -gameId } },
       { new: true }
     );
 
     if (!user) {
-      joiningUsers.delete(lockKey);
       return res.status(400).json({ error: "Insufficient balance." });
     }
 
-
-    // 🔓 Unlock after success
-    joiningUsers.delete(lockKey);
+    // ✅ Success
     return res.status(200).json({ success: true, gameId, telegramId });
 
   } catch (err) {
     console.error("Start game error:", err);
-    joiningUsers.delete(lockKey);
     return res.status(500).json({ error: "Internal server error" });
+
+  } finally {
+    // 🔓 Always release the lock, success or error
+    joiningUsers.delete(lockKey);
   }
 });
-
 
 // ✅ Game Status Check
 router.get('/:gameId/status', async (req, res) => {
