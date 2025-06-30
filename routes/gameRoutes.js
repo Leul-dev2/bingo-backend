@@ -38,7 +38,7 @@ router.post("/start", async (req, res) => {
         { telegramId },
         { 
           $inc: { balance: price }, 
-          $set: { transferInProgress: null }
+          // $set: { transferInProgress: null }
         }
       );
 
