@@ -11,6 +11,7 @@ const topPlayers=require('./routes/topPlayers')
 const historyRoutes = require('./routes/history');
 const walletRoute = require('./routes/wallet');
 const profileRoutes = require('./routes/profile');
+const PaymentRoute= require ('./routes/paymentRoutes')
 
 
 
@@ -53,6 +54,7 @@ app.use("/api/Score", topPlayers);
 app.use('/api/history', historyRoutes);
 app.use('/api/wallet', walletRoute);
 app.use('/api/profile', profileRoutes);
+app.use('.api/payment', PaymentRoute),
 
 
 
