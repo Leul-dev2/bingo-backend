@@ -105,53 +105,96 @@ const gamePlayers = {};
     };
 
 
+// ✅ Helper function to check if the game should be resetS
+  function checkAndResetIfEmpty(gameId, io) {
+  // Use optional chaining ?.size and fallback to 0 if undefined
+  const roomSize = gameRooms[gameId]?.size ?? 0;
 
-    function resetGame(gameId, io) {
-      console.log(`🧹 Starting reset for game ${gameId}`);
+  console.log("room size", roomSize);
 
-      // Clear drawing interval if running
-      if (drawIntervals[gameId]) {
-        clearInterval(drawIntervals[gameId]);
-        delete drawIntervals[gameId];
-        console.log(`🛑 Force-cleared draw interval for gameId: ${gameId}`);
+
+  if (roomSize === 0) {
+    console.log(`🧹 No players left in game ${gameId}. Resetting game...`);
+    resetGame(gameId, io);
+
+    GameControl.findOneAndUpdate(
+      { gameId },
+      { isActive: false }
+    ).catch(err => console.error("❌ Error updating game status:", err));
+
+    io.to(gameId).emit("gameEnded");
+    return true;
+  } else {
+    console.log(`🟢 Game ${gameId} continues with ${roomSize} players.`);
+    return false;
+  }
+}
+
+
+
+
+  async function resetGame(gameId, io) {
+  console.log(`🧹 Starting reset for game ${gameId}`);
+
+  // 🔥 Reset GameControl in MongoDB
+  try {
+    await GameControl.findOneAndUpdate(
+      { gameId: gameId.toString() },
+      {
+        isActive: false,
+        totalCards: 0,
+        prizeAmount: 0,
+        players: [],
+        endedAt: new Date(),
       }
+    );
+    console.log(`✅ GameControl for game ${gameId} has been reset in DB.`);
+  } catch (err) {
+    console.error(`❌ Failed to reset GameControl for ${gameId}:`, err);
+  }
 
-      // Clear countdown interval
-      if (countdownIntervals[gameId]) {
-        clearInterval(countdownIntervals[gameId]);
-        delete countdownIntervals[gameId];
-      }
+  // 🔥 Notify clients the game has ended
+  io?.to(gameId).emit("gameEnded");
 
-      // 🧠 New: clear pending draw start if it exists
-      if (drawStartTimeouts[gameId]) {
-        clearTimeout(drawStartTimeouts[gameId]);
-        delete drawStartTimeouts[gameId];
-      }
+  // ✅ Clear drawing interval
+  if (drawIntervals[gameId]) {
+    clearInterval(drawIntervals[gameId]);
+    delete drawIntervals[gameId];
+    console.log(`🛑 Cleared draw interval for gameId: ${gameId}`);
+  }
 
-      // ✅ Remove everything else
-      delete activeDrawLocks[gameId];
-      delete gameDraws[gameId];
-      delete gameCards[gameId];
-      gameReadyToStart[gameId] = false; 
-      delete gameSessionIds[gameId];
-      delete gameSessions[gameId];
-      delete gameRooms[gameId];
-      delete gameIsActive[gameId];
-      delete gamePlayers[gameId];
+  // ✅ Clear countdown interval
+  if (countdownIntervals[gameId]) {
+    clearInterval(countdownIntervals[gameId]);
+    delete countdownIntervals[gameId];
+  }
 
+  // ✅ Clear pending draw start
+  if (drawStartTimeouts[gameId]) {
+    clearTimeout(drawStartTimeouts[gameId]);
+    delete drawStartTimeouts[gameId];
+  }
 
-      // Remove user selections from this game
-      for (let socketId in userSelections) {
-        if (userSelections[socketId]?.gameId === gameId) {
-          delete userSelections[socketId];
-        }
-      }
+  // ✅ Remove in-memory game state
+  delete activeDrawLocks[gameId];
+  delete gameDraws[gameId];
+  delete gameCards[gameId];
+  delete gameSessionIds[gameId];
+  delete gameSessions[gameId];
+  delete gameRooms[gameId];
+  delete gameIsActive[gameId];
+  delete gamePlayers[gameId];
 
-      //  manualStartOnly[gameId] = true;
-      //  console.log(`🔒 Game ${gameId} is now locked. Awaiting manual start.`);
-
-      console.log(`🧼 Game ${gameId} has been fully reset.`);
+  // ✅ Remove user selections for this game
+  for (let socketId in userSelections) {
+    if (userSelections[socketId]?.gameId === gameId) {
+      delete userSelections[socketId];
     }
+  }
+
+  console.log(`🧼 Game ${gameId} has been fully reset.`);
+}
+
 
 
 
@@ -229,7 +272,15 @@ io.on("connection", (socket) => {
 
 
 
-        socket.on("joinGame", ({ gameId, telegramId }) => {
+        socket.on("joinGame", async ({ gameId, telegramId }) => {
+         const game = await GameControl.findOne({ gameId });
+
+        if (!game || !game.players.includes(telegramId)) {
+          console.warn(`🚫 Blocked unpaid user ${telegramId} from joining game ${gameId}`);
+          socket.emit("joinError", { message: "You are not registered in this game." });
+          return;
+        }
+
       if (!gameRooms[gameId]) gameRooms[gameId] = new Set();
       gameRooms[gameId].add(telegramId);
 
@@ -253,120 +304,147 @@ io.on("connection", (socket) => {
 
 
 
-    socket.on("gameCount", async ({ gameId }) => {
-    // 🚨 PREVENT MULTIPLE INITIALIZATIONS
-    if (gameDraws[gameId] || countdownIntervals[gameId] || activeDrawLocks[gameId]) {
-      console.log(`⚠️ Game ${gameId} is already preparing or running. Ignoring gameCount event.`);
+socket.on("gameCount", async ({ gameId }) => {
+  if (gameDraws[gameId] || countdownIntervals[gameId] || activeDrawLocks[gameId]) {
+    console.log(`⚠️ Game ${gameId} is already preparing or running. Ignoring gameCount event.`);
+    return;
+  }
+
+  gameDraws[gameId] = { numbers: [], index: 0 };
+
+  try {
+    const existing = await GameControl.findOne({ gameId });
+    const sessionId = uuidv4();
+    gameSessionIds[gameId] = sessionId;
+    const stakeAmount = Number(gameId); // ⚠️ Ideally from config
+
+    if (!existing) {
+      await GameControl.create({
+        sessionId,
+        gameId,
+        stakeAmount,
+        totalCards: 0, // Placeholder
+        prizeAmount: 0, // Placeholder
+        isActive: false,
+        createdBy: "system",
+      });
+    } else {
+      existing.sessionId = sessionId;
+      existing.stakeAmount = stakeAmount;
+      existing.totalCards = 0;
+      existing.prizeAmount = 0;
+      existing.isActive = false;
+      existing.createdAt = new Date();
+      await existing.save();
+    }
+
+    const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
+    gameDraws[gameId].numbers = numbers;
+
+    // ⏱️ Countdown
+    let countdownValue = 5;
+    countdownIntervals[gameId] = setInterval(async () => {
+      if (countdownValue > 0) {
+        io.to(gameId).emit("countdownTick", { countdown: countdownValue });
+        countdownValue--;
+      } else {
+        clearInterval(countdownIntervals[gameId]);
+
+        // ✅ UPDATE player count and prize at this moment
+        const currentPlayers = gameRooms[gameId]?.size || 0;
+        const prizeAmount = stakeAmount * currentPlayers;
+
+        await GameControl.findOneAndUpdate(
+          { gameId },
+          {
+            $set: {
+              isActive: true,
+              totalCards: currentPlayers,
+              prizeAmount: prizeAmount,
+              createdAt: new Date(),
+            },
+          }
+        );
+
+        console.log(`✅ Game ${gameId} is now ACTIVE with ${currentPlayers} players.`);
+
+        gameIsActive[gameId] = true;
+        gameReadyToStart[gameId] = true;
+
+        gameCards[gameId] = {};
+        io.to(gameId).emit("cardsReset", { gameId });
+        io.to(gameId).emit("gameStart");
+
+        startDrawing(gameId, io);
+      }
+    }, 1000);
+  } catch (err) {
+    console.error("❌ Error in game setup:", err.message);
+    delete gameDraws[gameId];
+    delete countdownIntervals[gameId];
+    delete gameSessionIds[gameId];
+  }
+});
+
+
+
+
+  async function startDrawing(gameId, io) {
+  console.log(`🎯 Starting the drawing process for gameId: ${gameId}`);
+
+  drawIntervals[gameId] = setInterval(async () => {
+    const game = gameDraws[gameId];
+
+    const currentPlayers = gameRooms[gameId]?.size ?? 0;
+    if (currentPlayers === 0) {
+      console.log(`🛑 No players left in game ${gameId}. Stopping drawing...`);
+
+      clearInterval(drawIntervals[gameId]);
+      delete drawIntervals[gameId];
+
+      resetGame(gameId, io);
+
+      try {
+        await GameControl.findOneAndUpdate(
+          { gameId: gameId.toString() },
+          { isActive: false }
+        );
+        console.log(`✅ GameControl updated: game ${gameId} set to inactive.`);
+      } catch (err) {
+        console.error(`❌ Failed to update GameControl for game ${gameId}:`, err);
+      }
+
+      io.to(gameId).emit("gameEnded");
       return;
     }
 
-    // ✅ Prepare game memory
-    gameDraws[gameId] = { numbers: [], index: 0 };
+    // ✔️ Check if game has valid numbers to draw
+    if (!game || game.index >= game.numbers.length) {
+      clearInterval(drawIntervals[gameId]);
+      delete drawIntervals[gameId];
 
-    try {
-      const existing = await GameControl.findOne({ gameId });
-      const sessionId = uuidv4();
-      gameSessionIds[gameId] = sessionId;
-      const stakeAmount = Number(gameId); // You can replace with real stake
-      const totalCards = gameRooms[gameId]?.size || 0;
-      const prizeAmount = stakeAmount * totalCards;
+      io.to(gameId).emit("allNumbersDrawn");
+      console.log(`🎯 All numbers drawn for game ${gameId}`);
 
-      if (!existing) {
-        await GameControl.create({
-          sessionId,
-          gameId,
-          stakeAmount,
-          totalCards,
-          prizeAmount,
-          isActive: false, // ✅ game is NOT active until drawing
-          createdBy: "system",
-        });
-        console.log(`✅ Created GameControl for game ${gameId}`);
-      } else {
-        existing.sessionId = sessionId;
-        existing.stakeAmount = stakeAmount;
-        existing.totalCards = totalCards;
-        existing.prizeAmount = prizeAmount;
-        existing.isActive = false; // ✅ wait for drawing to mark active
-        existing.createdAt = new Date();
-        await existing.save();
-        console.log(`🔄 Updated GameControl for new round of game ${gameId}`);
-      }
+      // Optional: reset game after all numbers drawn
+      resetGame(gameId, io);
 
-      // 🎲 Shuffle numbers
-      const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
-      gameDraws[gameId].numbers = numbers;
-
-      // ⏱️ Countdown
-      let countdownValue = 5;
-      countdownIntervals[gameId] = setInterval(async () => {
-        if (countdownValue > 0) {
-          io.to(gameId).emit("countdownTick", { countdown: countdownValue });
-          countdownValue--;
-        } else {
-          clearInterval(countdownIntervals[gameId]);
-
-          gameCards[gameId] = {};
-          io.to(gameId).emit("cardsReset", { gameId });
-          io.to(gameId).emit("gameStart");
-
-          gameReadyToStart[gameId] = true;
-
-          // ✅ Now activate the game in memory and DB
-          gameIsActive[gameId] = true;
-          await GameControl.findOneAndUpdate(
-            { gameId },
-            { $set: { isActive: true, createdAt: new Date() } }
-          );
-          console.log(`✅ Game ${gameId} is now ACTIVE. Starting drawing...`);
-
-          if (gameDraws[gameId]) {
-            startDrawing(gameId, io);
-          } else {
-            console.warn(`⛔ Prevented startDrawing: gameDraws missing for game ${gameId}`);
-          }
-        }
-      }, 1000);
-
-    } catch (err) {
-      console.error("❌ Error in game setup:", err.message);
-      delete gameDraws[gameId];
-      delete countdownIntervals[gameId];
-      delete gameSessionIds[gameId];
+      return;
     }
-  });
 
+    // ✔️ Draw one number
+    const number = game.numbers[game.index++];
+    const letterIndex = Math.floor((number - 1) / 15);
+    const letter = ["B", "I", "N", "G", "O"][letterIndex];
+    const label = `${letter}-${number}`;
 
+    console.log(`🔢 Drawing number: ${label}, Index: ${game.index - 1}`);
 
-    function startDrawing(gameId, io) {
-            console.log(`Starting the drawing process for gameId: ${gameId}`);
-            drawIntervals[gameId] = setInterval(() => {
-                const game = gameDraws[gameId];
+    io.to(gameId).emit("numberDrawn", { number, label });
 
-                // Ensure the game and numbers are valid, and index hasn't exceeded the numbers
-                if (!game || game.index >= game.numbers.length) {
-                    clearInterval(drawIntervals[gameId]);
-                    io.to(gameId).emit("allNumbersDrawn");
-                    console.log(`All numbers drawn for gameId: ${gameId}`);
+  }, 3000); // Draw every 3 seconds
+}
 
-                    // Reset the game state when all numbers are drawn
-                    delete gameDraws[gameId];
-                    return;
-                }
-
-                // Draw one number
-                const number = game.numbers[game.index++];
-                const letterIndex = Math.floor((number - 1) / 15);
-                const letter = ["B", "I", "N", "G", "O"][letterIndex];
-                const label = `${letter}-${number}`;
-
-                console.log(`Drawing number: ${number}, Label: ${label}, Index: ${game.index - 1}`);
-
-                // Emit the drawn number
-                io.to(gameId).emit("numberDrawn", { number, label });
-
-            }, 3000); // Draws one number every 8 seconds (adjust as needed)
-        }
 
 
 
@@ -456,7 +534,7 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
     }
 
     await GameControl.findOneAndUpdate({ gameId: gameId.toString() }, { isActive: false });
-    resetGame(gameId);
+    resetGame(gameId, io);
     io.to(gameId).emit("gameEnded");
 
 
@@ -466,65 +544,127 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
   }
 });
 
+// ✅ Handle playerLeave event
+socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
+  try {
+    console.log(`🚪 Player ${telegramId} is leaving game ${gameId}`);
 
+    // Remove from sessions and rooms
+    if (gameSessions[gameId]) gameSessions[gameId].delete(telegramId);
+    if (gameRooms[gameId]) gameRooms[gameId].delete(telegramId);
 
+    // Free selected card
+    const user = Object.values(userSelections).find(
+      (u) => u.telegramId === telegramId && u.gameId === gameId
+    );
+    if (user?.cardId && gameCards[gameId]?.[user.cardId] === telegramId) {
+      delete gameCards[gameId][user.cardId];
+      io.to(gameId).emit("cardAvailable", { cardId: user.cardId });
+    }
+
+    // Clean userSelections for this player
+    for (const [key, value] of Object.entries(userSelections)) {
+      if (value.telegramId === telegramId && value.gameId === gameId) {
+        delete userSelections[key];
+      }
+    }
+
+    // Emit updated player count
+    io.to(gameId).emit("playerCountUpdate", {
+      gameId,
+      playerCount: gameRooms[gameId]?.size || 0,
+    });
+
+    io.to(gameId).emit("gameid", {
+      gameId,
+      numberOfPlayers: gameSessions[gameId]?.size || 0,
+    });
+
+    // Check if game needs to reset
+    checkAndResetIfEmpty(gameId, io);
+
+    // Inform client that leave was successful
+    if (callback) callback();
+  } catch (error) {
+    console.error("❌ Error handling playerLeave:", error);
+    if (callback) callback();
+  }
+});
 
 
       // Handle disconnection events
-   socket.on("disconnect", () => {
-      console.log("🔴 Client disconnected");
+  socket.on("disconnect", async () => {
+  console.log("🔴 Client disconnected");
 
-      const user = userSelections[socket.id];
-      if (!user) {
-          console.log("❌ No user info found for this socket.");
-          return;
-      }
+  const user = userSelections[socket.id];
+  if (!user) {
+    console.log("❌ No user info found for this socket.");
+    return;
+  }
 
-      const { telegramId, gameId, cardId } = user;
+  const { telegramId, gameId, cardId } = user;
 
-      // 🃏 Free up the selected card
-      if (cardId && gameCards[gameId] && gameCards[gameId][cardId] === telegramId) {
-          delete gameCards[gameId][cardId];
-          socket.to(gameId).emit("cardAvailable", { cardId });
-          console.log(`✅ Card ${cardId} is now available again`);
-      }
+  // 🃏 Free up the selected card
+  if (cardId && gameCards[gameId]?.[cardId] === telegramId) {
+    delete gameCards[gameId][cardId];
+    socket.to(gameId).emit("cardAvailable", { cardId });
+    console.log(`✅ Card ${cardId} is now available again`);
+  }
 
-      // 🧹 Remove player from gameSessions (now a Set)
-      if (gameSessions[gameId] instanceof Set) {
-          gameSessions[gameId].delete(telegramId);
-          console.log(`Updated gameSessions for ${gameId}:`, [...gameSessions[gameId]]);
-      }
+  // 🧹 Remove from gameSessions
+  if (gameSessions[gameId] instanceof Set) {
+    gameSessions[gameId].delete(telegramId);
+    console.log(`Updated gameSessions for ${gameId}:`, [...gameSessions[gameId]]);
+  }
 
-      // 🧹 Remove player from gameRooms (already a Set)
-      if (gameRooms[gameId] instanceof Set) {
-          gameRooms[gameId].delete(telegramId);
-          console.log(`Updated gameRooms for ${gameId}:`, [...gameRooms[gameId]]);
-      }
+  // 🧹 Remove from gameRooms
+  if (gameRooms[gameId] instanceof Set) {
+    gameRooms[gameId].delete(telegramId);
+    console.log(`Updated gameRooms for ${gameId}:`, [...gameRooms[gameId]]);
+  }
 
-      // 🧼 Clean userSelections
-      delete userSelections[socket.id];
+  // 🧼 Clean userSelections
+  delete userSelections[socket.id];
 
-      // 📢 Emit updated player count to the room
-      io.to(gameId).emit("playerCountUpdate", {
-          gameId,
-          playerCount: gameRooms[gameId]?.size || 0,
-      });
-
-      io.to(gameId).emit("gameid", {
-          gameId,
-          numberOfPlayers: gameSessions[gameId]?.size || 0,
-      });
-
-      // 🧨 If no players left, clean every
-      const currentSessionPlayers = gameSessions[gameId]?.size || 0; // Use a more descriptive variable name
-      const currentRoomPlayers = gameRooms[gameId]?.size || 0; // Use a more descriptive variable name
-
-      if (currentSessionPlayers === 0 && currentRoomPlayers === 0) {
-          console.log(`🧹 No players left in game ${gameId}. Triggering full game reset.`);
-          resetGame(gameId); // Call the dedicated reset function
-           io.to(gameId).emit("gameEnded");
-      }
+  // 📢 Emit updated player count
+  io.to(gameId).emit("playerCountUpdate", {
+    gameId,
+    playerCount: gameRooms[gameId]?.size || 0,
   });
+
+  io.to(gameId).emit("gameid", {
+    gameId,
+    numberOfPlayers: gameSessions[gameId]?.size || 0,
+  });
+
+  // 🧨 If no players left, reset game + DB
+  const currentSessionPlayers = gameSessions[gameId]?.size || 0;
+  const currentRoomPlayers = gameRooms[gameId]?.size || 0;
+
+  if (currentSessionPlayers === 0 && currentRoomPlayers === 0) {
+    console.log(`🧹 No players left in game ${gameId}. Triggering full game reset.`);
+
+    // ✅ Update GameControl in MongoDB
+    try {
+      await GameControl.findOneAndUpdate(
+        { gameId: gameId.toString() },
+        {
+          isActive: false,
+          totalCards: 0,
+          prizeAmount: 0,
+          players: [],
+          endedAt: new Date(),
+        }
+      );
+      console.log(`✅ GameControl for game ${gameId} set to inactive in DB.`);
+    } catch (err) {
+      console.error(`❌ Failed to update GameControl for ${gameId}:`, err);
+    }
+
+    resetGame(gameId, io); // This emits "gameEnded"
+  }
+});
+
 
 
 
