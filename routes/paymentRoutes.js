@@ -17,7 +17,7 @@ router.post("/accept-payment", async (req, res) => {
     tx_ref,
   } = req.body;
 
-  console.log("🔐 Incoming Payment Request started:", req.body); // Log incoming request
+  console.log("🔐 Incoming Payment Request started:", req.body); // Log incoming req
 
   try {
     // Save payment as pending BEFORE calling Chapa API
