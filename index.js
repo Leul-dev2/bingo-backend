@@ -54,7 +54,7 @@ app.use("/api/Score", topPlayers);
 app.use('/api/history', historyRoutes);
 app.use('/api/wallet', walletRoute);
 app.use('/api/profile', profileRoutes);
-app.use('.api/payment', PaymentRoute),
+app.use('/api/payment', PaymentRoute),
 
 
 
