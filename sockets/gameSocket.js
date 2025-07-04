@@ -3,7 +3,7 @@ const GameControl = require("../models/GameControl");
 const resetGame = require("../utils/resetGame");
 
 module.exports = function registerGameSocket(io) {
- let gameSessions = {}; // Store game sessions: gameId -> [telegramId]
+let gameSessions = {}; // Store game sessions: gameId -> [telegramId]
 let gameSessionIds = {}; 
 let userSelections = {}; // Store user selections: socket.id -> { telegramId, gameId }
 let gameCards = {}; // Store game card selections: gameId -> { cardId: telegramId }
@@ -15,6 +15,8 @@ const gameReadyToStart = {};
 let drawStartTimeouts = {};
 const gameIsActive = {};
 const gamePlayers = {};
+const gameRooms = {};
+const joiningUsers = new Set();
 
   io.on("connection", (socket) => {
       console.log("🟢 New client connected");
