@@ -21,6 +21,22 @@ const gameRooms = {};
 const joiningUsers = new Set();
 const { v4: uuidv4 } = require("uuid");
 
+
+  const state = {
+    drawIntervals,
+    countdownIntervals,
+    drawStartTimeouts,
+    activeDrawLocks,
+    gameDraws,
+    gameCards,
+    gameSessionIds,
+    gameSessions,
+    gameRooms,
+    gameIsActive,
+    gamePlayers,
+    userSelections,
+  };
+
   io.on("connection", (socket) => {
       console.log("🟢 New client connected");
       console.log("Client connected with socket ID:", socket.id);
@@ -225,7 +241,7 @@ socket.on("gameCount", async ({ gameId }) => {
       clearInterval(drawIntervals[gameId]);
       delete drawIntervals[gameId];
 
-      resetGame(gameId, io);
+     resetGame(gameId, io, state);
 
       try {
         await GameControl.findOneAndUpdate(
@@ -250,7 +266,7 @@ socket.on("gameCount", async ({ gameId }) => {
       console.log(`🎯 All numbers drawn for game ${gameId}`);
 
       // Optional: reset game after all numbers drawn
-      resetGame(gameId, io);
+     resetGame(gameId, io, state);
 
       return;
     }
@@ -357,7 +373,7 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
     }
 
     await GameControl.findOneAndUpdate({ gameId: gameId.toString() }, { isActive: false });
-    resetGame(gameId, io);
+   resetGame(gameId, io, state);
     io.to(gameId).emit("gameEnded");
 
 
@@ -404,7 +420,7 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
     });
 
     // Check if game needs to reset
-    checkAndResetIfEmpty(gameId, io);
+   checkAndResetIfEmpty(gameId, io, gameRooms);
 
     // Inform client that leave was successful
     if (callback) callback();
@@ -484,7 +500,7 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
       console.error(`❌ Failed to update GameControl for ${gameId}:`, err);
     }
 
-    resetGame(gameId, io); // This emits "gameEnded"
+   resetGame(gameId, io, state); // This emits "gameEnded"
   }
 });
 

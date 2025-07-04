@@ -1,23 +1,20 @@
 const GameControl = require("../models/GameControl");
 
-const {
-  drawIntervals,
-  countdownIntervals,
-  drawStartTimeouts,
-  activeDrawLocks,
-  gameDraws,
-  gameCards,
-  gameSessionIds,
-  gameSessions,
-  gameRooms,
-  gameIsActive,
-  gamePlayers,
-  userSelections,
-} = require('../sockets/gameSocket');
-
-
-
-async function resetGame(gameId, io) {
+async function resetGame(gameId, io, state) {
+  const {
+    drawIntervals,
+    countdownIntervals,
+    drawStartTimeouts,
+    activeDrawLocks,
+    gameDraws,
+    gameCards,
+    gameSessionIds,
+    gameSessions,
+    gameRooms,
+    gameIsActive,
+    gamePlayers,
+    userSelections,
+  } = state;
   console.log(`🧹 Starting reset for game ${gameId}`);
 
   // 🔥 Reset GameControl in MongoDB

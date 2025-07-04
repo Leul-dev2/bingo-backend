@@ -1,3 +1,4 @@
+// checkandreset.js
 const resetGame = require("./resetGame");
 const GameControl = require("../models/GameControl");
 
@@ -8,7 +9,7 @@ async function checkAndResetIfEmpty(gameId, io, gameRooms) {
 
   if (roomSize === 0) {
     console.log(`🧹 No players left in game ${gameId}. Resetting game...`);
-    await resetGame(gameId, io);
+    await resetGame(gameId, io, gameRooms);
 
     try {
       await GameControl.findOneAndUpdate(
