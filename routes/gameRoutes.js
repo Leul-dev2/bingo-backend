@@ -49,7 +49,7 @@ router.post("/start", async (req, res) => {
     );
 
     // Add player to Redis set for quick membership checks and real-time tracking
-    a.sAdd(`gameRooms:${gameId}`, telegramId);
+    redis.sAdd(`gameRooms:${gameId}`, telegramId);
 
     // Release lock on user
     await User.updateOne(
