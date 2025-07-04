@@ -12,7 +12,7 @@ const topPlayers=require('./routes/topPlayers')
 const historyRoutes = require('./routes/history');
 const walletRoute = require('./routes/wallet');
 const profileRoutes = require('./routes/profile');
-
+const registerGameSocket = require("./sockets/gameSocket")
 
 const User = require("./models/user");
 const GameControl = require("./models/GameControl");
