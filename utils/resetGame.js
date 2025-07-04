@@ -51,30 +51,24 @@ async function resetGame(gameId, io, state, redis) {
     delete drawStartTimeouts[gameId];
   }
 
-  // Remove in-memory game state
- // Remove in-memory game state safely
-if (activeDrawLocks) {
-  delete activeDrawLocks[gameId];
-}
+  // Remove in-memory game state safely
+  if (activeDrawLocks) {
+    delete activeDrawLocks[gameId];
+  }
+  if (gameDraws) {
+    delete gameDraws[gameId];
+  }
+  if (gameSessionIds) {
+    delete gameSessionIds[gameId];
+  }
+  if (gameIsActive) {
+    delete gameIsActive[gameId];
+  }
+  if (gamePlayers) {
+    delete gamePlayers[gameId];
+  }
 
-if (gameDraws) {
-  delete gameDraws[gameId];
-}
-
-if (gameSessionIds) {
-  delete gameSessionIds[gameId];
-}
-
-if (gameIsActive) {
-  delete gameIsActive[gameId];
-}
-
-if (gamePlayers) {
-  delete gamePlayers[gameId];
-}
-
-
-  // Redis cleanup: remove game sessions and rooms sets and game cards hash
+  // Redis cleanup: remove game sessions, rooms, cards, and userSelections
   try {
     await Promise.all([
       redis.del(`gameSessions:${gameId}`),
@@ -83,37 +77,27 @@ if (gamePlayers) {
     ]);
 
     // Remove all userSelections related to this game
-    // userSelections keys are per socketId, so need to scan and delete matching gameId
-    const stream = redis.scanStream({
-      match: "userSelections:*",
-      count: 100,
-    });
-
-    stream.on("data", async (keys) => {
-      if (keys.length) {
-        const pipeline = redis.pipeline();
-        for (const key of keys) {
-          const val = await redis.get(key);
-          if (val) {
-            const obj = JSON.parse(val);
-            if (obj.gameId === gameId) {
-              pipeline.del(key);
-            }
+    const pattern = "userSelections:*";
+    for await (const key of redis.scanIterator({ MATCH: pattern, COUNT: 100 })) {
+      const val = await redis.get(key);
+      if (val) {
+        try {
+          const obj = JSON.parse(val);
+          if (obj.gameId === gameId) {
+            await redis.del(key);
           }
+        } catch {
+          // Ignore JSON parse errors
         }
-        await pipeline.exec();
       }
-    });
+    }
 
-    stream.on("end", () => {
-      console.log(`✅ Redis userSelections related to game ${gameId} cleared.`);
-    });
+    console.log(`✅ Redis userSelections related to game ${gameId} cleared.`);
   } catch (redisErr) {
     console.error(`❌ Redis cleanup error for game ${gameId}:`, redisErr);
   }
 
   console.log(`🧼 Game ${gameId} has been fully reset.`);
 }
-
 
 module.exports = resetGame;
