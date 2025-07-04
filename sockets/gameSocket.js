@@ -2,6 +2,7 @@ const User = require("../models/user");
 const GameControl = require("../models/GameControl");
 const resetGame = require("../utils/resetGame");
 
+
 module.exports = function registerGameSocket(io) {
 let gameSessions = {}; // Store game sessions: gameId -> [telegramId]
 let gameSessionIds = {}; 
@@ -17,6 +18,7 @@ const gameIsActive = {};
 const gamePlayers = {};
 const gameRooms = {};
 const joiningUsers = new Set();
+const { v4: uuidv4 } = require("uuid");
 
   io.on("connection", (socket) => {
       console.log("🟢 New client connected");
