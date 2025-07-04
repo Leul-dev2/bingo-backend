@@ -12,7 +12,6 @@ const topPlayers=require('./routes/topPlayers')
 const historyRoutes = require('./routes/history');
 const walletRoute = require('./routes/wallet');
 const profileRoutes = require('./routes/profile');
-app.use('.api/payment', PaymentRoute);
 
 
 const User = require("./models/user");
