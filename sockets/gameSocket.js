@@ -39,81 +39,83 @@ const { v4: uuidv4 } = require("uuid");
       // User joins a game
 
     // User joins a game
-    socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
-      try {
-        // Convert IDs to strings
-        const strGameId = String(gameId);
-        const strTelegramId = String(telegramId);
-
-        await redis.sAdd(`gameSessions:${strGameId}`, strTelegramId);
-
-        await redis.hSet(
-          "userSelections",
-          socket.id,
-          JSON.stringify({ telegramId: strTelegramId, gameId: strGameId })
-        );
-
-        socket.join(strGameId);
-
-        const cardData = await redis.get(`gameCards:${strGameId}`);
-        if (cardData) {
-          const parsed = JSON.parse(cardData);
-          socket.emit("currentCardSelections", parsed);
-        }
-
-        const numberOfPlayers = await redis.sCard(`gameSessions:${strGameId}`);
-        io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
-
-        console.log(`User ${strTelegramId} joined game room: ${strGameId}`);
-      } catch (err) {
-        console.error("❌ Redis error in userJoinedGame:", err);
-      }
-    });
-
-
-
-
-
-
- socket.on("cardSelected", async (data) => {
-  const { telegramId, cardId, card, gameId } = data;
+  socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
+  const strGameId = String(gameId);
+  const strTelegramId = String(telegramId);
+  const userSelectionKey = `userSelections`;
 
   try {
-    const gameCardsKey = `gameCards:${gameId}`;
-    const userSelectionsKey = "userSelections";
+    // Add user to game session set
+    await redis.sAdd(`gameSessions:${strGameId}`, strTelegramId);
 
-    // ✅ Convert types to strings
-    const strTelegramId = String(telegramId);
-    const strCardId = String(cardId);
-    const strGameId = String(gameId);
+    // Save user session by socket ID
+    await redis.hSet(userSelectionKey, socket.id, JSON.stringify({
+      telegramId: strTelegramId,
+      gameId: strGameId
+    }));
 
-    // ✅ Load current card selections (Redis Hash)
-    const cardOwner = await redis.hGet(gameCardsKey, strCardId);
+    // Join socket.io room
+    socket.join(strGameId);
 
-    // ✅ Reject if card taken by someone else
-    if (cardOwner && cardOwner !== strTelegramId) {
-      io.to(strTelegramId).emit("cardUnavailable", { cardId });
+    // Send already selected cards to this user (from Redis hash)
+    const cardSelections = await redis.hGetAll(`gameCards:${strGameId}`);
+    if (cardSelections && Object.keys(cardSelections).length > 0) {
+      socket.emit("currentCardSelections", cardSelections);
+    }
+
+    // Emit updated player count
+    const numberOfPlayers = await redis.sCard(`gameSessions:${strGameId}`);
+    io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
+
+    console.log(`✅ User ${strTelegramId} joined game room: ${strGameId}`);
+  } catch (err) {
+    console.error("❌ Redis error in userJoinedGame:", err);
+    socket.emit("joinError", { message: "Failed to join game. Please try again." });
+  }
+});
+
+
+
+
+
+
+
+socket.on("cardSelected", async (data) => {
+  const { telegramId, cardId, card, gameId } = data;
+
+  const strTelegramId = String(telegramId);
+  const strCardId = String(cardId);
+  const strGameId = String(gameId);
+
+  const gameCardsKey = `gameCards:${strGameId}`;
+  const userSelectionsKey = `userSelections`;
+
+  try {
+    // Check if card is already taken
+    const existingOwner = await redis.hGet(gameCardsKey, strCardId);
+    if (existingOwner && existingOwner !== strTelegramId) {
+      io.to(strTelegramId).emit("cardUnavailable", { cardId: strCardId });
       return;
     }
 
-    // ✅ Load previous selection for this socket
-    const selectionRaw = await redis.hGet(userSelectionsKey, socket.id);
+    // Retrieve previous selection by this socket
+    const previousSelectionRaw = await redis.hGet(userSelectionsKey, socket.id);
     let previousCardId = null;
-    if (selectionRaw) {
-      const prev = JSON.parse(selectionRaw);
+    if (previousSelectionRaw) {
+      const prev = JSON.parse(previousSelectionRaw);
       previousCardId = prev.cardId;
 
-      // ✅ Free up previous card
+      // Free previous card if different
       if (previousCardId && previousCardId !== strCardId) {
         await redis.hDel(gameCardsKey, previousCardId);
         socket.to(strGameId).emit("cardAvailable", { cardId: previousCardId });
       }
     }
 
-    // ✅ Assign new card to user
+    // Assign new card to player
     await redis.hSet(gameCardsKey, strCardId, strTelegramId);
 
-    // ✅ Save/update user selection
+    // Save user selection
     await redis.hSet(userSelectionsKey, socket.id, JSON.stringify({
       telegramId: strTelegramId,
       cardId: strCardId,
@@ -121,17 +123,23 @@ const { v4: uuidv4 } = require("uuid");
       gameId: strGameId,
     }));
 
-    // ✅ Confirm to user and notify others
+    // Confirm selection to this user
     io.to(strTelegramId).emit("cardConfirmed", { cardId: strCardId, card });
-    socket.to(strGameId).emit("otherCardSelected", { telegramId: strTelegramId, cardId: strCardId });
 
-    // ✅ Emit updated number of players (from Redis Set)
+    // Notify other users in the room
+    socket.to(strGameId).emit("otherCardSelected", {
+      telegramId: strTelegramId,
+      cardId: strCardId,
+    });
+
+    // Emit updated number of players
     const numberOfPlayers = await redis.sCard(`gameSessions:${strGameId}`);
     io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
 
     console.log(`✅ User ${strTelegramId} selected card ${strCardId} in game ${strGameId}`);
   } catch (err) {
     console.error("❌ Redis error in cardSelected:", err);
+    socket.emit("cardError", { message: "Card selection failed. Please try again." });
   }
 });
 
