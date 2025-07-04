@@ -10,11 +10,12 @@ async function resetGame(gameId, io, state, redis) {
     gameSessionIds,
     gameIsActive,
     gamePlayers,
-    userSelections,
+    userSelections, // Not used here, but keep for consistency
   } = state;
+
   console.log(`🧹 Starting reset for game ${gameId}`);
 
-  // Reset GameControl in MongoDB
+  // 🛠 1. Update GameControl in MongoDB
   try {
     await GameControl.findOneAndUpdate(
       { gameId: gameId.toString() },
@@ -31,80 +32,68 @@ async function resetGame(gameId, io, state, redis) {
     console.error(`❌ Failed to reset GameControl for ${gameId}:`, err);
   }
 
-  // Notify clients the game has ended
+  // 📢 2. Notify clients
   io?.to(gameId).emit("gameEnded");
 
-  // Clear intervals/timeouts
-  if (drawIntervals[gameId]) {
+  // ⏱ 3. Clear timeouts/intervals
+  if (drawIntervals?.[gameId]) {
     clearInterval(drawIntervals[gameId]);
     delete drawIntervals[gameId];
     console.log(`🛑 Cleared draw interval for gameId: ${gameId}`);
   }
 
-  if (countdownIntervals[gameId]) {
+  if (countdownIntervals?.[gameId]) {
     clearInterval(countdownIntervals[gameId]);
     delete countdownIntervals[gameId];
   }
 
-  if (drawStartTimeouts[gameId]) {
+  if (drawStartTimeouts?.[gameId]) {
     clearTimeout(drawStartTimeouts[gameId]);
     delete drawStartTimeouts[gameId];
   }
 
-  // Remove in-memory game state safely
-  if (activeDrawLocks) {
-    delete activeDrawLocks[gameId];
-  }
-  if (gameDraws) {
-    delete gameDraws[gameId];
-  }
-  if (gameSessionIds) {
-    delete gameSessionIds[gameId];
-  }
-  if (gameIsActive) {
-    delete gameIsActive[gameId];
-  }
-  if (gamePlayers) {
-    delete gamePlayers[gameId];
-  }
+  // 🧠 4. Clear in-memory state
+  delete activeDrawLocks?.[gameId];
+  delete gameDraws?.[gameId];
+  delete gameSessionIds?.[gameId];
+  delete gameIsActive?.[gameId];
+  delete gamePlayers?.[gameId];
 
-  // Redis cleanup: remove game sessions and rooms sets and game cards hash
+  // 🗑️ 5. Redis cleanup
   try {
     await Promise.all([
       redis.del(`gameSessions:${gameId}`),
       redis.del(`gameRooms:${gameId}`),
       redis.del(`gameCards:${gameId}`),
+      redis.del(`gameIsActive:${gameId}`), // optional: if stored
     ]);
 
-    // Remove all userSelections related to this game using scanIterator
+    // ✅ 6. Delete userSelections related to this gameId
     const pattern = "userSelections:*";
     const keysToDelete = [];
 
     for await (const key of redis.scanIterator({ MATCH: pattern, COUNT: 100 })) {
-      if (typeof key !== "string") {
-        console.warn("Skipping non-string key:", key);
-        continue;
-      }
+      if (typeof key !== "string") continue;
       const val = await redis.get(key);
       if (!val) continue;
 
       try {
         const obj = JSON.parse(val);
-        if (obj.gameId === gameId) {
+        if (obj?.gameId?.toString() === gameId.toString()) {
           keysToDelete.push(key);
         }
-      } catch {
-        // Ignore JSON parse errors
+      } catch (err) {
+        // Ignore invalid JSON
       }
     }
 
     if (keysToDelete.length > 0) {
-      // Use spread syntax to pass keys as separate arguments
       await redis.del(...keysToDelete);
       console.log(`✅ Redis userSelections related to game ${gameId} cleared.`);
     } else {
       console.log(`ℹ️ No Redis userSelections found for game ${gameId}.`);
     }
+
   } catch (redisErr) {
     console.error(`❌ Redis cleanup error for game ${gameId}:`, redisErr);
   }
