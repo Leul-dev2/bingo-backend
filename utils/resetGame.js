@@ -52,11 +52,27 @@ async function resetGame(gameId, io, state, redis) {
   }
 
   // Remove in-memory game state
+ // Remove in-memory game state safely
+if (activeDrawLocks) {
   delete activeDrawLocks[gameId];
+}
+
+if (gameDraws) {
   delete gameDraws[gameId];
+}
+
+if (gameSessionIds) {
   delete gameSessionIds[gameId];
+}
+
+if (gameIsActive) {
   delete gameIsActive[gameId];
+}
+
+if (gamePlayers) {
   delete gamePlayers[gameId];
+}
+
 
   // Redis cleanup: remove game sessions and rooms sets and game cards hash
   try {
