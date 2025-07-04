@@ -29,6 +29,7 @@ const { v4: uuidv4 } = require("uuid");
   drawStartTimeouts,
   activeDrawLocks,
   gameDraws,
+  gameSessionIds,
 };
 
   io.on("connection", (socket) => {
