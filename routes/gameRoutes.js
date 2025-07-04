@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const User = require("../models/user");
 const GameControl = require('../models/GameControl');
-const redis = require("../u"); // Your Redis client import
+const redis = require("../utils/redisClient"); // Your Redis client import
 
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
