@@ -32,6 +32,9 @@ router.post("/start", async (req, res) => {
       return res.status(400).json({ error: "You already joined this game." });
     }
 
+    const keys = await redis.keys("*");
+     console.log("📦 Redis keys:", keys);
+
     // Proceed with join: lock user, deduct balance
     const user = await User.findOneAndUpdate(
       {
