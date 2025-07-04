@@ -1,6 +1,7 @@
 const User = require("../models/user");
 const GameControl = require("../models/GameControl");
 const resetGame = require("../utils/resetGame");
+const checkAndResetIfEmpty = require("../utils/checkandreset");
 
 
 module.exports = function registerGameSocket(io) {

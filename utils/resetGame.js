@@ -1,5 +1,22 @@
 const GameControl = require("../models/GameControl");
 
+const {
+  drawIntervals,
+  countdownIntervals,
+  drawStartTimeouts,
+  activeDrawLocks,
+  gameDraws,
+  gameCards,
+  gameSessionIds,
+  gameSessions,
+  gameRooms,
+  gameIsActive,
+  gamePlayers,
+  userSelections,
+} = require('../sockets/gameSocket');
+
+
+
 async function resetGame(gameId, io) {
   console.log(`🧹 Starting reset for game ${gameId}`);
 
