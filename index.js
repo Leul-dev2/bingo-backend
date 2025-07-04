@@ -8,10 +8,18 @@ require("dotenv").config();
 const connectDB = require("./config/db");
 const userRoutes = require("./routes/userRoutes");
 const gameRoutes = require("./routes/gameRoutes");
-const walletRoutes = require("./routes/wallet");
-const historyRoutes = require("./routes/history");
-const profileRoutes = require("./routes/profile");
-const registerGameSocket = require("./sockets/gameSocket");
+const topPlayers=require('./routes/topPlayers')
+const historyRoutes = require('./routes/history');
+const walletRoute = require('./routes/wallet');
+const profileRoutes = require('./routes/profile');
+
+
+
+const User = require("./models/user");
+const GameControl = require("./models/GameControl");
+const GameHistory = require('./models/GameHistory');
+const { v4: uuidv4 } = require("uuid");
+
 
 const app = express();
 const server = http.createServer(app);
@@ -26,9 +34,12 @@ app.use(cors());
 // 📌 Routes
 app.use("/api/users", userRoutes);
 app.use("/api/games", gameRoutes);
-app.use("/api/wallet", walletRoutes);
-app.use("/api/history", historyRoutes);
-app.use("/api/profile", profileRoutes);
+app.use("/api/Score", topPlayers); 
+app.use('/api/history', historyRoutes);
+app.use('/api/wallet', walletRoute);
+app.use('/api/profile', profileRoutes);
+
+
 
 // ✅ Default Route
 app.get("/", (req, res) => res.send("Bingo Bot API running 🚀"));
