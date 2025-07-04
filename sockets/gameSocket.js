@@ -75,61 +75,67 @@ const { v4: uuidv4 } = require("uuid");
 
 
 
-    socket.on("cardSelected", async (data) => {
-      const { telegramId, cardId, card, gameId } = data;
+ socket.on("cardSelected", async (data) => {
+  const { telegramId, cardId, card, gameId } = data;
 
-      try {
-        const strGameId = String(gameId);
-        const strTelegramId = String(telegramId);
-        const strCardId = String(cardId);
+  try {
+    const gameCardsKey = `gameCards:${gameId}`;
+    const userSelectionsKey = "userSelections";
 
-        const gameCardsKey = `gameCards:${strGameId}`;
-        const userSelectionsKey = "userSelections";
+    // ✅ Convert types to strings
+    const strTelegramId = String(telegramId);
+    const strCardId = String(cardId);
+    const strGameId = String(gameId);
 
-        // Check if the card is already taken by someone else
-        const cardOwner = await redis.hGet(gameCardsKey, strCardId);
-        if (cardOwner && cardOwner !== strTelegramId) {
-          io.to(strTelegramId).emit("cardUnavailable", { cardId: strCardId });
-          return;
-        }
+    // ✅ Load current card selections (Redis Hash)
+    const cardOwner = await redis.hGet(gameCardsKey, strCardId);
 
-        // Load previous selection for this socket
-        const userSelectionStr = await redis.hGet(userSelectionsKey, socket.id);
-        let prevCardId = null;
-        if (userSelectionStr) {
-          const prevSelection = JSON.parse(userSelectionStr);
-          prevCardId = prevSelection.cardId;
+    // ✅ Reject if card taken by someone else
+    if (cardOwner && cardOwner !== strTelegramId) {
+      io.to(strTelegramId).emit("cardUnavailable", { cardId });
+      return;
+    }
 
-          // Free up previous card if different
-          if (prevCardId && String(prevCardId) !== strCardId) {
-            await redis.hDel(gameCardsKey, String(prevCardId));
-            socket.to(strGameId).emit("cardAvailable", { cardId: prevCardId });
-          }
-        }
+    // ✅ Load previous selection for this socket
+    const selectionRaw = await redis.hGet(userSelectionsKey, socket.id);
+    let previousCardId = null;
+    if (selectionRaw) {
+      const prev = JSON.parse(selectionRaw);
+      previousCardId = prev.cardId;
 
-        // Assign new card
-        await redis.hSet(gameCardsKey, strCardId, strTelegramId);
-
-        // Update userSelections
-        await redis.hSet(
-          userSelectionsKey,
-          socket.id,
-          JSON.stringify({ telegramId: strTelegramId, cardId: strCardId, card, gameId: strGameId })
-        );
-
-        // Notify user & others
-        io.to(strTelegramId).emit("cardConfirmed", { cardId: strCardId, card });
-        socket.to(strGameId).emit("otherCardSelected", { telegramId: strTelegramId, cardId: strCardId });
-
-        // Emit current number of players
-        const numberOfPlayers = await redis.sCard(`gameSessions:${strGameId}`);
-        io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
-
-        console.log(`User ${strTelegramId} selected card ${strCardId} in game ${strGameId}`);
-      } catch (err) {
-        console.error("❌ Redis error in cardSelected:", err);
+      // ✅ Free up previous card
+      if (previousCardId && previousCardId !== strCardId) {
+        await redis.hDel(gameCardsKey, previousCardId);
+        socket.to(strGameId).emit("cardAvailable", { cardId: previousCardId });
       }
-    });
+    }
+
+    // ✅ Assign new card to user
+    await redis.hSet(gameCardsKey, strCardId, strTelegramId);
+
+    // ✅ Save/update user selection
+    await redis.hSet(userSelectionsKey, socket.id, JSON.stringify({
+      telegramId: strTelegramId,
+      cardId: strCardId,
+      card,
+      gameId: strGameId,
+    }));
+
+    // ✅ Confirm to user and notify others
+    io.to(strTelegramId).emit("cardConfirmed", { cardId: strCardId, card });
+    socket.to(strGameId).emit("otherCardSelected", { telegramId: strTelegramId, cardId: strCardId });
+
+    // ✅ Emit updated number of players (from Redis Set)
+    const numberOfPlayers = await redis.sCard(`gameSessions:${strGameId}`);
+    io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
+
+    console.log(`✅ User ${strTelegramId} selected card ${strCardId} in game ${strGameId}`);
+  } catch (err) {
+    console.error("❌ Redis error in cardSelected:", err);
+  }
+});
+
+
 
 
 
