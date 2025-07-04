@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const User = require("../models/user");
 const GameControl = require('../models/GameControl');
-const redis = require("../utils/redisClient"); // Your Redis client import
+const redis = require("../u"); // Your Redis client import
 
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
@@ -17,7 +17,7 @@ router.post("/start", async (req, res) => {
     }
 
     // Check Redis if player already joined
-    const isMember = await redisClient.sIsMember(`gameRooms:${gameId}`, telegramId);
+    const isMember = await redis.sIsMember(`gameRooms:${gameId}`, telegramId);
     if (isMember) {
       return res.status(400).json({ error: "You already joined this game." });
     }
@@ -49,7 +49,7 @@ router.post("/start", async (req, res) => {
     );
 
     // Add player to Redis set for quick membership checks and real-time tracking
-    await redisClient.sAdd(`gameRooms:${gameId}`, telegramId);
+    a.sAdd(`gameRooms:${gameId}`, telegramId);
 
     // Release lock on user
     await User.updateOne(
