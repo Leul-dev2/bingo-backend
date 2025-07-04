@@ -15,11 +15,24 @@ router.post("/start", async (req, res) => {
       return res.status(404).json({ error: "Game not found." });
     }
 
-    const isMember = await redis.sIsMember(`gameRooms:${gameId}`, telegramId);
-    if (isMember) {
+    // Check Redis membership
+    const isMemberRedis = await redis.sIsMember(`gameRooms:${gameId}`, telegramId);
+
+    // Check MongoDB membership
+    const isMemberDB = game.players.includes(telegramId);
+
+    // If Redis says joined but DB says not, clean Redis to fix inconsistency
+    if (isMemberRedis && !isMemberDB) {
+      await Promise.all([
+        redis.sRem(`gameRooms:${gameId}`, telegramId),
+        redis.sRem(`gameSessions:${gameId}`, telegramId),
+      ]);
+    } else if (isMemberRedis && isMemberDB) {
+      // Both say joined => block join
       return res.status(400).json({ error: "You already joined this game." });
     }
 
+    // Proceed with join: lock user, deduct balance
     const user = await User.findOneAndUpdate(
       {
         telegramId,
@@ -39,19 +52,19 @@ router.post("/start", async (req, res) => {
       });
     }
 
-    // ✅ Immediately sync balance to Redis cache
+    // Sync updated balance to Redis cache immediately
     await redis.set(`userBalance:${telegramId}`, user.balance.toString(), "EX", 60);
 
-    // ✅ Update players list in MongoDB
+    // Update players list in MongoDB
     await GameControl.updateOne(
       { gameId },
       { $addToSet: { players: telegramId } }
     );
 
-    // ✅ Add to Redis set for real-time checks
+    // Add to Redis sets for real-time membership checks
     await redis.sAdd(`gameRooms:${gameId}`, telegramId);
 
-    // ✅ Release the user lock
+    // Release lock on user
     await User.updateOne(
       { telegramId },
       { $set: { transferInProgress: null } }
@@ -68,6 +81,7 @@ router.post("/start", async (req, res) => {
     console.error("🔥 Game Start Error:", error);
 
     if (game) {
+      // Rollback balance & release lock on error
       await User.updateOne(
         { telegramId },
         {
