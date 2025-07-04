@@ -30,6 +30,7 @@ const { v4: uuidv4 } = require("uuid");
   activeDrawLocks,
   gameDraws,
   gameSessionIds,
+  gameIsActive,
 };
 
   io.on("connection", (socket) => {
