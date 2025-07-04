@@ -3,13 +3,18 @@ const GameControl = require("../models/GameControl");
 const resetGame = require("../utils/resetGame");
 
 module.exports = function registerGameSocket(io) {
-  const gameRooms = {};
-  const gameDraws = {};
-  const userSelections = {};
-  const countdownIntervals = {};
-  const drawIntervals = {};
-  const gameSessions = {};
-  const gameIsActive = {};
+ let gameSessions = {}; // Store game sessions: gameId -> [telegramId]
+let gameSessionIds = {}; 
+let userSelections = {}; // Store user selections: socket.id -> { telegramId, gameId }
+let gameCards = {}; // Store game card selections: gameId -> { cardId: telegramId }
+const gameDraws = {}; // { [gameId]: { numbers: [...], index: 0 } };
+const countdownIntervals = {}; // { gameId: intervalId }
+const drawIntervals = {}; // { gameId: intervalId }
+const activeDrawLocks = {}; // Prevents multiple starts
+const gameReadyToStart = {};
+let drawStartTimeouts = {};
+const gameIsActive = {};
+const gamePlayers = {};
 
   io.on("connection", (socket) => {
       console.log("🟢 New client connected");
