@@ -410,17 +410,22 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
     }
 
     // Find winner user and update balance safely
-    const winnerUser = await User.findOne({ telegramId });
-    if (!winnerUser) {
+    // Find winner user and update balance safely
+      const winnerUser = await User.findOne({ telegramId });
+      if (!winnerUser) {
       console.error(`❌ User with telegramId ${telegramId} not found`);
       return;
-    }
+      }
 
-    console.log(`🔍 Original winner balance: ${winnerUser.balance}`);
-    winnerUser.balance = Number(winnerUser.balance || 0) + prizeAmount;
-    await winnerUser.save();
+      console.log(`🔍 Original winner balance: ${winnerUser.balance}`);
+      winnerUser.balance = Number(winnerUser.balance || 0) + prizeAmount;
+      await winnerUser.save();
 
-    console.log(`🏆 ${winnerUser.username || "Unknown"} won ${prizeAmount}. New balance: ${winnerUser.balance}`);
+      // **Update Redis cache with new balance**
+      await redis.set(`userBalance:${telegramId}`, winnerUser.balance.toString());
+
+      console.log(`🏆 ${winnerUser.username || "Unknown"} won ${prizeAmount}. New balance: ${winnerUser.balance}`);
+
 
     io.to(gameId.toString()).emit("winnerfound", {
       winnerName: winnerUser.username || "Unknown",
