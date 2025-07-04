@@ -545,7 +545,8 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
 
     // Check if game needs reset
     // Note: You may need to update checkAndResetIfEmpty to work with Redis or write a Redis version
-    await checkAndResetIfEmpty(gameId, io, redis);
+    await checkAndResetIfEmpty(gameId, io, redis, state);
+
 
     if (callback) callback();
   } catch (error) {

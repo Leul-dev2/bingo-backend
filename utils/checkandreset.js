@@ -2,23 +2,27 @@
 const resetGame = require("./resetGame");
 const GameControl = require("../models/GameControl");
 
-async function checkAndResetIfEmpty(gameId, io, gameRooms) {
-  const roomSize = gameRooms[gameId]?.size ?? 0;
+async function checkAndResetIfEmpty(gameId, io, redis, state) {
+  const roomSize = await redis.sCard(`gameRooms:${gameId}`);
 
   console.log("room size", roomSize);
 
-  if (roomSize === 0) {
+  if (!roomSize || roomSize === 0) {
     console.log(`🧹 No players left in game ${gameId}. Resetting game...`);
-    await resetGame(gameId, io, gameRooms);
 
+    // Reset DB first
     try {
       await GameControl.findOneAndUpdate(
         { gameId },
-        { isActive: false }
+        { isActive: false, totalCards: 0, prizeAmount: 0, players: [], endedAt: new Date() }
       );
+      console.log(`✅ GameControl for game ${gameId} has been reset in DB.`);
     } catch (err) {
       console.error("❌ Error updating game status:", err);
     }
+
+    // Reset Redis and memory
+    await resetGame(gameId, io, state, redis);
 
     io.to(gameId).emit("gameEnded");
     return true;

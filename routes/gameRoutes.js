@@ -7,77 +7,75 @@ const redis = require("../utils/redisClient"); // Your Redis client import
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
 
-  let game; // Declare here to use in catch
+  let game;
 
   try {
-    // Check if game exists
     game = await GameControl.findOne({ gameId });
     if (!game) {
       return res.status(404).json({ error: "Game not found." });
     }
 
-    // Check Redis if player already joined
     const isMember = await redis.sIsMember(`gameRooms:${gameId}`, telegramId);
     if (isMember) {
       return res.status(400).json({ error: "You already joined this game." });
     }
 
-    // Lock and balance check in MongoDB
     const user = await User.findOneAndUpdate(
       {
         telegramId,
         transferInProgress: null,
-        balance: { $gte: game.stakeAmount }
+        balance: { $gte: game.stakeAmount },
       },
       {
-        $set: { transferInProgress: { type: 'gameStart', at: Date.now() } },
-        $inc: { balance: -game.stakeAmount }
+        $set: { transferInProgress: { type: "gameStart", at: Date.now() } },
+        $inc: { balance: -game.stakeAmount },
       },
       { new: true }
     );
 
     if (!user) {
-      return res.status(400).json({ 
-        error: "Insufficient balance or transaction already in progress." 
+      return res.status(400).json({
+        error: "Insufficient balance or transaction already in progress.",
       });
     }
 
-    // Add player to MongoDB players array (if needed)
+    // ✅ Immediately sync balance to Redis cache
+    await redis.set(`userBalance:${telegramId}`, user.balance.toString(), "EX", 60);
+
+    // ✅ Update players list in MongoDB
     await GameControl.updateOne(
       { gameId },
       { $addToSet: { players: telegramId } }
     );
 
-    // Add player to Redis set for quick membership checks and real-time tracking
-    redis.sAdd(`gameRooms:${gameId}`, telegramId);
+    // ✅ Add to Redis set for real-time checks
+    await redis.sAdd(`gameRooms:${gameId}`, telegramId);
 
-    // Release lock on user
+    // ✅ Release the user lock
     await User.updateOne(
       { telegramId },
       { $set: { transferInProgress: null } }
     );
 
-    return res.status(200).json({ 
-      success: true, 
-      gameId, 
-      telegramId, 
-      message: "Joined game successfully."
+    return res.status(200).json({
+      success: true,
+      gameId,
+      telegramId,
+      message: "Joined game successfully.",
     });
 
   } catch (error) {
     console.error("🔥 Game Start Error:", error);
 
-    // Rollback user balance & unlock on error, only if game is defined
     if (game) {
       await User.updateOne(
         { telegramId },
         {
           $inc: { balance: game.stakeAmount || 0 },
-          $set: { transferInProgress: null }
+          $set: { transferInProgress: null },
         }
       );
     } else {
-      // If game undefined, just unlock without incrementing balance
       await User.updateOne(
         { telegramId },
         { $set: { transferInProgress: null } }
@@ -87,6 +85,7 @@ router.post("/start", async (req, res) => {
     return res.status(500).json({ error: "Internal server error." });
   }
 });
+
 
 
 
