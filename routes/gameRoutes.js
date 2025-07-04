@@ -7,15 +7,17 @@ const redis = require("../utils/redisClient"); // Your Redis client import
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
 
+  let game; // Declare here to use in catch
+
   try {
     // Check if game exists
-    const game = await GameControl.findOne({ gameId });
+    game = await GameControl.findOne({ gameId });
     if (!game) {
       return res.status(404).json({ error: "Game not found." });
     }
 
     // Check Redis if player already joined
-    const isMember = await redis.sismember(`gameRooms:${gameId}`, telegramId);
+    const isMember = await redisClient.sIsMember(`gameRooms:${gameId}`, telegramId);
     if (isMember) {
       return res.status(400).json({ error: "You already joined this game." });
     }
@@ -47,7 +49,7 @@ router.post("/start", async (req, res) => {
     );
 
     // Add player to Redis set for quick membership checks and real-time tracking
-    await redis.sadd(`gameRooms:${gameId}`, telegramId);
+    await redisClient.sAdd(`gameRooms:${gameId}`, telegramId);
 
     // Release lock on user
     await User.updateOne(
@@ -65,18 +67,27 @@ router.post("/start", async (req, res) => {
   } catch (error) {
     console.error("🔥 Game Start Error:", error);
 
-    // Rollback user balance & unlock on error
-    await User.updateOne(
-      { telegramId },
-      {
-        $inc: { balance: game?.stakeAmount || 0 },
-        $set: { transferInProgress: null }
-      }
-    );
+    // Rollback user balance & unlock on error, only if game is defined
+    if (game) {
+      await User.updateOne(
+        { telegramId },
+        {
+          $inc: { balance: game.stakeAmount || 0 },
+          $set: { transferInProgress: null }
+        }
+      );
+    } else {
+      // If game undefined, just unlock without incrementing balance
+      await User.updateOne(
+        { telegramId },
+        { $set: { transferInProgress: null } }
+      );
+    }
 
     return res.status(500).json({ error: "Internal server error." });
   }
 });
+
 
 
 // ✅ Game Status Check
