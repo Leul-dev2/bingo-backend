@@ -13,7 +13,7 @@ const historyRoutes = require('./routes/history');
 const walletRoute = require('./routes/wallet');
 const profileRoutes = require('./routes/profile');
 const registerGameSocket = require("./sockets/gameSocket")
-const paymentRoutes = require("./routes/payment"); // or wherever your file is
+const paymentRoutes = require("./routes/paymentRoutes"); // or wherever your file is
 
 
 const User = require("./models/user");

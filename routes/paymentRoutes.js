@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const Payment = require("../model/payment");
+const Payment = require("../models/payment");
 const axios = require("axios");
 
 const CHAPA_SECRET_KEY = process.env.CHAPA_SECRET_KEY;
