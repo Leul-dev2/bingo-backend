@@ -7,35 +7,51 @@ router.get("/", (req, res) => {
   res.json({ message: "Users is connected" });
 });
 
+/**
+ * GET /getUser?telegramId=12345[&refresh=true]
+ * If refresh=true is passed, it fetches fresh data from DB and updates Redis.
+ */
 router.get("/getUser", async (req, res) => {
-  const { telegramId } = req.query;
+  const { telegramId, refresh } = req.query;
 
   if (!telegramId) {
     return res.status(400).json({ error: "Missing telegramId" });
   }
 
   try {
-    // Try to get cached balance from Redis
     const cacheKey = `userBalance:${telegramId}`;
-    const cachedBalance = await redis.get(cacheKey);
 
+    // If force refresh is passed, bypass Redis and fetch from DB
+    if (refresh === "true") {
+      const user = await User.findOne({ telegramId });
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Update cache with latest value
+      await redis.set(cacheKey, user.balance, { EX: 60 });
+
+      return res.json({ balance: user.balance, source: "refreshed-db" });
+    }
+
+    // Try to get balance from Redis
+    const cachedBalance = await redis.get(cacheKey);
     if (cachedBalance !== null) {
-      // Return cached balance (string to number)
       return res.json({ balance: Number(cachedBalance), source: "cache" });
     }
 
-    // If not cached, fetch from MongoDB
+    // Not found in Redis, fallback to DB
     const user = await User.findOne({ telegramId });
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Cache the balance in Redis for 60 seconds (or any TTL you prefer)
-    await redis.set(cacheKey, user.balance, "EX", 60);
+    // Cache it for future
+    await redis.set(cacheKey, user.balance, { EX: 60 });
 
     return res.json({ balance: user.balance, source: "db" });
   } catch (error) {
-    console.error("Error fetching user data:", error);
+    console.error("❌ Error fetching user data:", error);
     return res.status(500).json({ error: "Server error" });
   }
 });
