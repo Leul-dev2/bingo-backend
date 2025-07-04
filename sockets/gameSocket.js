@@ -608,7 +608,7 @@ socket.on("disconnect", async () => {
       console.error(`❌ Failed to update GameControl for ${gameId}:`, err);
     }
 
-    resetGame(gameId, io, state, redis); // Emits "gameEnded"
+    resetGame(gameId, io, state, redis); // Emits "gameEnde"
   }
 });
 
