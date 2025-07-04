@@ -1,5 +1,6 @@
 const User = require("../models/user");
 const GameControl = require("../models/GameControl");
+const GameHistory = require("../models/GameHistory")
 const resetGame = require("../utils/resetGame");
 const checkAndResetIfEmpty = require("../utils/checkandreset");
 
@@ -372,8 +373,8 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
       }
     }
 
-    await GameControl.findOneAndUpdate({ gameId: gameId.toString() }, { isActive: false });
-   resetGame(gameId, io, state);
+     await GameControl.findOneAndUpdate({ gameId: gameId.toString() }, { isActive: false });
+    resetGame(gameId, io, state);
     io.to(gameId).emit("gameEnded");
 
 
@@ -503,7 +504,6 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
    resetGame(gameId, io, state); // This emits "gameEnded"
   }
 });
-
 
 
 
