@@ -2,28 +2,25 @@ const express = require('express');
 const router = express.Router();
 const User = require("../models/user");
 const GameControl = require('../models/GameControl');
+const redis = require("../utils/redisClient"); // Your Redis client import
 
-// ✅ Game Start Route
 router.post("/start", async (req, res) => {
   const { gameId, telegramId } = req.body;
 
   try {
+    // Check if game exists
     const game = await GameControl.findOne({ gameId });
-
     if (!game) {
       return res.status(404).json({ error: "Game not found." });
     }
 
-    // 🔍 Check if user already joined
-    if (!game.players) {
-      game.players = []; // In case players array not initialized
-    }
-
-    if (game.players.includes(telegramId)) {
+    // Check Redis if player already joined
+    const isMember = await redis.sismember(`gameRooms:${gameId}`, telegramId);
+    if (isMember) {
       return res.status(400).json({ error: "You already joined this game." });
     }
 
-    // 🔐 Apply Lock (check no transfer in progress + enough balance)
+    // Lock and balance check in MongoDB
     const user = await User.findOneAndUpdate(
       {
         telegramId,
@@ -43,13 +40,16 @@ router.post("/start", async (req, res) => {
       });
     }
 
-    // ✅ Add player to the game
+    // Add player to MongoDB players array (if needed)
     await GameControl.updateOne(
       { gameId },
-      { $addToSet: { players: telegramId } } // Add to players if not exists
+      { $addToSet: { players: telegramId } }
     );
 
-    // 🔓 Release lock
+    // Add player to Redis set for quick membership checks and real-time tracking
+    await redis.sadd(`gameRooms:${gameId}`, telegramId);
+
+    // Release lock on user
     await User.updateOne(
       { telegramId },
       { $set: { transferInProgress: null } }
@@ -65,7 +65,7 @@ router.post("/start", async (req, res) => {
   } catch (error) {
     console.error("🔥 Game Start Error:", error);
 
-    // 🛑 Rollback balance & unlock
+    // Rollback user balance & unlock on error
     await User.updateOne(
       { telegramId },
       {
@@ -78,11 +78,23 @@ router.post("/start", async (req, res) => {
   }
 });
 
+
 // ✅ Game Status Check
 router.get('/:gameId/status', async (req, res) => {
   const { gameId } = req.params;
 
   try {
+    // Check Redis first for isActive flag (faster than DB)
+    const isActiveStr = await redis.get(`gameIsActive:${gameId}`);
+
+    if (isActiveStr !== null) {
+      return res.json({
+        isActive: isActiveStr === 'true',
+        exists: true
+      });
+    }
+
+    // Fall back to DB if Redis cache miss
     const game = await GameControl.findOne({ gameId });
 
     if (!game) {
@@ -92,6 +104,9 @@ router.get('/:gameId/status', async (req, res) => {
         exists: false
       });
     }
+
+    // Optionally update Redis cache for future calls (expire after 60s or so)
+    await redis.set(`gameIsActive:${gameId}`, game.isActive ? 'true' : 'false', 'EX', 60);
 
     return res.json({
       isActive: game.isActive,
@@ -107,5 +122,6 @@ router.get('/:gameId/status', async (req, res) => {
     });
   }
 });
+
 
 module.exports = router;

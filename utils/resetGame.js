@@ -1,23 +1,20 @@
 const GameControl = require("../models/GameControl");
 
-async function resetGame(gameId, io, state) {
+async function resetGame(gameId, io, state, redis) {
   const {
     drawIntervals,
     countdownIntervals,
     drawStartTimeouts,
     activeDrawLocks,
     gameDraws,
-    gameCards,
     gameSessionIds,
-    gameSessions,
-    gameRooms,
     gameIsActive,
     gamePlayers,
     userSelections,
   } = state;
   console.log(`🧹 Starting reset for game ${gameId}`);
 
-  // 🔥 Reset GameControl in MongoDB
+  // Reset GameControl in MongoDB
   try {
     await GameControl.findOneAndUpdate(
       { gameId: gameId.toString() },
@@ -34,46 +31,73 @@ async function resetGame(gameId, io, state) {
     console.error(`❌ Failed to reset GameControl for ${gameId}:`, err);
   }
 
-  // 🔥 Notify clients the game has ended
+  // Notify clients the game has ended
   io?.to(gameId).emit("gameEnded");
 
-  // ✅ Clear drawing interval
+  // Clear intervals/timeouts
   if (drawIntervals[gameId]) {
     clearInterval(drawIntervals[gameId]);
     delete drawIntervals[gameId];
     console.log(`🛑 Cleared draw interval for gameId: ${gameId}`);
   }
 
-  // ✅ Clear countdown interval
   if (countdownIntervals[gameId]) {
     clearInterval(countdownIntervals[gameId]);
     delete countdownIntervals[gameId];
   }
 
-  // ✅ Clear pending draw start
   if (drawStartTimeouts[gameId]) {
     clearTimeout(drawStartTimeouts[gameId]);
     delete drawStartTimeouts[gameId];
   }
 
-  // ✅ Remove in-memory game state
+  // Remove in-memory game state
   delete activeDrawLocks[gameId];
   delete gameDraws[gameId];
-  delete gameCards[gameId];
   delete gameSessionIds[gameId];
-  delete gameSessions[gameId];
-  delete gameRooms[gameId];
   delete gameIsActive[gameId];
   delete gamePlayers[gameId];
 
-  // ✅ Remove user selections for this game
-  for (let socketId in userSelections) {
-    if (userSelections[socketId]?.gameId === gameId) {
-      delete userSelections[socketId];
-    }
+  // Redis cleanup: remove game sessions and rooms sets and game cards hash
+  try {
+    await Promise.all([
+      redis.del(`gameSessions:${gameId}`),
+      redis.del(`gameRooms:${gameId}`),
+      redis.del(`gameCards:${gameId}`),
+    ]);
+
+    // Remove all userSelections related to this game
+    // userSelections keys are per socketId, so need to scan and delete matching gameId
+    const stream = redis.scanStream({
+      match: "userSelections:*",
+      count: 100,
+    });
+
+    stream.on("data", async (keys) => {
+      if (keys.length) {
+        const pipeline = redis.pipeline();
+        for (const key of keys) {
+          const val = await redis.get(key);
+          if (val) {
+            const obj = JSON.parse(val);
+            if (obj.gameId === gameId) {
+              pipeline.del(key);
+            }
+          }
+        }
+        await pipeline.exec();
+      }
+    });
+
+    stream.on("end", () => {
+      console.log(`✅ Redis userSelections related to game ${gameId} cleared.`);
+    });
+  } catch (redisErr) {
+    console.error(`❌ Redis cleanup error for game ${gameId}:`, redisErr);
   }
 
   console.log(`🧼 Game ${gameId} has been fully reset.`);
 }
+
 
 module.exports = resetGame;
