@@ -66,6 +66,7 @@ async function resetGame(gameId, io, state, redis) {
       redis.del(`gameRooms:${gameId}`),
       redis.del(`gameCards:${gameId}`),
       redis.del(`gameIsActive:${gameId}`), // optional: if stored
+      redis.del(`gameActive:${gameId}`), 
     ]);
 
     // ✅ 6. Delete userSelections related to this gameId
