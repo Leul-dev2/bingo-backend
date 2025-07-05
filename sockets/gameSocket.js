@@ -206,6 +206,9 @@ socket.on("gameCount", async ({ gameId }) => {
       redis.get(countdownKey),
       redis.get(lockKey),
     ]);
+
+   console.log("console of ", isActive,  hasCountdown, hasLock);
+
     if (isActive || hasCountdown || hasLock) {
       console.log(`⚠️ Game ${gameId} is already preparing or running. Ignoring gameCount event.`);
       return;
