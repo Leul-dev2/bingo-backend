@@ -34,7 +34,7 @@ router.post("/start", async (req, res) => {
 
     
 
-//      const keys = await redis.keys("game*");
+    const keys = await redis.keys("game*");
 // if (keys.length > 0) {
 //   await redis.del(...keys);
 //   console.log("✅ Cleared all game-related Redis keys.");
