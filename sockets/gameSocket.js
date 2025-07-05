@@ -198,7 +198,7 @@ socket.on("gameCount", async ({ gameId }) => {
   const activeGameKey = `gameActive:${gameId}`;
   const countdownKey = `countdown:${gameId}`;
   const lockKey = `activeDrawLock:${gameId}`;
-
+  console.log ("game count is called");
   try {
     // Check if game is already preparing or running via Redis keys
     const [isActive, hasCountdown, hasLock] = await Promise.all([
@@ -261,6 +261,11 @@ socket.on("gameCount", async ({ gameId }) => {
         // Fetch current player count from Redis
         const currentPlayers = await redis.sCard(`gameRooms:${gameId}`) || 0;
         const prizeAmount = stakeAmount * currentPlayers;
+
+       if (currentPlayers === 0) {
+            console.log("🛑 No players left. Stopping drawing...");
+            
+          }
 
         // Update GameControl DB
         await GameControl.findOneAndUpdate(
