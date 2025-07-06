@@ -1,9 +1,38 @@
 const express = require("express");
 const router = express.Router();
-const Payment = require("../model/payment");
+const Payment = require("../models/payment");
 const axios = require("axios");
+const User  = require("../models/user")
 
 const CHAPA_SECRET_KEY = process.env.CHAPA_SECRET_KEY;
+
+// 🆕 Route to return user info by telegramId
+router.get("/userinfo", async (req, res) => {
+  const { telegramId } = req.query;
+
+  if (!telegramId) {
+    return res.status(400).json({ message: "Missing telegramId" });
+  }
+
+  try {
+    const user = await User.findOne({ telegramId });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Respond with essential fields
+    res.json({
+      telegramId: user.telegramId,
+      username: user.username,
+      phoneNumber: user.phoneNumber,
+    });
+  } catch (err) {
+    console.error("❌ Error fetching user info:", err.message);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 
 // Initialize payment route
 router.post("/accept-payment", async (req, res) => {
