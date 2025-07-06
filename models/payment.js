@@ -6,10 +6,6 @@ const PaymentSchema = new mongoose.Schema({
     required: true,
     unique: true,
   },
-  email: {
-    type: String,
-    required: true,
-  },
   amount: {
     type: String,
     required: true,

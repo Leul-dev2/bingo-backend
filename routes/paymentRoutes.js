@@ -39,7 +39,6 @@ router.post("/accept-payment", async (req, res) => {
   const {
     amount,
     currency,
-    email,
     first_name,
     last_name,
     phone_number,
@@ -56,7 +55,6 @@ router.post("/accept-payment", async (req, res) => {
         tx_ref,
         amount,
         currency,
-        email,
         first_name,
         last_name,
         phone_number,
@@ -72,7 +70,6 @@ router.post("/accept-payment", async (req, res) => {
       {
         amount,
         currency,
-        email,
         first_name,
         last_name,
         phone_number,
@@ -105,7 +102,7 @@ router.post("/webhook", express.json(), async (req, res) => {
 
     await Payment.findOneAndUpdate(
       { tx_ref },
-      { email, amount, status: "success",webhookTriggered: true, },
+      {  amount, status: "success",webhookTriggered: true, },
       { upsert: true }
     );
 
