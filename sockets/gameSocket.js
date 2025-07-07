@@ -3,7 +3,9 @@ const GameControl = require("../models/GameControl");
 const GameHistory = require("../models/GameHistory")
 const resetGame = require("../utils/resetGame");
 const checkAndResetIfEmpty = require("../utils/checkandreset");
-const redis = require("../utils/redisClient")
+const redis = require("../utils/redisClient");
+const  syncGameIsActive = require("../utils/syncGameIsActive");
+
 
 module.exports = function registerGameSocket(io) {
 let gameSessions = {}; // Store game sessions: gameId -> [telegramId]
@@ -283,6 +285,8 @@ socket.on("gameCount", async ({ gameId }) => {
           }
         );
 
+        await syncGameIsActive(gameId, true);
+
         console.log(`✅ Game ${gameId} is now ACTIVE with ${currentPlayers} players.`);
 
         // Mark game as active in Redis
@@ -358,6 +362,7 @@ async function startDrawing(gameId, io) {
             { gameId: gameId.toString() },
             { isActive: false }
           );
+          await syncGameIsActive(gameId, false);
           console.log(`✅ GameControl updated: game ${gameId} set to inactive.`);
         } catch (err) {
           console.error(`❌ Failed to update GameControl for game ${gameId}:`, err);
@@ -503,6 +508,7 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
 
     // Mark game inactive in DB
     await GameControl.findOneAndUpdate({ gameId: gameId.toString() }, { isActive: false });
+    await syncGameIsActive(gameId, false);
 
     // Clear Redis keys related to this game
     await Promise.all([
@@ -624,6 +630,7 @@ socket.on("disconnect", async () => {
           endedAt: new Date(),
         }
       );
+      await syncGameIsActive(gameId, false);
       console.log(`✅ GameControl for game ${gameId} set to inactive in DB.`);
     } catch (err) {
       console.error(`❌ Failed to update GameControl for ${gameId}:`, err);
