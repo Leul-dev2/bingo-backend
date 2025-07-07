@@ -6,14 +6,17 @@ const PaymentSchema = new mongoose.Schema({
     required: true,
     unique: true,
   },
-  email: {
-    type: String,
-    required: true,
-  },
   amount: {
     type: String,
     required: true,
   },
+  currency: {
+    type: String,
+    default: "ETB",
+  },
+  first_name: String,
+  last_name: String,
+  phone_number: String,
   status: {
     type: String,
     enum: ["pending", "success", "failed"],
@@ -21,8 +24,11 @@ const PaymentSchema = new mongoose.Schema({
   },
   webhookTriggered: {
     type: Boolean,
-    default: false, // false until webhook updates it
+    default: false,
   },
-}, { timestamps: true });
+}, { timestamps: true })
 
 module.exports = mongoose.model("Payment", PaymentSchema);
+
+
+;
