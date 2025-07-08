@@ -34,7 +34,6 @@ router.get("/userinfo", async (req, res) => {
 });
 
 
-// Initialize payment route
 router.post("/accept-payment", async (req, res) => {
   const {
     amount,
@@ -43,16 +42,26 @@ router.post("/accept-payment", async (req, res) => {
     last_name,
     phone_number,
     tx_ref,
+    telegramId, // ✅ Extract from frontend
   } = req.body;
+  
+  const user = await User.findOne({ telegramId });
+  if (!user) {
+    return res.status(404).json({ message: "User not found in DB" });
+  }
+  console.log("🔐 Incoming Payment Request started:", req.body);
 
-  console.log("🔐 Incoming Payment Request started:", req.body); // Log incoming req
+  if (!telegramId) {
+    return res.status(400).json({ message: "Missing telegramId" });
+  }
 
   try {
-    // Save payment as pending BEFORE calling Chapa API
+    // ✅ Save payment with telegramId BEFORE calling Chapa
     await Payment.findOneAndUpdate(
       { tx_ref },
       {
         tx_ref,
+        telegramId, // ✅ store it
         amount,
         currency,
         first_name,
@@ -64,7 +73,6 @@ router.post("/accept-payment", async (req, res) => {
       { upsert: true, new: true }
     );
 
-    // Call Chapa to initialize the payment
     const chapaRes = await axios.post(
       "https://api.chapa.co/v1/transaction/initialize",
       {
@@ -74,7 +82,7 @@ router.post("/accept-payment", async (req, res) => {
         last_name,
         phone_number,
         tx_ref,
-       return_url: "https://bossbingo.netlify.app/payment-success"
+        return_url: "https://bossbingo.netlify.app/payment-success"
       },
       {
         headers: {
@@ -88,7 +96,6 @@ router.post("/accept-payment", async (req, res) => {
     res.status(200).json(chapaRes.data);
   } catch (err) {
     console.error("❌ Chapa or DB error:", err.response?.data || err.message);
-    // Optional: you can update payment status to 'failed' here if needed
     res.status(400).json({ message: err.message, chapa: err.response?.data });
   }
 });
@@ -98,13 +105,27 @@ router.post("/webhook", express.json(), async (req, res) => {
   const data = req.body;
 
   if (data.status === "success") {
-    const { tx_ref, amount, email } = data;
+    const { tx_ref, amount } = data;
 
-    await Payment.findOneAndUpdate(
+    // ✅ Find the payment
+    const payment = await Payment.findOneAndUpdate(
       { tx_ref },
-      {  amount, status: "success",webhookTriggered: true, },
-      { upsert: true }
+      { amount, status: "success", webhookTriggered: true },
+      { new: true }
     );
+
+    if (payment && payment.telegramId) {
+      // ✅ Update user's balance
+      const user = await User.findOneAndUpdate(
+        { telegramId: payment.telegramId },
+        { $inc: { balance: Number(amount) } }, // Make sure balance is a Number in schema
+        { new: true }
+      );
+
+      console.log(`✅ Balance updated for user ${user.telegramId}: +${amount}`);
+    } else {
+      console.log("⚠️ Payment or telegramId not found, balance not updated.");
+    }
 
     console.log(`✅ Webhook received: Payment success for ${tx_ref}`);
   } else {
