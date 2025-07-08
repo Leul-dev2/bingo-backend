@@ -3,6 +3,7 @@ const router = express.Router();
 const Payment = require("../models/payment");
 const axios = require("axios");
 const User  = require("../models/user")
+const redis = require("../utils/redisClient"); // Import your Redis client
 
 const CHAPA_SECRET_KEY = process.env.CHAPA_SECRET_KEY;
 
@@ -105,6 +106,7 @@ router.post("/webhook", express.json(), async (req, res) => {
       {  amount, status: "success",webhookTriggered: true, },
       { upsert: true }
     );
+    await redis.set(`userBalance:${telegramId}`, winnerUser.balance.toString());
 
     console.log(`✅ Webhook received: Payment success for ${tx_ref}`);
   } else {
