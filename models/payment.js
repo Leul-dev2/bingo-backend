@@ -17,6 +17,10 @@ const PaymentSchema = new mongoose.Schema({
   first_name: String,
   last_name: String,
   phone_number: String,
+   telegramId: {           
+    type: String,
+    required: true,
+  },
   status: {
     type: String,
     enum: ["pending", "success", "failed"],
