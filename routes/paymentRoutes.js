@@ -114,7 +114,7 @@ router.post("/webhook", express.json(), async (req, res) => {
       { amount, status: "success", webhookTriggered: true },
       { new: true }
     );
-    await redis.set(`userBalance:${telegramId}`, winnerUser.balance.toString());
+   
 
     if (payment && payment.telegramId) {
       // ✅ Update user's balance
@@ -123,6 +123,9 @@ router.post("/webhook", express.json(), async (req, res) => {
         { $inc: { balance: Number(amount) } }, // Make sure balance is a Number in schema
         { new: true }
       );
+
+  // ✅ Update Redis with the new balance
+      await redis.set(`userBalance:${payment.telegramId}`, user.balance.toString());
 
       console.log(`✅ Balance updated for user ${user.telegramId}: +${amount}`);
     } else {
