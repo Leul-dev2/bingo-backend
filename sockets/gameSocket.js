@@ -40,6 +40,8 @@ const { v4: uuidv4 } = require("uuid");
       console.log("Client connected with socket ID:", socket.id);
       // User joins a game
 
+   socket.emit("connected")
+
     // User joins a game
   socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
   const strGameId = String(gameId);

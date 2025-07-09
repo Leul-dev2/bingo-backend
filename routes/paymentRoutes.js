@@ -3,6 +3,7 @@ const router = express.Router();
 const Payment = require("../models/payment");
 const axios = require("axios");
 const User  = require("../models/user")
+const redis = require("../utils/redisClient"); // Import your Redis client
 const Withdrawal = require("../models/withdrawal");
 
 const CHAPA_SECRET_KEY = process.env.CHAPA_SECRET_KEY;
@@ -195,6 +196,7 @@ router.post("/webhook", express.json(), async (req, res) => {
       { amount, status: "success", webhookTriggered: true },
       { new: true }
     );
+   
 
     if (payment && payment.telegramId) {
       // ✅ Update user's balance
@@ -203,6 +205,9 @@ router.post("/webhook", express.json(), async (req, res) => {
         { $inc: { balance: Number(amount) } }, // Make sure balance is a Number in schema
         { new: true }
       );
+
+  // ✅ Update Redis with the new balance
+      await redis.set(`userBalance:${payment.telegramId}`, user.balance.toString());
 
       console.log(`✅ Balance updated for user ${user.telegramId}: +${amount}`);
     } else {
