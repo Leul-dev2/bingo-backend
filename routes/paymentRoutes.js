@@ -3,6 +3,7 @@ const router = express.Router();
 const Payment = require("../models/payment");
 const axios = require("axios");
 const User  = require("../models/user")
+const Withdrawal = require("../models/withdrawal");
 
 const CHAPA_SECRET_KEY = process.env.CHAPA_SECRET_KEY;
 
@@ -32,6 +33,87 @@ router.get("/userinfo", async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+
+
+
+
+
+router.post("/request-withdrawal", async (req, res) => {
+  const {
+    telegramId,
+    bank_code,
+    account_name,
+    account_number,
+    amount,
+    currency,
+    reference,
+  } = req.body;
+
+  if (!telegramId || !bank_code || !account_name || !account_number || !amount || !currency || !reference) {
+    return res.status(400).json({ message: "Missing required fields" });
+  }
+
+  try {
+    // 🔎 Confirm user exists
+    const user = await User.findOne({ telegramId });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // 💾 Save to DB as "pending"
+    const withdrawal = new Withdrawal({
+      telegramId,
+      tx_ref: reference,
+      bank_code,
+      account_name,
+      account_number,
+      amount,
+      currency,
+      status: "pending",
+    });
+
+    await withdrawal.save();
+
+    // 📤 Send transfer request to Chapa
+    const chapaRes = await axios.post(
+      "https://api.chapa.co/v1/transfers",
+      {
+        account_name,
+        account_number,
+        bank_code,
+        amount,
+        currency,
+        reference,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${CHAPA_SECRET_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    console.log("✅ Chapa transfer response:", chapaRes.data);
+
+    // ✅ Return to frontend
+    return res.status(200).json({
+      message: "Withdrawal request sent to Chapa",
+      chapa: chapaRes.data,
+      tx_ref: reference,
+    });
+  } catch (err) {
+    console.error("❌ Withdrawal or Chapa error:", err.response?.data || err.message);
+    return res.status(500).json({
+      message: "Chapa transfer failed",
+      chapa: err.response?.data,
+    });
+  }
+});
+
+
+
+
+
 
 
 router.post("/accept-payment", async (req, res) => {
