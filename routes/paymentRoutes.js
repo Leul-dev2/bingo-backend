@@ -114,7 +114,33 @@ router.post("/request-withdrawal", async (req, res) => {
 
 
 
+router.get("/verify/:ref", async (req, res) => {
+  const { ref } = req.params;
 
+  try {
+    const chapaRes = await axios.get(`https://api.chapa.co/v1/transfers/verify/${ref}`, {
+      headers: {
+        Authorization: `Bearer ${CHAPA_SECRET_KEY}`,
+      },
+    });
+
+    const chapaStatus = chapaRes.data?.data?.status;
+
+    // Optionally update DB if status changed to success
+    if (chapaStatus === "SUCCESSFUL") {
+      await Withdrawal.findOneAndUpdate(
+        { tx_ref: ref },
+        { status: "success", chapaConfirmed: true }
+      );
+      return res.json({ status: "success" });
+    }
+
+    res.json({ status: "pending" });
+  } catch (err) {
+    console.error("❌ Error verifying withdrawal:", err.response?.data || err.message);
+    res.status(500).json({ status: "error", message: "Could not verify withdrawal" });
+  }
+});
 
 
 router.post("/accept-payment", async (req, res) => {
