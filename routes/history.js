@@ -29,8 +29,7 @@ router.get('/', async (req, res) => {
   calls: Math.floor(Math.random() * 25), // fake for now
   date: new Date(g.createdAt).toLocaleDateString(),
   time: new Date(g.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-  win: g.eventType === 'win' ? g.winAmount : -g.stake, // 👈 key fix here
-}));
+ win: g.eventType === 'lose' ? -g.stake : g.winAmount,}));
 
 
     return res.json(transformed);
