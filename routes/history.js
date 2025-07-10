@@ -21,16 +21,17 @@ router.get('/', async (req, res) => {
       .limit(100)
       .lean();
 
-    const transformed = games.map(g => ({
-      id: g.sessionId.slice(-4), // last 4 as ref
-      user: g.username,
-      ref: g.sessionId,
-      board: Math.floor(Math.random() * 50), // fake for now
-      calls: Math.floor(Math.random() * 25), // fake for now
-      date: new Date(g.createdAt).toLocaleDateString(),
-      time: new Date(g.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      win: g.winAmount,
-    }));
+   const transformed = games.map(g => ({
+  id: g.sessionId.slice(-4), // last 4 as ref
+  user: g.username,
+  ref: g.sessionId,
+  board: Math.floor(Math.random() * 50), // fake for now
+  calls: Math.floor(Math.random() * 25), // fake for now
+  date: new Date(g.createdAt).toLocaleDateString(),
+  time: new Date(g.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  win: g.eventType === 'win' ? g.winAmount : -g.stake, // 👈 key fix here
+}));
+
 
     return res.json(transformed);
   } catch (err) {
