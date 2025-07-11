@@ -1,20 +1,18 @@
-// models/GameCard.js
 const mongoose = require("mongoose");
 
 const GameCardSchema = new mongoose.Schema({
-  cardId: {
-    type: Number,
-    required: true,
-    unique: true, // unique within a game
-  },
-  card: {
-    type: [[Number]], // 2D array (e.g., 5x5)
-    required: true,
-  },
   gameId: {
     type: String,
     required: true,
     index: true,
+  },
+  cardId: {
+    type: Number,
+    required: true,
+  },
+  card: {
+    type: [[Number]], // 5x5 or similar
+    required: true,
   },
   isTaken: {
     type: Boolean,
@@ -25,5 +23,8 @@ const GameCardSchema = new mongoose.Schema({
     default: null,
   },
 }, { timestamps: true });
+
+// ✅ Compound unique index: cardId must be unique within each game
+GameCardSchema.index({ gameId: 1, cardId: 1 }, { unique: true });
 
 module.exports = mongoose.model("GameCard", GameCardSchema);
