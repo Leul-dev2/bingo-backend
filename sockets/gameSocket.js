@@ -154,30 +154,38 @@ socket.on("cardSelected", async (data) => {
     }
 
     // 6️⃣ Remove any previous card this user selected
-    const previousSelectionRaw = await redis.hGet(userSelectionsKey, socket.id);
-    if (previousSelectionRaw) {
-      const prev = JSON.parse(previousSelectionRaw);
-      if (prev.cardId && prev.cardId !== strCardId) {
-        await redis.hDel(gameCardsKey, prev.cardId);
+   // 4️⃣ Check and release any previous card taken by this user (by socket.id or telegramId)
+const previousSelectionRaw =
+  (await redis.hGet(userSelectionsKey, socket.id)) ||
+  (await redis.hGet(userSelectionsKey, strTelegramId));
 
-        await GameCard.findOneAndUpdate(
-          { gameId: strGameId, cardId: Number(prev.cardId) },
-          { isTaken: false, takenBy: null }
-        );
+if (previousSelectionRaw) {
+  const prev = JSON.parse(previousSelectionRaw);
 
-        // Notify others card is now available
-        socket.to(strGameId).emit("cardAvailable", { cardId: prev.cardId });
-      }
-    }
+  if (prev.cardId && prev.cardId !== strCardId) {
+    await redis.hDel(gameCardsKey, prev.cardId);
+    await GameCard.findOneAndUpdate(
+      { gameId: strGameId, cardId: Number(prev.cardId) },
+      { isTaken: false, takenBy: null }
+    );
+
+    socket.to(strGameId).emit("cardAvailable", { cardId: prev.cardId });
+  }
+}
+
 
     // 7️⃣ Store new selection in Redis
     await redis.hSet(gameCardsKey, strCardId, strTelegramId);
-    await redis.hSet(userSelectionsKey, socket.id, JSON.stringify({
-      telegramId: strTelegramId,
-      cardId: strCardId,
-      card: cleanCard,
-      gameId: strGameId,
-    }));
+        const selectionData = JSON.stringify({
+        telegramId: strTelegramId,
+        cardId: strCardId,
+        card: cleanCard,
+        gameId: strGameId,
+      });
+
+await redis.hSet(userSelectionsKey, socket.id, selectionData);
+await redis.hSet(userSelectionsKey, strTelegramId, selectionData); // ✅ Backup key
+
 
     // 8️⃣ Emit to the player and others
     io.to(strTelegramId).emit("cardConfirmed", { cardId: strCardId, card: cleanCard });
