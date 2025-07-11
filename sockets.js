@@ -1,43 +1,4 @@
-const User = require("../models/user");
-const GameControl = require("../models/GameControl");
-const GameHistory = require("../models/GameHistory")
-const resetGame = require("../utils/resetGame");
-const checkAndResetIfEmpty = require("../utils/checkandreset");
-const redis = require("../utils/redisClient");
-const  syncGameIsActive = require("../utils/syncGameIsActive");
-const GameCard = require('../models/GameCard'); // Your Mongoose models
-
-
-
-module.exports = function registerGameSocket(io) {
-let gameSessions = {}; // Store game sessions: gameId -> [telegramId]
-let gameSessionIds = {}; 
-let userSelections = {}; // Store user selections: socket.id -> { telegramId, gameId }
-let gameCards = {}; // Store game card selections: gameId -> { cardId: telegramId }
-const gameDraws = {}; // { [gameId]: { numbers: [...], index: 0 } };
-const countdownIntervals = {}; // { gameId: intervalId }
-const drawIntervals = {}; // { gameId: intervalId }
-const activeDrawLocks = {}; // Prevents multiple starts
-const gameReadyToStart = {};
-let drawStartTimeouts = {};
-const gameIsActive = {};
-const gamePlayers = {};
-const gameRooms = {};
-const joiningUsers = new Set();
-const { v4: uuidv4 } = require("uuid");
-
-
-  const state = {
-  countdownIntervals,
-  drawIntervals,
-  drawStartTimeouts,
-  activeDrawLocks,
-  gameDraws,
-  gameSessionIds,
-  gameIsActive,
-};
-
-  io.on("connection", (socket) => {
+io.on("connection", (socket) => {
       console.log("🟢 New client connected");
       console.log("Client connected with socket ID:", socket.id);
       // User joins a game
@@ -86,129 +47,7 @@ const { v4: uuidv4 } = require("uuid");
 
 
 
-socket.on("cardSelected", async (data) => {
-  const { telegramId, cardId, card, gameId } = data;
 
-  const strTelegramId = String(telegramId);
-  const strCardId = String(cardId);
-  const strGameId = String(gameId);
-
-  const gameCardsKey = `gameCards:${strGameId}`;
-  const userSelectionsKey = `userSelections`;
-  const lockKey = `lock:card:${strGameId}:${strCardId}`;
-
-  // Clean card format: Replace "FREE" with 0 and cast all to Number
-  const cleanCard = card.map(row => row.map(c => (c === "FREE" ? 0 : Number(c))));
-
-  try {
-    // 1️⃣ Lock the card using Redis (30 seconds expiry to avoid race condition)
-    const lock = await redis.set(lockKey, strTelegramId, "NX", "EX", 30);
-    if (!lock) {
-      return socket.emit("cardError", {
-        message: "⛔️ This card is currently being selected by another player. Try another card."
-      });
-    }
-
-    // 2️⃣ Check if card exists in DB
-    const existingCard = await GameCard.findOne({
-      gameId: strGameId,
-      cardId: Number(strCardId),
-    });
-
-    if (existingCard) {
-      // 3️⃣ If already taken by another user, deny
-      if (existingCard.isTaken && existingCard.takenBy !== strTelegramId) {
-        await redis.del(lockKey);
-        return socket.emit("cardUnavailable", { cardId: strCardId });
-      }
-
-      // 4️⃣ Card is free or taken by this same user, update it
-      await GameCard.updateOne(
-        { gameId: strGameId, cardId: Number(strCardId) },
-        {
-          $set: {
-            card: cleanCard,
-            isTaken: true,
-            takenBy: strTelegramId,
-          }
-        }
-      );
-    } else {
-      // 5️⃣ Insert card if not already in DB (handle rare race condition with unique index)
-      try {
-        await GameCard.create({
-          gameId: strGameId,
-          cardId: Number(strCardId),
-          card: cleanCard,
-          isTaken: true,
-          takenBy: strTelegramId
-        });
-      } catch (err) {
-        if (err.code === 11000) {
-          // Duplicate key error = someone else inserted it first
-          await redis.del(lockKey);
-          return socket.emit("cardUnavailable", { cardId: strCardId });
-        }
-        throw err;
-      }
-    }
-
-    // 6️⃣ Remove any previous card this user selected
-   // 4️⃣ Check and release any previous card taken by this user (by socket.id or telegramId
-const previousSelectionRaw =
-  (await redis.hGet(userSelectionsKey, socket.id)) ||
-  (await redis.hGet(userSelectionsKey, strTelegramId));
-
-if (previousSelectionRaw) {
-  const prev = JSON.parse(previousSelectionRaw);
-
-  if (prev.cardId && prev.cardId !== strCardId) {
-    await redis.hDel(gameCardsKey, prev.cardId);
-    await GameCard.findOneAndUpdate(
-      { gameId: strGameId, cardId: Number(prev.cardId) },
-      { isTaken: false, takenBy: null }
-    );
-
-    socket.to(strGameId).emit("cardAvailable", { cardId: prev.cardId });
-  }
-}
-
-
-    // 7️⃣ Store new selection in Redis
-    await redis.hSet(gameCardsKey, strCardId, strTelegramId);
-        const selectionData = JSON.stringify({
-        telegramId: strTelegramId,
-        cardId: strCardId,
-        card: cleanCard,
-        gameId: strGameId,
-      });
-
-await redis.hSet(userSelectionsKey, socket.id, selectionData);
-await redis.hSet(userSelectionsKey, strTelegramId, selectionData); // ✅ Backup key
-
-
-    // 8️⃣ Emit to the player and others
-    io.to(strTelegramId).emit("cardConfirmed", { cardId: strCardId, card: cleanCard });
-    socket.to(strGameId).emit("otherCardSelected", { telegramId: strTelegramId, cardId: strCardId });
-
-    // 9️⃣ Sync UI for all players
-    const updatedSelections = await redis.hGetAll(gameCardsKey);
-    io.to(strGameId).emit("currentCardSelections", updatedSelections);
-
-    // 🔟 Emit player count
-    const numberOfPlayers = await redis.sCard(`gameSessions:${strGameId}`);
-    io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
-
-    // 🔓 Release Redis lock
-    await redis.del(lockKey);
-
-    console.log(`✅ ${strTelegramId} selected card ${strCardId} in game ${strGameId}`);
-  } catch (err) {
-    await redis.del(lockKey);
-    console.error("❌ cardSelected error:", err);
-    socket.emit("cardError", { message: "Card selection failed." });
-  }
-});
 
 
 
@@ -418,6 +257,8 @@ socket.on("gameCount", async ({ gameId }) => {
     ]);
   }
 });
+
+
 
 
 
@@ -760,5 +601,5 @@ socket.on("disconnect", async () => {
 
 
 
+
   });
-};
