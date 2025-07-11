@@ -97,47 +97,36 @@ socket.on("cardSelected", async (data) => {
   const userSelectionsKey = `userSelections`;
   const lockKey = `lock:card:${strGameId}:${strCardId}`;
 
-  // Clean card: replace "FREE" with 0 and cast all to Number
+  // 🧼 Clean the card (convert "FREE" → 0, strings to numbers)
   const cleanCard = card.map(row => row.map(c => (c === "FREE" ? 0 : Number(c))));
 
   try {
-    // 1️⃣ Acquire Redis lock for this card (10 seconds expiry)
-    const lock = await redis.set(lockKey, strTelegramId, "NX", "EX", 30);
+    // 1️⃣ Try to lock this card for 10s
+    const lock = await redis.set(lockKey, strTelegramId, "NX", "EX", 10);
     if (!lock) {
       return socket.emit("cardError", { message: "⛔️ Someone else is picking this card. Try another." });
     }
 
-    // 2️⃣ Atomically find and update or insert card document (upsert)
-    let cardDoc;
-    try {
-      cardDoc = await GameCard.findOneAndUpdate(
-  { gameId: strGameId, cardId: Number(strCardId) },
-  {
-    $set: {
-      card: cleanCard,
-      isTaken: true,
-      takenBy: strTelegramId,
-    }
-  },
-  { upsert: true, new: true }
-);
+    // 2️⃣ Atomic update in MongoDB: only succeed if isTaken == false
+    const cardDoc = await GameCard.findOneAndUpdate(
+      { gameId: strGameId, cardId: Number(strCardId), isTaken: false },
+      {
+        $set: {
+          card: cleanCard,
+          isTaken: true,
+          takenBy: strTelegramId,
+        }
+      },
+      { new: true }
+    );
 
-    } catch (mongoErr) {
-      if (mongoErr.code === 11000) {
-        // Duplicate key error — someone else took it firs
-        await redis.del(lockKey);
-        return socket.emit("cardUnavailable", { cardId: strCardId });
-      }
-      throw mongoErr; // rethrow other errors
-    }
-
-    // 3️⃣ If card is taken by someone else, reject selection
-    if (cardDoc.isTaken && cardDoc.takenBy !== strTelegramId) {
+    // 3️⃣ If card already taken, reject
+    if (!cardDoc) {
       await redis.del(lockKey);
       return socket.emit("cardUnavailable", { cardId: strCardId });
     }
 
-    // 4️⃣ Check and release any previous card taken by this socket (if different)
+    // 4️⃣ If user had previously selected a different card, free it
     const previousSelectionRaw = await redis.hGet(userSelectionsKey, socket.id);
     if (previousSelectionRaw) {
       const prev = JSON.parse(previousSelectionRaw);
@@ -151,7 +140,7 @@ socket.on("cardSelected", async (data) => {
       }
     }
 
-    // 5️⃣ Save current selection in Redis
+    // 5️⃣ Save to Redis: selected card by socket
     await redis.hSet(gameCardsKey, strCardId, strTelegramId);
     await redis.hSet(userSelectionsKey, socket.id, JSON.stringify({
       telegramId: strTelegramId,
@@ -160,32 +149,33 @@ socket.on("cardSelected", async (data) => {
       gameId: strGameId,
     }));
 
-    // 6️⃣ Emit confirmation and update events
+    // 6️⃣ Confirm to user
     io.to(strTelegramId).emit("cardConfirmed", { cardId: strCardId, card: cleanCard });
-    socket.to(strGameId).emit("otherCardSelected", { telegramId: strTelegramId, cardId: strCardId });
 
-    // 7️⃣ Emit updated selections to everyone for UI sync
+    // 7️⃣ Notify others
+    socket.to(strGameId).emit("otherCardSelected", {
+      telegramId: strTelegramId,
+      cardId: strCardId,
+    });
+
+    // 8️⃣ Emit current selections to update all UIs
     const updatedSelections = await redis.hGetAll(gameCardsKey);
     io.to(strGameId).emit("currentCardSelections", updatedSelections);
 
-    // 8️⃣ Emit current player count
+    // 9️⃣ Emit player count
     const numberOfPlayers = await redis.sCard(`gameSessions:${strGameId}`);
     io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
 
-    // 9️⃣ Release Redis lock
+    // 🔟 Release the lock
     await redis.del(lockKey);
 
     console.log(`✅ ${strTelegramId} selected card ${strCardId} in game ${strGameId}`);
   } catch (err) {
     await redis.del(lockKey);
     console.error("❌ cardSelected error:", err);
-    socket.emit("cardError", { message: "Card selection failed." });
+    socket.emit("cardError", { message: "Card selection failed. Try again." });
   }
 });
-
-
-
-
 
 
 
