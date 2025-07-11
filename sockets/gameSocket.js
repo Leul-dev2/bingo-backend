@@ -154,7 +154,7 @@ socket.on("cardSelected", async (data) => {
     }
 
     // 6️⃣ Remove any previous card this user selected
-   // 4️⃣ Check and release any previous card taken by this user (by socket.id or telegramId)
+   // 4️⃣ Check and release any previous card taken by this user (by socket.id or telegramId))
 const previousSelectionRaw =
   (await redis.hGet(userSelectionsKey, socket.id)) ||
   (await redis.hGet(userSelectionsKey, strTelegramId));
