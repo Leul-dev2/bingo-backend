@@ -5,7 +5,7 @@ const resetGame = require("../utils/resetGame");
 const checkAndResetIfEmpty = require("../utils/checkandreset");
 const redis = require("../utils/redisClient");
 const  syncGameIsActive = require("../utils/syncGameIsActive");
-const GameCard = require('./models/GameCard'); // Your Mongoose models
+const GameCard = require('../models/GameCard'); // Your Mongoose models
 
 
 
