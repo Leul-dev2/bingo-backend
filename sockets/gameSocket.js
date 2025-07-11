@@ -97,11 +97,10 @@ socket.on("cardSelected", async (data) => {
   const userSelectionsKey = `userSelections`;
   const lockKey = `lock:card:${strGameId}:${strCardId}`;
 
-  // Clean card format: Replace "FREE" with 0 and cast all to Number
   const cleanCard = card.map(row => row.map(c => (c === "FREE" ? 0 : Number(c))));
 
   try {
-    // 1️⃣ Lock the card using Redis (30 seconds expiry to avoid race condition)
+    // 1️⃣ Redis Lock
     const lock = await redis.set(lockKey, strTelegramId, "NX", "EX", 30);
     if (!lock) {
       return socket.emit("cardError", {
@@ -109,27 +108,20 @@ socket.on("cardSelected", async (data) => {
       });
     }
 
-    // 2️⃣ Double check Redis to ensure no other user has selected this card
-    const currentRedisOwner = await redis.hGet(gameCardsKey, strCardId);
-    if (currentRedisOwner && currentRedisOwner !== strTelegramId) {
+    // 2️⃣ Double check Redis AND DB ownership
+    const [currentRedisOwner, existingCard] = await Promise.all([
+      redis.hGet(gameCardsKey, strCardId),
+      GameCard.findOne({ gameId: strGameId, cardId: Number(strCardId) }),
+    ]);
+
+    if ((currentRedisOwner && currentRedisOwner !== strTelegramId) ||
+        (existingCard?.isTaken && existingCard.takenBy !== strTelegramId)) {
       await redis.del(lockKey);
       return socket.emit("cardUnavailable", { cardId: strCardId });
     }
 
-    // 3️⃣ Check if card exists in DB
-    const existingCard = await GameCard.findOne({
-      gameId: strGameId,
-      cardId: Number(strCardId),
-    });
-
+    // 3️⃣ Update or Create GameCard
     if (existingCard) {
-      // 4️⃣ If taken by another user (edge case, race), deny again
-      if (existingCard.isTaken && existingCard.takenBy !== strTelegramId) {
-        await redis.del(lockKey);
-        return socket.emit("cardUnavailable", { cardId: strCardId });
-      }
-
-      // ✅ Safe to update if not taken or same user
       await GameCard.updateOne(
         { gameId: strGameId, cardId: Number(strCardId) },
         {
@@ -141,7 +133,6 @@ socket.on("cardSelected", async (data) => {
         }
       );
     } else {
-      // 5️⃣ Insert new card if not already in DB
       try {
         await GameCard.create({
           gameId: strGameId,
@@ -159,7 +150,7 @@ socket.on("cardSelected", async (data) => {
       }
     }
 
-    // 6️⃣ Remove previously selected card by this user (if any)
+    // 4️⃣ Remove previously selected card by this user
     const previousSelectionRaw =
       (await redis.hGet(userSelectionsKey, socket.id)) ||
       (await redis.hGet(userSelectionsKey, strTelegramId));
@@ -177,7 +168,7 @@ socket.on("cardSelected", async (data) => {
       }
     }
 
-    // 7️⃣ Store selection in Redis
+    // 5️⃣ Store new selection in Redis (optional atomic HSETNX style)
     await redis.hSet(gameCardsKey, strCardId, strTelegramId);
     const selectionData = JSON.stringify({
       telegramId: strTelegramId,
@@ -188,26 +179,22 @@ socket.on("cardSelected", async (data) => {
     await redis.hSet(userSelectionsKey, socket.id, selectionData);
     await redis.hSet(userSelectionsKey, strTelegramId, selectionData);
 
-    // 8️⃣ Emit confirmation and updates
+    // 6️⃣ Emit
     io.to(strTelegramId).emit("cardConfirmed", { cardId: strCardId, card: cleanCard });
     socket.to(strGameId).emit("otherCardSelected", { telegramId: strTelegramId, cardId: strCardId });
 
-    // 9️⃣ Sync card selection to UI
     const updatedSelections = await redis.hGetAll(gameCardsKey);
     io.to(strGameId).emit("currentCardSelections", updatedSelections);
 
-    // 🔟 Emit player count
     const numberOfPlayers = await redis.sCard(`gameSessions:${strGameId}`);
     io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
 
-    // 🔓 Unlock
-    await redis.del(lockKey);
-
     console.log(`✅ ${strTelegramId} selected card ${strCardId} in game ${strGameId}`);
   } catch (err) {
-    await redis.del(lockKey);
     console.error("❌ cardSelected error:", err);
     socket.emit("cardError", { message: "Card selection failed." });
+  } finally {
+    await redis.del(lockKey); // 🔓 Always release lock
   }
 });
 
