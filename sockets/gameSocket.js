@@ -97,50 +97,80 @@ socket.on("cardSelected", async (data) => {
   const userSelectionsKey = `userSelections`;
   const lockKey = `lock:card:${strGameId}:${strCardId}`;
 
-  // 🧼 Clean the card (convert "FREE" → 0, strings to numbers)
+  // Clean card format: Replace "FREE" with 0 and cast all to Number
   const cleanCard = card.map(row => row.map(c => (c === "FREE" ? 0 : Number(c))));
 
   try {
-    // 1️⃣ Try to lock this card for 10s
-    const lock = await redis.set(lockKey, strTelegramId, "NX", "EX", 10);
+    // 1️⃣ Lock the card using Redis (30 seconds expiry to avoid race condition)
+    const lock = await redis.set(lockKey, strTelegramId, "NX", "EX", 30);
     if (!lock) {
-      return socket.emit("cardError", { message: "⛔️ Someone else is picking this card. Try another." });
+      return socket.emit("cardError", {
+        message: "⛔️ This card is currently being selected by another player. Try another card."
+      });
     }
 
-    // 2️⃣ Atomic update in MongoDB: only succeed if isTaken == false
-    const cardDoc = await GameCard.findOneAndUpdate(
-      { gameId: strGameId, cardId: Number(strCardId), isTaken: false },
-      {
-        $set: {
+    // 2️⃣ Check if card exists in DB
+    const existingCard = await GameCard.findOne({
+      gameId: strGameId,
+      cardId: Number(strCardId),
+    });
+
+    if (existingCard) {
+      // 3️⃣ If already taken by another user, deny
+      if (existingCard.isTaken && existingCard.takenBy !== strTelegramId) {
+        await redis.del(lockKey);
+        return socket.emit("cardUnavailable", { cardId: strCardId });
+      }
+
+      // 4️⃣ Card is free or taken by this same user, update it
+      await GameCard.updateOne(
+        { gameId: strGameId, cardId: Number(strCardId) },
+        {
+          $set: {
+            card: cleanCard,
+            isTaken: true,
+            takenBy: strTelegramId,
+          }
+        }
+      );
+    } else {
+      // 5️⃣ Insert card if not already in DB (handle rare race condition with unique index)
+      try {
+        await GameCard.create({
+          gameId: strGameId,
+          cardId: Number(strCardId),
           card: cleanCard,
           isTaken: true,
-          takenBy: strTelegramId,
+          takenBy: strTelegramId
+        });
+      } catch (err) {
+        if (err.code === 11000) {
+          // Duplicate key error = someone else inserted it first
+          await redis.del(lockKey);
+          return socket.emit("cardUnavailable", { cardId: strCardId });
         }
-      },
-      { new: true }
-    );
-
-    // 3️⃣ If card already taken, reject
-    if (!cardDoc) {
-      await redis.del(lockKey);
-      return socket.emit("cardUnavailable", { cardId: strCardId });
+        throw err;
+      }
     }
 
-    // 4️⃣ If user had previously selected a different card, free it
+    // 6️⃣ Remove any previous card this user selected
     const previousSelectionRaw = await redis.hGet(userSelectionsKey, socket.id);
     if (previousSelectionRaw) {
       const prev = JSON.parse(previousSelectionRaw);
       if (prev.cardId && prev.cardId !== strCardId) {
         await redis.hDel(gameCardsKey, prev.cardId);
+
         await GameCard.findOneAndUpdate(
           { gameId: strGameId, cardId: Number(prev.cardId) },
           { isTaken: false, takenBy: null }
         );
+
+        // Notify others card is now available
         socket.to(strGameId).emit("cardAvailable", { cardId: prev.cardId });
       }
     }
 
-    // 5️⃣ Save to Redis: selected card by socket
+    // 7️⃣ Store new selection in Redis
     await redis.hSet(gameCardsKey, strCardId, strTelegramId);
     await redis.hSet(userSelectionsKey, socket.id, JSON.stringify({
       telegramId: strTelegramId,
@@ -149,33 +179,33 @@ socket.on("cardSelected", async (data) => {
       gameId: strGameId,
     }));
 
-    // 6️⃣ Confirm to user
+    // 8️⃣ Emit to the player and others
     io.to(strTelegramId).emit("cardConfirmed", { cardId: strCardId, card: cleanCard });
+    socket.to(strGameId).emit("otherCardSelected", { telegramId: strTelegramId, cardId: strCardId });
 
-    // 7️⃣ Notify others
-    socket.to(strGameId).emit("otherCardSelected", {
-      telegramId: strTelegramId,
-      cardId: strCardId,
-    });
-
-    // 8️⃣ Emit current selections to update all UIs
+    // 9️⃣ Sync UI for all players
     const updatedSelections = await redis.hGetAll(gameCardsKey);
     io.to(strGameId).emit("currentCardSelections", updatedSelections);
 
-    // 9️⃣ Emit player count
+    // 🔟 Emit player count
     const numberOfPlayers = await redis.sCard(`gameSessions:${strGameId}`);
     io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
 
-    // 🔟 Release the lock
+    // 🔓 Release Redis lock
     await redis.del(lockKey);
 
     console.log(`✅ ${strTelegramId} selected card ${strCardId} in game ${strGameId}`);
   } catch (err) {
     await redis.del(lockKey);
     console.error("❌ cardSelected error:", err);
-    socket.emit("cardError", { message: "Card selection failed. Try again." });
+    socket.emit("cardError", { message: "Card selection failed." });
   }
 });
+
+
+
+
+
 
 
 
