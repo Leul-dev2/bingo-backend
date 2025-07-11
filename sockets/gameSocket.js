@@ -111,21 +111,17 @@ socket.on("cardSelected", async (data) => {
     let cardDoc;
     try {
       cardDoc = await GameCard.findOneAndUpdate(
-        { gameId: strGameId, cardId: Number(strCardId) },
-        {
-          $setOnInsert: {
-            card: cleanCard,
-            isTaken: true,
-            takenBy: strTelegramId,
-          },
-          $set: {
-            isTaken: true,
-            takenBy: strTelegramId,
-            card: cleanCard,
-          },
-        },
-        { upsert: true, new: true }
-      );
+  { gameId: strGameId, cardId: Number(strCardId) },
+  {
+    $set: {
+      card: cleanCard,
+      isTaken: true,
+      takenBy: strTelegramId,
+    }
+  },
+  { upsert: true, new: true }
+);
+
     } catch (mongoErr) {
       if (mongoErr.code === 11000) {
         // Duplicate key error — someone else took it first
