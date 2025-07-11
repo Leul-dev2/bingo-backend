@@ -102,7 +102,7 @@ socket.on("cardSelected", async (data) => {
 
   try {
     // 1️⃣ Acquire Redis lock for this card (10 seconds expiry)
-    const lock = await redis.set(lockKey, strTelegramId, "NX", "EX", 10);
+    const lock = await redis.set(lockKey, strTelegramId, "NX", "EX", 30);
     if (!lock) {
       return socket.emit("cardError", { message: "⛔️ Someone else is picking this card. Try another." });
     }
