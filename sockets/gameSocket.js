@@ -124,7 +124,7 @@ socket.on("cardSelected", async (data) => {
 
     } catch (mongoErr) {
       if (mongoErr.code === 11000) {
-        // Duplicate key error — someone else took it first
+        // Duplicate key error — someone else took it firs
         await redis.del(lockKey);
         return socket.emit("cardUnavailable", { cardId: strCardId });
       }
