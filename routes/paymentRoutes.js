@@ -39,6 +39,29 @@ router.get("/userinfo", async (req, res) => {
 
 
 
+router.get("/balance", async (req, res) => {
+  const { telegramId } = req.query;
+
+  if (!telegramId) {
+    return res.status(400).json({ message: "Missing telegramId" });
+  }
+
+  try {
+    const user = await User.findOne({ telegramId });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Respond only with balance
+    return res.json({ balance: user.balance ?? 0 });
+  } catch (err) {
+    console.error("❌ Error fetching user balance:", err.message);
+    return res.status(500).json({ message: "Server error" });
+  }
+})
+
+
 router.post("/request-withdrawal", async (req, res) => {
   const {
     telegramId,
@@ -55,34 +78,46 @@ router.post("/request-withdrawal", async (req, res) => {
   }
 
   try {
-    // 🔎 Confirm user exists
+    // Confirm user exists
     const user = await User.findOne({ telegramId });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // 💾 Save to DB as "pending"
+    const amt = Number(amount);
+
+    // Validate minimum withdrawal amount
+    if (amt < 50) {
+      return res.status(400).json({ message: "Minimum withdrawal amount is 50 ETB" });
+    }
+
+    // Check user balance
+    if (user.balance < amt) {
+      return res.status(400).json({ message: "Insufficient balance for withdrawal" });
+    }
+
+    // Save withdrawal request as pending
     const withdrawal = new Withdrawal({
       telegramId,
       tx_ref: reference,
       bank_code,
       account_name,
       account_number,
-      amount,
+      amount: amt,
       currency,
       status: "pending",
     });
 
     await withdrawal.save();
 
-    // 📤 Send transfer request to Chapa
+    // Send transfer request to Chapa
     const chapaRes = await axios.post(
       "https://api.chapa.co/v1/transfers",
       {
         account_name,
         account_number,
         bank_code,
-        amount,
+        amount: amt,
         currency,
         reference,
       },
@@ -96,7 +131,6 @@ router.post("/request-withdrawal", async (req, res) => {
 
     console.log("✅ Chapa transfer response:", chapaRes.data);
 
-    // ✅ Return to frontend
     return res.status(200).json({
       message: "Withdrawal request sent to Chapa",
       chapa: chapaRes.data,
