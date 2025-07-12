@@ -126,16 +126,27 @@ socket.on("cardSelected", async (data) => {
 
     // 3️⃣ Update or Create GameCard
     if (existingCard) {
-      await GameCard.updateOne(
-        { gameId: strGameId, cardId: Number(strCardId) },
-        {
-          $set: {
-            card: cleanCard,
-            isTaken: true,
-            takenBy: strTelegramId,
-          }
-        }
-      );
+      const updateResult = await GameCard.updateOne(
+  {
+    gameId: strGameId,
+    cardId: Number(strCardId),
+    isTaken: false,
+  },
+  {
+    $set: {
+      card: cleanCard,
+      isTaken: true,
+      takenBy: strTelegramId,
+    }
+  }
+     );
+
+    if (updateResult.modifiedCount === 0) {
+      // Someone else took it
+      await redis.del(lockKey);
+      return socket.emit("cardUnavailable", { cardId: strCardId });
+    }
+
     } else {
       try {
         await GameCard.create({
