@@ -401,7 +401,10 @@ socket.on("gameCount", async ({ gameId }) => {
         io.to(gameId).emit("cardsReset", { gameId });
         io.to(gameId).emit("gameStart");
 
-        startDrawing(gameId, io);
+        if (!drawIntervals[gameId]) {
+          startDrawing(gameId, io);
+        }
+
       }
     }, 1000);
   } catch (err) {
@@ -429,6 +432,12 @@ socket.on("gameCount", async ({ gameId }) => {
 
 
 async function startDrawing(gameId, io) {
+
+   if (drawIntervals[gameId]) {
+    console.log(`⛔️ Drawing already in progress for game ${gameId}, skipping.`);
+    return;
+  }
+
   console.log(`🎯 Starting the drawing process for gameId: ${gameId}`);
 
   await GameCard.updateMany({ gameId }, { isTaken: false, takenBy: null });
