@@ -530,7 +530,17 @@ async function startDrawing(gameId, io) {
 
 
   socket.on("checkWinner", async ({ telegramId, gameId, cartelaId }) => {
+
   try {
+
+    // Validate cartelaId
+    const numericCardId = Number(cartelaId);
+    if (isNaN(numericCardId)) {
+      socket.emit("winnerError", { message: "Invalid or missing card ID." });
+      console.error("❌ checkWinner: cartelaId is NaN or invalid:", cartelaId);
+      return;
+    }
+
     // 1. Get drawn numbers as list from Redis
     const drawnNumbersRaw = await redis.lRange(`gameDraws:${gameId}`, 0, -1);
     if (!drawnNumbersRaw || drawnNumbersRaw.length === 0) {
