@@ -465,13 +465,16 @@ async function startDrawing(gameId, io) {
       // You need to maintain this somewhere globally or in Redis (left to your implementation)
 
       // This example picks the next number from 'numbers' array stored in Redis as JSON
-      const gameDataRaw = await redis.get(`gameDrawState:${gameId}`);
+     const gameDrawsKey = `gameDraws:${gameId}`;
+
+      const gameDataRaw = await redis.get(gameDrawsKey);
       if (!gameDataRaw) {
         console.log(`❌ No game draw data found for ${gameId}, stopping draw.`);
         clearInterval(drawIntervals[gameId]);
         delete drawIntervals[gameId];
         return;
       }
+
       const gameData = JSON.parse(gameDataRaw);
 
       if (gameData.index >= gameData.numbers.length) {
