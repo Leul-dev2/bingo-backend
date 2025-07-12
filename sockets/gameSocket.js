@@ -495,7 +495,8 @@ async function startDrawing(gameId, io) {
       await redis.set(gameDrawStateKey, JSON.stringify(gameData));
 
       // Add the drawn number to the Redis list
-      await redis.rPush(gameDrawsKey, number);
+      await redis.rPush(gameDrawsKey, number.toString());
+
 
       // Format the number label (e.g. "B-12")
       const letterIndex = Math.floor((number - 1) / 15);
