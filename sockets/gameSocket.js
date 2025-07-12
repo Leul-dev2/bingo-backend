@@ -606,9 +606,15 @@ async function processWinner({ telegramId, gameId, cartelaId, io }) {
     await redis.set(`userBalance:${telegramId}`, winnerUser.balance.toString());
 
     const selectedCard = await GameCard.findOne({ gameId, cardId: cartelaId });
-    const board = selectedCard?.card || [];  // this should be the 2D array like: [[1, 17, ...], [...], ...]
+    const board = selectedCard?.card || [];
 
-    const winnerPattern = Array(25).fill(false); // or send from frontend if it's more accurate
+    // ✅ Add this block
+    const drawn = await redis.lRange(`gameDraws:${gameId}`, 0, -1);
+    const drawnNumbers = new Set(drawn.map(Number));
+
+    // ✅ Call pattern checker
+    const winnerPattern = checkBingoPattern(board, drawnNumbers);
+
 
     io.to(gameId.toString()).emit("winnerConfirmed", {
       winnerName: winnerUser.username || "Unknown",
