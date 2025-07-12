@@ -367,7 +367,7 @@ socket.on("gameCount", async ({ gameId }) => {
         // Reset cards and player rooms/sessions in Redis (locks cards for the game start)
         await Promise.all([
           redis.del(`gameCards:${gameId}`),
-          redis.del(`gameRooms:${gameId}`),
+         // redis.del(`gameRooms:${gameId}`),
           redis.del(`gameSessions:${gameId}`)
         ]);
 
