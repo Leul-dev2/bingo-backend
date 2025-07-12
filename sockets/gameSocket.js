@@ -566,7 +566,7 @@ async function startDrawing(gameId, io) {
     // 4. If winner confirmed, call internal winner processing function
     await processWinner({ telegramId, gameId, cartelaId, io });
 
-    socket.emit("winnerConfirmed", { message: "Winner verified and processed!" });
+    //socket.emit("winnerConfirmed", { message: "Winner verified and processed!" });
 
   } catch (error) {
     console.error("Error in checkWinner:", error);
@@ -605,7 +605,7 @@ async function processWinner({ telegramId, gameId, cartelaId, io }) {
 
     await redis.set(`userBalance:${telegramId}`, winnerUser.balance.toString());
 
-    io.to(gameId.toString()).emit("winnerfound", {
+    io.to(gameId.toString()).emit("winnerConfirmed", {
       winnerName: winnerUser.username || "Unknown",
       prizeAmount,
       playerCount,
