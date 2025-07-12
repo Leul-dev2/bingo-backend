@@ -267,16 +267,20 @@ socket.on("gameCount", async ({ gameId }) => {
   const activeGameKey = `gameActive:${gameId}`;
   const countdownKey = `countdown:${gameId}`;
   const lockKey = `activeDrawLock:${gameId}`;
+  const gameDrawStateKey = `gameDrawState:${gameId}`;
+  const gameDrawsKey = `gameDraws:${gameId}`;
+
   console.log("game count is called");
 
   try {
-    // 1. CLEANUP only essential Redis keys and intervals BEFORE starting countdown
-    // Do NOT clear cards/gameRooms/gameSessions here so players can join and select cards during countdown
+    // 1. CLEANUP essential Redis keys and intervals BEFORE starting countdown
+    // Do NOT clear cards/gameRooms/gameSessions so players can join/select cards
     await Promise.all([
       redis.del(activeGameKey),
       redis.del(countdownKey),
       redis.del(lockKey),
-      redis.del(`gameDraws:${gameId}`),
+      redis.del(gameDrawStateKey),
+      redis.del(gameDrawsKey),
     ]);
 
     if (countdownIntervals[gameId]) {
@@ -308,10 +312,9 @@ socket.on("gameCount", async ({ gameId }) => {
     // 3. Mark game as active preparing
     await redis.set(activeGameKey, "true");
 
-    // 4. Prepare shuffled numbers and save to Redis
+    // 4. Prepare shuffled numbers and save to Redis under gameDrawStateKey
     const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
-    const gameDrawsKey = `gameDraws:${gameId}`;
-    await redis.set(gameDrawsKey, JSON.stringify({ numbers, index: 0 }));
+    await redis.set(gameDrawStateKey, JSON.stringify({ numbers, index: 0 }));
 
     // 5. Create or update GameControl in DB
     const existing = await GameControl.findOne({ gameId });
@@ -352,10 +355,8 @@ socket.on("gameCount", async ({ gameId }) => {
         clearInterval(countdownIntervals[gameId]);
         await redis.del(countdownKey);
 
-        // Countdown ended: NOW do the card and game resets BEFORE starting the game
-
-        // Fetch current player count from Redis
-        const currentPlayers = await redis.sCard(`gameRooms:${gameId}`) || 0;
+        // Countdown ended: do card and game resets BEFORE starting the game
+        const currentPlayers = (await redis.sCard(`gameRooms:${gameId}`)) || 0;
         const prizeAmount = stakeAmount * currentPlayers;
 
         if (currentPlayers === 0) {
@@ -364,11 +365,11 @@ socket.on("gameCount", async ({ gameId }) => {
           return;
         }
 
-        // Reset cards and player rooms/sessions in Redis (locks cards for the game start)
+        // Reset cards and player rooms/sessions in Redis (lock cards for game start)
         await Promise.all([
           redis.del(`gameCards:${gameId}`),
-         // redis.del(`gameRooms:${gameId}`),
-          redis.del(`gameSessions:${gameId}`)
+          // redis.del(`gameRooms:${gameId}`), // keep players to track them during game
+          redis.del(`gameSessions:${gameId}`),
         ]);
 
         // Update DB cards: mark all cards for this game as taken (locked)
@@ -416,9 +417,11 @@ socket.on("gameCount", async ({ gameId }) => {
       redis.del(`countdown:${gameId}`),
       redis.del(`gameActive:${gameId}`),
       redis.del(`activeDrawLock:${gameId}`),
+      redis.del(`gameDrawState:${gameId}`),
     ]);
   }
 });
+
 
 
 
@@ -429,7 +432,8 @@ async function startDrawing(gameId, io) {
   console.log(`🎯 Starting the drawing process for gameId: ${gameId}`);
 
   await GameCard.updateMany({ gameId }, { isTaken: false, takenBy: null });
-  
+
+  const gameDrawStateKey = `gameDrawState:${gameId}`;
   const gameDrawsKey = `gameDraws:${gameId}`;
   const gameRoomsKey = `gameRooms:${gameId}`;
   const activeGameKey = `gameActive:${gameId}`;
@@ -439,9 +443,9 @@ async function startDrawing(gameId, io) {
 
   drawIntervals[gameId] = setInterval(async () => {
     try {
-      // Fetch current game state if needed or control via DB for game index
+      // Fetch current player count
+      const currentPlayers = (await redis.sCard(gameRoomsKey)) || 0;
 
-      const currentPlayers = await redis.sCard(gameRoomsKey) || 0;
       if (currentPlayers === 0) {
         console.log(`🛑 No players left in game ${gameId}. Stopping drawing...`);
         clearInterval(drawIntervals[gameId]);
@@ -455,28 +459,21 @@ async function startDrawing(gameId, io) {
         io.to(gameId).emit("gameEnded");
         await redis.del(activeGameKey);
         await redis.del(gameDrawsKey);
+        await redis.del(gameDrawStateKey);
         return;
       }
 
-      // Instead of JSON, get number from your internal state (game.index)
-      // For example, track index in-memory or in Redis separately if needed
-
-      // For demo, assume you have an array 'numbers' and index 'currentIndex'
-      // You need to maintain this somewhere globally or in Redis (left to your implementation)
-
-      // This example picks the next number from 'numbers' array stored in Redis as JSON
-     const gameDrawsKey = `gameDraws:${gameId}`;
-
-      const gameDataRaw = await redis.get(gameDrawsKey);
+      // Read game state from Redis
+      const gameDataRaw = await redis.get(gameDrawStateKey);
       if (!gameDataRaw) {
         console.log(`❌ No game draw data found for ${gameId}, stopping draw.`);
         clearInterval(drawIntervals[gameId]);
         delete drawIntervals[gameId];
         return;
       }
-
       const gameData = JSON.parse(gameDataRaw);
 
+      // Check if all numbers drawn
       if (gameData.index >= gameData.numbers.length) {
         clearInterval(drawIntervals[gameId]);
         delete drawIntervals[gameId];
@@ -486,20 +483,21 @@ async function startDrawing(gameId, io) {
         resetGame(gameId, io, state, redis);
         await redis.del(activeGameKey);
         await redis.del(gameDrawsKey);
-        await redis.del(`gameDrawState:${gameId}`);
-
+        await redis.del(gameDrawStateKey);
         return;
       }
 
+      // Draw the next number
       const number = gameData.numbers[gameData.index];
       gameData.index += 1;
 
-      // Save updated index back
-      await redis.set(`gameDrawState:${gameId}`, JSON.stringify(gameData));
+      // Save updated game state back to Redis
+      await redis.set(gameDrawStateKey, JSON.stringify(gameData));
 
-      // Push number to Redis list
+      // Add the drawn number to the Redis list
       await redis.rPush(gameDrawsKey, number);
 
+      // Format the number label (e.g. "B-12")
       const letterIndex = Math.floor((number - 1) / 15);
       const letter = ["B", "I", "N", "G", "O"][letterIndex];
       const label = `${letter}-${number}`;
@@ -515,6 +513,7 @@ async function startDrawing(gameId, io) {
     }
   }, 3000);
 }
+
 
 
 
