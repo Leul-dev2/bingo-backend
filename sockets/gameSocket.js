@@ -6,6 +6,7 @@ const checkAndResetIfEmpty = require("../utils/checkandreset");
 const redis = require("../utils/redisClient");
 const  syncGameIsActive = require("../utils/syncGameIsActive");
 const GameCard = require('../models/GameCard'); // Your Mongoose models
+const checkBingoPattern = require("../utils/BingoPatterns")
 
 
 
@@ -420,47 +421,30 @@ socket.on("gameCount", async ({ gameId }) => {
 
 async function startDrawing(gameId, io) {
   console.log(`🎯 Starting the drawing process for gameId: ${gameId}`);
-  await GameCard.updateMany({ gameId }, { isTaken: false, takenBy: null });
 
+  await GameCard.updateMany({ gameId }, { isTaken: false, takenBy: null });
+  
   const gameDrawsKey = `gameDraws:${gameId}`;
   const gameRoomsKey = `gameRooms:${gameId}`;
   const activeGameKey = `gameActive:${gameId}`;
 
+  // Clear any existing draws list at start
+  await redis.del(gameDrawsKey);
+
   drawIntervals[gameId] = setInterval(async () => {
     try {
-      // Fetch game draw state from Redis
-      const gameDataRaw = await redis.get(gameDrawsKey);
-      if (!gameDataRaw) {
-        console.log(`❌ No game draw data found for ${gameId}, stopping draw.`);
-        clearInterval(drawIntervals[gameId]);
-        delete drawIntervals[gameId];
-        return;
-      }
+      // Fetch current game state if needed or control via DB for game index
 
-      const game = JSON.parse(gameDataRaw);
-
-      // Get current players count from Redis set cardinality
       const currentPlayers = await redis.sCard(gameRoomsKey) || 0;
-
       if (currentPlayers === 0) {
         console.log(`🛑 No players left in game ${gameId}. Stopping drawing...`);
-
         clearInterval(drawIntervals[gameId]);
         delete drawIntervals[gameId];
 
-      resetGame(gameId, io, state, redis);
+        resetGame(gameId, io, state, redis);
 
-        // Update GameControl DB
-        try {
-          await GameControl.findOneAndUpdate(
-            { gameId: gameId.toString() },
-            { isActive: false }
-          );
-          await syncGameIsActive(gameId, false);
-          console.log(`✅ GameControl updated: game ${gameId} set to inactive.`);
-        } catch (err) {
-          console.error(`❌ Failed to update GameControl for game ${gameId}:`, err);
-        }
+        await GameControl.findOneAndUpdate({ gameId: gameId.toString() }, { isActive: false });
+        await syncGameIsActive(gameId, false);
 
         io.to(gameId).emit("gameEnded");
         await redis.del(activeGameKey);
@@ -468,35 +452,50 @@ async function startDrawing(gameId, io) {
         return;
       }
 
-      // Check if all numbers drawn
-      if (game.index >= game.numbers.length) {
+      // Instead of JSON, get number from your internal state (game.index)
+      // For example, track index in-memory or in Redis separately if needed
+
+      // For demo, assume you have an array 'numbers' and index 'currentIndex'
+      // You need to maintain this somewhere globally or in Redis (left to your implementation)
+
+      // This example picks the next number from 'numbers' array stored in Redis as JSON
+      const gameDataRaw = await redis.get(`gameDrawState:${gameId}`);
+      if (!gameDataRaw) {
+        console.log(`❌ No game draw data found for ${gameId}, stopping draw.`);
         clearInterval(drawIntervals[gameId]);
         delete drawIntervals[gameId];
+        return;
+      }
+      const gameData = JSON.parse(gameDataRaw);
 
+      if (gameData.index >= gameData.numbers.length) {
+        clearInterval(drawIntervals[gameId]);
+        delete drawIntervals[gameId];
         io.to(gameId).emit("allNumbersDrawn");
         console.log(`🎯 All numbers drawn for game ${gameId}`);
 
-        resetGame(gameId, io, state, redis)
-
-        // Clean up Redis keys
+        resetGame(gameId, io, state, redis);
         await redis.del(activeGameKey);
         await redis.del(gameDrawsKey);
+        await redis.del(`gameDrawState:${gameId}`);
 
         return;
       }
 
-      // Draw next number
-      const number = game.numbers[game.index];
-      game.index += 1;
+      const number = gameData.numbers[gameData.index];
+      gameData.index += 1;
 
-      // Save updated game draw state back to Redis
-      await redis.set(gameDrawsKey, JSON.stringify(game));
+      // Save updated index back
+      await redis.set(`gameDrawState:${gameId}`, JSON.stringify(gameData));
+
+      // Push number to Redis list
+      await redis.rPush(gameDrawsKey, number);
 
       const letterIndex = Math.floor((number - 1) / 15);
       const letter = ["B", "I", "N", "G", "O"][letterIndex];
       const label = `${letter}-${number}`;
 
-      console.log(`🔢 Drawing number: ${label}, Index: ${game.index - 1}`);
+      console.log(`🔢 Drawing number: ${label}, Index: ${gameData.index - 1}`);
 
       io.to(gameId).emit("numberDrawn", { number, label });
 
@@ -505,63 +504,81 @@ async function startDrawing(gameId, io) {
       clearInterval(drawIntervals[gameId]);
       delete drawIntervals[gameId];
     }
-  }, 3000); // Draw every 3 seconds
+  }, 3000);
 }
 
 
 
 
 
-socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId }) => {
+  socket.on("checkWinner", async ({ telegramId, gameId, cartelaId }) => {
+  try {
+    // 1. Get drawn numbers as list from Redis
+    const drawnNumbersRaw = await redis.lRange(`gameDraws:${gameId}`, 0, -1);
+    if (!drawnNumbersRaw || drawnNumbersRaw.length === 0) {
+      socket.emit("winnerError", { message: "No numbers have been drawn yet." });
+      return;
+    }
+    const drawnNumbers = new Set(drawnNumbersRaw.map(Number));
+
+    // 2. Fetch the official card from DB
+    const cardData = await GameCard.findOne({ gameId, cardId: Number(cartelaId) });
+    if (!cardData) {
+      socket.emit("winnerError", { message: "Card not found." });
+      return;
+    }
+
+    // 3. Backend pattern check function - implement this based on your rules
+    const isWinner = checkBingoPattern(cardData.card, drawnNumbers);
+    if (!isWinner) {
+      socket.emit("winnerError", { message: "No winning pattern found." });
+      return;
+    }
+
+    // 4. If winner confirmed, call internal winner processing function
+    await processWinner({ telegramId, gameId, cartelaId, io });
+
+    socket.emit("winnerConfirmed", { message: "Winner verified and processed!" });
+
+  } catch (error) {
+    console.error("Error in checkWinner:", error);
+    socket.emit("winnerError", { message: "Internal error verifying winner." });
+  }
+});
+
+
+
+
+
+
+async function processWinner({ telegramId, gameId, cartelaId, io }) {
   try {
     const sessionId = gameSessionIds[gameId];
-    if (!sessionId) {
-      console.error(`❌ No session ID found for gameId ${gameId}`);
-      return;
-    }
+    if (!sessionId) throw new Error(`No session ID found for gameId ${gameId}`);
 
-    console.log(`🎯 Processing winner for gameId: ${gameId}, telegramId: ${telegramId}`);
-
-    // Fetch game data from DB
     const gameData = await GameControl.findOne({ gameId: gameId.toString() });
-    if (!gameData) {
-      console.error(`❌ GameControl data not found for gameId: ${gameId}`);
-      return;
-    }
+    if (!gameData) throw new Error(`GameControl data not found for gameId ${gameId}`);
 
     const prizeAmount = gameData.prizeAmount;
     const stakeAmount = gameData.stakeAmount;
     const playerCount = gameData.totalCards;
 
     if (typeof prizeAmount !== "number" || isNaN(prizeAmount)) {
-      console.error(`❌ Invalid or missing prizeAmount (${prizeAmount}) for gameId: ${gameId}`);
-      return;
+      throw new Error(`Invalid or missing prizeAmount (${prizeAmount}) for gameId: ${gameId}`);
     }
 
-    // Find winner user and update balance safely
-    // Find winner user and update balance safely
-      const winnerUser = await User.findOne({ telegramId });
-      if (!winnerUser) {
-      console.error(`❌ User with telegramId ${telegramId} not found`);
-      return;
-      }
+    const winnerUser = await User.findOne({ telegramId });
+    if (!winnerUser) throw new Error(`User with telegramId ${telegramId} not found`);
 
-      console.log(`🔍 Original winner balance: ${winnerUser.balance}`);
-      winnerUser.balance = Number(winnerUser.balance || 0) + prizeAmount;
-      await winnerUser.save();
+    winnerUser.balance = Number(winnerUser.balance || 0) + prizeAmount;
+    await winnerUser.save();
 
-      // **Update Redis cache with new balance**
-      await redis.set(`userBalance:${telegramId}`, winnerUser.balance.toString());
-
-      console.log(`🏆 ${winnerUser.username || "Unknown"} won ${prizeAmount}. New balance: ${winnerUser.balance}`);
-
+    await redis.set(`userBalance:${telegramId}`, winnerUser.balance.toString());
 
     io.to(gameId.toString()).emit("winnerfound", {
       winnerName: winnerUser.username || "Unknown",
       prizeAmount,
       playerCount,
-      board,
-      winnerPattern,
       boardNumber: cartelaId,
       newBalance: winnerUser.balance,
       telegramId,
@@ -579,9 +596,8 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
       createdAt: new Date(),
     });
 
-    // Retrieve players from Redis set instead of in-memory gameRooms
+    // Log loses for others
     const players = await redis.sMembers(`gameRooms:${gameId}`) || [];
-
     for (const playerTelegramId of players) {
       if (playerTelegramId !== telegramId) {
         const playerUser = await User.findOne({ telegramId: playerTelegramId });
@@ -600,11 +616,9 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
       }
     }
 
-    // Mark game inactive in DB
     await GameControl.findOneAndUpdate({ gameId: gameId.toString() }, { isActive: false });
     await syncGameIsActive(gameId, false);
 
-    // Clear Redis keys related to this game
     await Promise.all([
       redis.del(`gameRooms:${gameId}`),
       redis.del(`gameCards:${gameId}`),
@@ -612,6 +626,7 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
       redis.del(`gameActive:${gameId}`),
       redis.del(`countdown:${gameId}`),
       redis.del(`activeDrawLock:${gameId}`),
+      redis.del(`gameDrawState:${gameId}`),
     ]);
 
     await GameCard.updateMany({ gameId }, { isTaken: false, takenBy: null });
@@ -621,9 +636,10 @@ socket.on("winner", async ({ telegramId, gameId, board, winnerPattern, cartelaId
 
   } catch (error) {
     console.error("🔥 Error processing winner:", error);
-    socket.emit("winnerError", { message: "Failed to update winner balance. Please try again." });
+    // You can emit an error to the user if you want here
   }
-});
+}
+
 
 
 // ✅ Handle playerLeave event
