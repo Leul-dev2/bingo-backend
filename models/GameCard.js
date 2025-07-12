@@ -6,7 +6,7 @@ const GameCardSchema = new mongoose.Schema({
     required: true,
   },
   card: {
-    type: [[Number]],
+    type: [[Number]], // 5x5 grid (ideally validate structure in logic)
     required: true,
   },
   gameId: {
@@ -20,11 +20,13 @@ const GameCardSchema = new mongoose.Schema({
   },
   takenBy: {
     type: String,
-    default: null,
+    default: null, // Telegram ID or other identifier
   },
-}, { timestamps: true });
+}, {
+  timestamps: true,
+});
 
-// ✅ Ensure (gameId + cardId) is unique per game
+// ✅ Compound unique index to prevent duplicate cardId per game
 GameCardSchema.index({ gameId: 1, cardId: 1 }, { unique: true });
 
 module.exports = mongoose.model("GameCard", GameCardSchema);

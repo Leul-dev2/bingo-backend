@@ -102,12 +102,14 @@ socket.on("cardSelected", async (data) => {
   try {
     // 1️⃣ Redis Lock
     const lock = await redis.set(lockKey, strTelegramId, "NX", "EX", 30);
+    console.log("Lock status:", lock); // Should be "OK" or null
+
     if (!lock) {
       return socket.emit("cardError", {
         message: "⛔️ This card is currently being selected by another player. Try another card."
+        
       });
-      console.log("Lock status:", lock); // Should be "OK" or null
-
+    
     }
 
     // 2️⃣ Double check Redis AND DB ownership
