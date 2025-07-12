@@ -229,7 +229,10 @@ socket.on("cardSelected", async (data) => {
           }
 
           // Add player to Redis set for gameRooms (replace in-memory Set)
+        
           await redis.sAdd(`gameRooms:${gameId}`, telegramId);
+          const playerCountAfterJoin = await redis.sCard(`gameRooms:${gameId}`);
+          console.log(`[joinGame] Player ${telegramId} joined game ${gameId}, total players now: ${playerCountAfterJoin}`);
 
           // Join the socket.io room
           socket.join(gameId);
@@ -284,6 +287,9 @@ socket.on("gameCount", async ({ gameId }) => {
       clearInterval(drawIntervals[gameId]);
       delete drawIntervals[gameId];
     }
+
+    const currentPlayers = await redis.sCard(`gameRooms:${gameId}`);
+    console.log(`[gameCount] Countdown ended. Current players in game ${gameId}: ${currentPlayers}`);
 
     // 2. Check if game is already active or preparing
     const [isActive, hasCountdown, hasLock] = await Promise.all([
