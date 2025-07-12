@@ -580,6 +580,8 @@ async function startDrawing(gameId, io) {
 
 
 async function processWinner({ telegramId, gameId, cartelaId, io }) {
+
+  console.log("process winner", cartelaId  );
   try {
     const sessionId = gameSessionIds[gameId];
     if (!sessionId) throw new Error(`No session ID found for gameId ${gameId}`);
