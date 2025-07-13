@@ -68,3 +68,6 @@ function checkBingoPattern(card, drawnNumbers, markedNumbers) {
 
   return pattern; // All false = no win
 }
+
+
+module.exports = checkBingoPattern;
