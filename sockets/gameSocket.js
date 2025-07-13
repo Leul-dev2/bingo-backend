@@ -527,7 +527,7 @@ async function startDrawing(gameId, io) {
 
 
 
-
+//check winner
 
  socket.on("checkWinner", async ({ telegramId, gameId, cartelaId, selectedNumbers }) => {
   const selectedSet = new Set((selectedNumbers || []).map(Number));
