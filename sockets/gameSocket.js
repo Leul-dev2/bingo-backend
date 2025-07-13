@@ -531,9 +531,6 @@ async function startDrawing(gameId, io) {
 
  socket.on("checkWinner", async ({ telegramId, gameId, cartelaId, selectedNumbers }) => {
   const selectedSet = new Set((selectedNumbers || []).map(Number));
-  console.log('drawnNumbers:', drawnNumbers);
-  console.log('selectedNumbers:', selectedNumbers);
-  console.log('cardData.card:', cardData.card);
 
 
   try {
@@ -560,6 +557,10 @@ async function startDrawing(gameId, io) {
       socket.emit("winnerError", { message: "Card not found." });
       return;
     }
+
+     console.log("✅ drawnNumbers:", drawnNumbers);
+    console.log("✅ selectedNumbers (marked):", selectedSet);
+    console.log("✅ cardData.card:", cardData.card);
 
     // 3. Backend pattern check function - implement this based on your rules
    const pattern = checkBingoPattern(cardData.card, drawnNumbers, selectedSet);
