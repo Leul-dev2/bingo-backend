@@ -529,7 +529,8 @@ async function startDrawing(gameId, io) {
 
 
 
-  socket.on("checkWinner", async ({ telegramId, gameId, cartelaId }) => {
+ socket.on("checkWinner", async ({ telegramId, gameId, cartelaId, selectedNumbers }) => {
+  const selectedSet = new Set((selectedNumbers || []).map(Number));
 
   try {
 
@@ -557,11 +558,14 @@ async function startDrawing(gameId, io) {
     }
 
     // 3. Backend pattern check function - implement this based on your rules
-    const isWinner = checkBingoPattern(cardData.card, drawnNumbers);
-    if (!isWinner) {
-      socket.emit("winnerError", { message: "No winning pattern found." });
-      return;
-    }
+   const pattern = checkBingoPattern(cardData.card, drawnNumbers, selectedSet);
+   const isWinner = pattern.some(Boolean); // ✅ Check if any cell is true
+
+if (!isWinner) {
+  socket.emit("winnerError", { message: "No winning pattern found." });
+  return;
+}
+
 
     // 4. If winner confirmed, call internal winner processing function
     await processWinner({ telegramId, gameId, cartelaId, io });
