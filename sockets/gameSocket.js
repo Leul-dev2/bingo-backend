@@ -573,7 +573,8 @@ if (!isWinner) {
 
 
     // 4. If winner confirmed, call internal winner processing function
-    await processWinner({ telegramId, gameId, cartelaId, io });
+    await processWinner({ telegramId, gameId, cartelaId, io, selectedSet });
+
 
     //socket.emit("winnerConfirmed", { message: "Winner verified and processed!" });
 
@@ -588,7 +589,7 @@ if (!isWinner) {
 
 
 
-async function processWinner({ telegramId, gameId, cartelaId, io }) {
+async function processWinner({ telegramId, gameId, cartelaId, io, selectedSet }) {
 
   console.log("process winner", cartelaId  );
   try {
@@ -622,7 +623,8 @@ async function processWinner({ telegramId, gameId, cartelaId, io }) {
     const drawnNumbers = new Set(drawn.map(Number));
 
     // ✅ Call pattern checker
-    const winnerPattern = checkBingoPattern(board, drawnNumbers);
+    const winnerPattern = checkBingoPattern(board, drawnNumbers, selectedSet);
+
 
 
     io.to(gameId.toString()).emit("winnerConfirmed", {
