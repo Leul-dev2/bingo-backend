@@ -10,14 +10,14 @@ function checkBingoPattern(card, drawnNumbers, markedNumbers) {
     return Array(size * size).fill(false);
   }
 
-  const isMatched = (num) => {
-    if (num === 0) return true;
-    if (!drawnNumbers || !markedNumbers) {
-      console.warn("⚠️ drawnNumbers or markedNumbers undefined");
-      return false;
-    }
-    return drawnNumbers.has(num) && markedNumbers.has(num);
-  };
+  
+   const isMatched = (num) => {
+  if (num === 0) return true;
+  const drawnHas = drawnNumbers.has(num);
+  const markedHas = markedNumbers.has(num);
+  console.log(`Checking num ${num}: drawnNumbers.has = ${drawnHas}, markedNumbers.has = ${markedHas}`);
+  return drawnHas && markedHas;
+   };
 
   const pattern = Array(size * size).fill(false);
 
