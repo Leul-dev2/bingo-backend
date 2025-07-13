@@ -1,11 +1,27 @@
 function checkBingoPattern(card, drawnNumbers, markedNumbers) {
   const size = 5;
-  const isMatched = (num) =>
-    num === 0 || (drawnNumbers.has(num) && markedNumbers.has(num)); // ✅ must be drawn AND selected
+
+  if (!(drawnNumbers instanceof Set)) {
+    console.warn("⚠️ drawnNumbers is not a Set:", drawnNumbers);
+    return Array(size * size).fill(false);
+  }
+  if (!(markedNumbers instanceof Set)) {
+    console.warn("⚠️ markedNumbers is not a Set:", markedNumbers);
+    return Array(size * size).fill(false);
+  }
+
+  const isMatched = (num) => {
+    if (num === 0) return true;
+    if (!drawnNumbers || !markedNumbers) {
+      console.warn("⚠️ drawnNumbers or markedNumbers undefined");
+      return false;
+    }
+    return drawnNumbers.has(num) && markedNumbers.has(num);
+  };
 
   const pattern = Array(size * size).fill(false);
 
-  // ✅ Check rows
+  // Check rows
   for (let r = 0; r < size; r++) {
     if (card[r].every((num) => isMatched(num))) {
       for (let c = 0; c < size; c++) {
@@ -15,7 +31,7 @@ function checkBingoPattern(card, drawnNumbers, markedNumbers) {
     }
   }
 
-  // ✅ Check columns
+  // Check columns
   for (let c = 0; c < size; c++) {
     let colWin = true;
     for (let r = 0; r < size; r++) {
@@ -32,7 +48,7 @@ function checkBingoPattern(card, drawnNumbers, markedNumbers) {
     }
   }
 
-  // ✅ Main Diagonal
+  // Main diagonal
   if ([0, 1, 2, 3, 4].every((i) => isMatched(card[i][i]))) {
     for (let i = 0; i < size; i++) {
       pattern[i * size + i] = true;
@@ -40,7 +56,7 @@ function checkBingoPattern(card, drawnNumbers, markedNumbers) {
     return pattern;
   }
 
-  // ✅ Anti-Diagonal
+  // Anti diagonal
   if ([0, 1, 2, 3, 4].every((i) => isMatched(card[i][size - 1 - i]))) {
     for (let i = 0; i < size; i++) {
       pattern[i * size + (size - 1 - i)] = true;
@@ -48,17 +64,14 @@ function checkBingoPattern(card, drawnNumbers, markedNumbers) {
     return pattern;
   }
 
-  // ✅ Corner pattern (optional but requested)
+  // Corner pattern
   const corners = [
     [0, 0],
     [0, 4],
     [4, 0],
     [4, 4],
   ];
-  const allCornersMatched = corners.every(([r, c]) =>
-    isMatched(card[r][c])
-  );
-
+  const allCornersMatched = corners.every(([r, c]) => isMatched(card[r][c]));
   if (allCornersMatched) {
     for (const [r, c] of corners) {
       pattern[r * size + c] = true;
@@ -66,8 +79,7 @@ function checkBingoPattern(card, drawnNumbers, markedNumbers) {
     return pattern;
   }
 
-  return pattern; // All false = no win
+  return pattern;
 }
-
 
 module.exports = checkBingoPattern;
