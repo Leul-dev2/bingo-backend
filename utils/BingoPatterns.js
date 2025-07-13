@@ -11,13 +11,21 @@ function checkBingoPattern(card, drawnNumbers, markedNumbers) {
   }
 
   
-   const isMatched = (num) => {
-  if (num === 0) return true;
+  const isMatched = (num) => {
+  if (num === 0) {
+    console.log(`Checking num ${num}: FREE space always matched`);
+    return true; // Free space is always considered matched
+  }
+
   const drawnHas = drawnNumbers.has(num);
   const markedHas = markedNumbers.has(num);
+
   console.log(`Checking num ${num}: drawnNumbers.has = ${drawnHas}, markedNumbers.has = ${markedHas}`);
+
+  // Return true only if the number is both drawn and marked
   return drawnHas && markedHas;
-   };
+};
+
 
   const pattern = Array(size * size).fill(false);
 
