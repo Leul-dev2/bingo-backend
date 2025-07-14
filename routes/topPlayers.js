@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const GameHistory = require('../models/GameHistory');
+const { userRateLimiter, globalRateLimiter } = require('../rate-limit/historyLimiter');
 
 router.get('/', async (req, res) => {
   const timeframe = req.query.time || 'all';
@@ -21,6 +22,21 @@ router.get('/', async (req, res) => {
       dateFilter = null;
       break;
   }
+
+   // ✅ Rate limit before any DB operations
+  const telegramId = req.query.telegramId || req.ip; // fallback to IP for anonymous usage
+  try {
+    await Promise.all([
+      userRateLimiter.consume(telegramId),
+      globalRateLimiter.consume("global")
+    ]);
+  } catch (rateLimitError) {
+    return res.status(429).json({
+      error: "Too many requests. Please wait before trying again."
+    });
+  }
+
+
 
   const pipeline = [];
 

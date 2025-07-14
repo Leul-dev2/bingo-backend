@@ -1,11 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const GameHistory = require('../models/GameHistory');
+const { userRateLimiter, globalRateLimiter } = require('../rate-limit/historyLimiter');
 
 // GET /api/history?user=123&bet=10&tab=0|1
 router.get('/', async (req, res) => {
   const { user, bet, tab } = req.query;
   if (!user || !bet) return res.status(400).json({ error: 'Missing user or bet' });
+
+
 
   const match = {
     telegramId: user,
@@ -15,7 +18,22 @@ router.get('/', async (req, res) => {
   // Optional: tab=0 => "Recent Games" = all users, tab=1 => "My Games" = only user's games
   if (tab === '0') delete match.telegramId;
 
-  try {
+   try {
+    // ✅ Apply both user and global rate limits
+    await Promise.all([
+      userRateLimiter.consume(user),        // limit per user
+      globalRateLimiter.consume("global")   // limit total requests
+    ]);
+  } catch (rateLimitError) {
+    return res.status(429).json({
+      error: "Too many requests. Please wait before trying again."
+    });
+  }
+
+
+  try { 
+    
+   
     const games = await GameHistory.find(match)
       .sort({ createdAt: -1 })
       .limit(100)
