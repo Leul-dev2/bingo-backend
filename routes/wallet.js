@@ -4,7 +4,7 @@ const router = express.Router();
 const User = require("../models/user"); // Import the User model
 const Payment = require("../models/payment");
 const Withdrawal = require("../models/withdrawal");
-const { userRateLimiter, globalRateLimiter } = require('../rate-limit/historyLimiter');
+const { userRateLimiter, globalRateLimiter } = require('../rate-limit/Limiter');
 
 
 router.get('/', async (req, res) => {
