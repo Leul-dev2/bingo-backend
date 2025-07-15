@@ -228,7 +228,7 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
         { isTaken: false, takenBy: null }
       );
 
-      await redis.hDel("userSelections", strTelegramId);
+     // await redis.hDel("userSelections", strTelegramId);
       io.to(gameId).emit("cardAvailable", { cardId: strCardId });
 
 
@@ -758,6 +758,7 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
         io.to(gameId).emit("cardAvailable", { cardId: userSelection.cardId });
       }
     }
+
 
     // Remove userSelections entries by both socket.id and telegramId after usage
     await Promise.all([
