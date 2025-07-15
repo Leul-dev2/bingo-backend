@@ -43,10 +43,19 @@ const { v4: uuidv4 } = require("uuid");
       console.log("Client connected with socket ID:", socket.id);
       // User joins a game
 
-   //socket.emit("connected")
+  async function joinGameRoom(socket, gameId, telegramId) {
+      socket.join(gameId);
+      await redis.sAdd(`gameRooms:${gameId}`, telegramId);
+
+      const playerCount = await redis.sCard(`gameRooms:${gameId}`);
+      io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
+    }
+
 
     // User joins a game
   socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
+  await redis.hSet("socketToTelegram", socket.id, telegramId);
+
   const strGameId = String(gameId);
   const strTelegramId = String(telegramId);
   const userSelectionKey = `userSelections`;
@@ -72,7 +81,9 @@ const { v4: uuidv4 } = require("uuid");
 
     // Emit updated player count
     const numberOfPlayers = await redis.sCard(`gameSessions:${strGameId}`);
-    io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
+   io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
+
+   // await joinGameRoom(socket, strGameId, strTelegramId);
 
     console.log(`✅ User ${strTelegramId} joined game room: ${strGameId}`);
   } catch (err) {
@@ -229,7 +240,8 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
       );
 
       await redis.hDel("userSelections", strTelegramId);
-     io.emit("cardAvailable", { cardId: strCardId });
+      io.to(gameId).emit("cardAvailable", { cardId: strCardId });
+
 
 
 
@@ -247,6 +259,8 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
 
 
      socket.on("joinGame", async ({ gameId, telegramId }) => {
+      await redis.hSet("socketToTelegram", socket.id, telegramId);
+
         try {
           // Validate user is registered in the game via MongoDB
           const game = await GameControl.findOne({ gameId });
@@ -257,13 +271,15 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
           }
 
           // Add player to Redis set for gameRooms (replace in-memory Set)
+
+          await joinGameRoom(socket, gameId, telegramId);
         
-          await redis.sAdd(`gameRooms:${gameId}`, telegramId);
+         // await redis.sAdd(`gameRooms:${gameId}`, telegramId);
           const playerCountAfterJoin = await redis.sCard(`gameRooms:${gameId}`);
           console.log(`[joinGame] Player ${telegramId} joined game ${gameId}, total players now: ${playerCountAfterJoin}`);
 
           // Join the socket.io room
-          socket.join(gameId);
+          //socket.join(gameId);
 
           // Get current player count from Redis set cardinality
           const playerCount = await redis.sCard(`gameRooms:${gameId}`);
