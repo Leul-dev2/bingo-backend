@@ -706,24 +706,17 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
       redis.sRem(`gameRooms:${gameId}`, telegramId),
     ]);
 
-    // Remove userSelections entries by both socket.id and telegramId
-    await Promise.all([
-      redis.hDel("userSelections", socket.id),
-      redis.hDel("userSelections", telegramId),
-    ]);
-
-
-    // Get userSelections from Redis hash "userSelections"
+    // Get userSelections from Redis hash "userSelections" before deleting
     const userSelectionRaw = await redis.hGet("userSelections", socket.id);
     let userSelection = userSelectionRaw ? JSON.parse(userSelectionRaw) : null;
 
     // Free selected card if owned by this player
-      if (userSelection?.cardId) {
+    if (userSelection?.cardId) {
       const cardOwner = await redis.hGet(`gameCards:${gameId}`, userSelection.cardId);
       if (cardOwner === telegramId) {
         // Free card in Redis
         await redis.hDel(`gameCards:${gameId}`, userSelection.cardId);
-        
+
         // Free card in DB
         await GameCard.findOneAndUpdate(
           { gameId, cardId: Number(userSelection.cardId) },
@@ -734,10 +727,11 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
       }
     }
 
-
-    // Remove userSelections entry
-   await redis.hDel("userSelections", telegramId);
-
+    // Remove userSelections entries by both socket.id and telegramId after usage
+    await Promise.all([
+      redis.hDel("userSelections", socket.id),
+      redis.hDel("userSelections", telegramId),
+    ]);
 
     // Emit updated player count
     const playerCount = await redis.sCard(`gameRooms:${gameId}`) || 0;
@@ -754,6 +748,7 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
     if (callback) callback();
   }
 });
+
 
 
 
