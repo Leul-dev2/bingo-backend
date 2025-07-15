@@ -7,6 +7,11 @@ const { userRateLimiter, globalRateLimiter } = require('../rate-limit/Limiter');
 router.get('/:telegramId', async (req, res) => {
   const { telegramId } = req.params;
 
+
+  /*They’ll get a raw HTTP 429 response with:
+{
+  "error": "Too many requests. Please wait before trying again."
+}*/
 // ✅ First: Rate limit check (before DB call)
   try {
     await Promise.all([
