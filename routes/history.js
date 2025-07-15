@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const GameHistory = require('../models/GameHistory');
-const { userRateLimiter, globalRateLimiter } = require('../rate-limit/historyLimiter');
+const { userRateLimiter, globalRateLimiter } = require('../rate-limit/Limiter');
 
 // GET /api/history?user=123&bet=10&tab=0|1
 router.get('/', async (req, res) => {
