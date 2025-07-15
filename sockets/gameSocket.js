@@ -735,10 +735,12 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
     ]);
 
     
+   console.log(`Looking for userSelections with socket.id=${socket.id} or telegramId=${strTelegramId}`);
     let userSelectionRaw = await redis.hGet("userSelections", socket.id);
     if (!userSelectionRaw) {
       userSelectionRaw = await redis.hGet("userSelections", strTelegramId);
     }
+console.log("userSelectionRaw:", userSelectionRaw);
 
 
     let userSelection = userSelectionRaw ? JSON.parse(userSelectionRaw) : null;
