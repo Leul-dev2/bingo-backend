@@ -167,9 +167,8 @@ socket.on("cardSelected", async (data) => {
     }
 
     // 4️⃣ Remove previously selected card by this user
-    const previousSelectionRaw =
-      (await redis.hGet(userSelectionsKey, socket.id)) ||
-      (await redis.hGet(userSelectionsKey, strTelegramId));
+   const previousSelectionRaw = await redis.hGet(userSelectionsKey, strTelegramId);
+
 
     if (previousSelectionRaw) {
       const prev = JSON.parse(previousSelectionRaw);
@@ -192,7 +191,7 @@ socket.on("cardSelected", async (data) => {
       card: cleanCard,
       gameId: strGameId,
     });
-    await redis.hSet(userSelectionsKey, socket.id, selectionData);
+    //await redis.hSet(userSelectionsKey, socket.id, selectionData);
     await redis.hSet(userSelectionsKey, strTelegramId, selectionData);
 
     // 6️⃣ Emit
