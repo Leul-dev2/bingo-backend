@@ -216,26 +216,28 @@ socket.on("cardSelected", async (data) => {
 
 socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
   try {
-    const currentCardOwner = await redis.hGet(`gameCards:${gameId}`, cardId);
+    const strCardId = String(cardId);
+    const strTelegramId = String(telegramId);
 
-    if (currentCardOwner === telegramId) {
-      await redis.hDel(`gameCards:${gameId}`, cardId);
+    const currentCardOwner = await redis.hGet(`gameCards:${gameId}`, strCardId);
+
+    if (currentCardOwner === strTelegramId) {
+      await redis.hDel(`gameCards:${gameId}`, strCardId);
       await GameCard.findOneAndUpdate(
-        { gameId, cardId: Number(cardId) },
+        { gameId, cardId: Number(strCardId) },
         { isTaken: false, takenBy: null }
       );
 
-      console.log("card is available");
+      await redis.hDel("userSelections", strTelegramId);
+      socket.to(gameId).emit("cardAvailable", { cardId: strCardId });
 
-      await redis.hDel("userSelections", telegramId);
-      socket.to(gameId).emit("cardAvailable", { cardId });
-
-      console.log(`🧹 Card ${cardId} released by ${telegramId}`);
+      console.log(`🧹 Card ${strCardId} released by ${strTelegramId}`);
     }
   } catch (err) {
     console.error("unselectCardOnLeave error:", err);
   }
 });
+
 
 
 
