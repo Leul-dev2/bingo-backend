@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const GameHistory = require('../models/GameHistory');
-const { userRateLimiter, globalRateLimiter } = require('../rate-limit/historyLimiter');
+const { userRateLimiter, globalRateLimiter } = require('../rate-limit/Limiter');
 
 router.get('/', async (req, res) => {
   const timeframe = req.query.time || 'all';
