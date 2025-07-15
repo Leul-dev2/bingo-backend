@@ -43,19 +43,10 @@ const { v4: uuidv4 } = require("uuid");
       console.log("Client connected with socket ID:", socket.id);
       // User joins a game
 
-  async function joinGameRoom(socket, gameId, telegramId) {
-      socket.join(gameId);
-      await redis.sAdd(`gameRooms:${gameId}`, telegramId);
-
-      const playerCount = await redis.sCard(`gameRooms:${gameId}`);
-      io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
-    }
-
+   //socket.emit("connected")
 
     // User joins a game
   socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
-  await redis.hSet("socketToTelegram", socket.id, telegramId);
-
   const strGameId = String(gameId);
   const strTelegramId = String(telegramId);
   const userSelectionKey = `userSelections`;
@@ -81,9 +72,7 @@ const { v4: uuidv4 } = require("uuid");
 
     // Emit updated player count
     const numberOfPlayers = await redis.sCard(`gameSessions:${strGameId}`);
-   io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
-
-   // await joinGameRoom(socket, strGameId, strTelegramId);
+    io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
 
     console.log(`✅ User ${strTelegramId} joined game room: ${strGameId}`);
   } catch (err) {
@@ -243,8 +232,6 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
       io.to(gameId).emit("cardAvailable", { cardId: strCardId });
 
 
-
-
       console.log(`🧹 Card ${strCardId} released by ${strTelegramId}`);
     }
   } catch (err) {
@@ -259,8 +246,6 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
 
 
      socket.on("joinGame", async ({ gameId, telegramId }) => {
-      await redis.hSet("socketToTelegram", socket.id, telegramId);
-
         try {
           // Validate user is registered in the game via MongoDB
           const game = await GameControl.findOne({ gameId });
@@ -271,15 +256,13 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
           }
 
           // Add player to Redis set for gameRooms (replace in-memory Set)
-
-          await joinGameRoom(socket, gameId, telegramId);
         
-         // await redis.sAdd(`gameRooms:${gameId}`, telegramId);
+          await redis.sAdd(`gameRooms:${gameId}`, telegramId);
           const playerCountAfterJoin = await redis.sCard(`gameRooms:${gameId}`);
           console.log(`[joinGame] Player ${telegramId} joined game ${gameId}, total players now: ${playerCountAfterJoin}`);
 
           // Join the socket.io room
-          //socket.join(gameId);
+          socket.join(gameId);
 
           // Get current player count from Redis set cardinality
           const playerCount = await redis.sCard(`gameRooms:${gameId}`);
@@ -751,22 +734,27 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
     ]);
 
     // Get userSelections from Redis hash "userSelections" before deleting
-    const userSelectionRaw = await redis.hGet("userSelections", socket.id);
-    let userSelection = userSelectionRaw ? JSON.parse(userSelectionRaw) : null;
+    let userSelectionRaw = await redis.hGet("userSelections", socket.id);
+    if (!userSelectionRaw) {
+      userSelectionRaw = await redis.hGet("userSelections", telegramId);
+    }
+    const userSelection = userSelectionRaw ? JSON.parse(userSelectionRaw) : null;
 
     // Free selected card if owned by this player
-    if (userSelection?.cardId) {
+    if (userSelection?.cardId && !isNaN(Number(userSelection.cardId))) {
       const cardOwner = await redis.hGet(`gameCards:${gameId}`, userSelection.cardId);
       if (cardOwner === telegramId) {
         // Free card in Redis
         await redis.hDel(`gameCards:${gameId}`, userSelection.cardId);
 
         // Free card in DB
-        await GameCard.findOneAndUpdate(
+        const result = await GameCard.findOneAndUpdate(
           { gameId, cardId: Number(userSelection.cardId) },
           { isTaken: false, takenBy: null }
         );
+        console.log("✅ Card released in DB:", result);
 
+        // Notify clients card is available again
         io.to(gameId).emit("cardAvailable", { cardId: userSelection.cardId });
       }
     }
@@ -796,12 +784,18 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
 
 
 
+
       // Handle disconnection events
 socket.on("disconnect", async () => {
   console.log("🔴 Client disconnected");
 
   // Get user selection from Redis hash "userSelections"
-  const userSelectionRaw = await redis.hGet("userSelections", socket.id);
+  let userSelectionRaw = await redis.hGet("userSelections", socket.id);
+  if (!userSelectionRaw) {
+    const telegramId = await redis.hGet("socketToTelegram", socket.id);
+    userSelectionRaw = await redis.hGet("userSelections", telegramId);
+  }
+
   if (!userSelectionRaw) {
     console.log("❌ No user info found for this socket.");
     return;
