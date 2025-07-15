@@ -4,6 +4,7 @@ const router = express.Router();
 const User = require("../models/user"); // Import the User model
 const Payment = require("../models/payment");
 const Withdrawal = require("../models/withdrawal");
+const { userRateLimiter, globalRateLimiter } = require('../rate-limit/historyLimiter');
 
 
 router.get('/', async (req, res) => {
@@ -12,6 +13,22 @@ router.get('/', async (req, res) => {
   if (!telegramId) {
     return res.status(400).json({ error: "Missing telegramId" });
   }
+
+
+  // ✅ First: Rate limit check (before DB call)
+    try {
+      await Promise.all([
+        userRateLimiter.consume(telegramId),   // Limit per user
+        globalRateLimiter.consume("global")    // Global limit
+      ]);
+    } catch (rateLimitError) {
+      return res.status(429).json({
+        success: false,
+        error: "Too many requests. Please wait before trying again."
+      });
+    }
+
+
 
   try {
     const user = await User.findOne({ telegramId });
@@ -34,6 +51,22 @@ router.get('/history', async (req, res) => {
   const { telegramId } = req.query;
   if (!telegramId) return res.status(400).json({ error: 'Missing telegramId' });
 
+
+  
+  // ✅ First: Rate limit check (before DB call)
+    try {
+      await Promise.all([
+        userRateLimiter.consume(telegramId),   // Limit per user
+        globalRateLimiter.consume("global")    // Global limit
+      ]);
+    } catch (rateLimitError) {
+      return res.status(429).json({
+        success: false,
+        error: "Too many requests. Please wait before trying again."
+      });
+    }
+
+    
   try {
     const deposits = await Payment.find(
       { telegramId },
