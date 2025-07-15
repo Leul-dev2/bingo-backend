@@ -229,7 +229,8 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
       );
 
       await redis.hDel("userSelections", strTelegramId);
-      socket.to(gameId).emit("cardAvailable", { cardId: strCardId });
+      io.to(gameId).emit("cardAvailable", { cardId: strCardId });
+
 
       console.log(`🧹 Card ${strCardId} released by ${strTelegramId}`);
     }
