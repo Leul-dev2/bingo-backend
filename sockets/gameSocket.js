@@ -46,7 +46,7 @@ const { v4: uuidv4 } = require("uuid");
    //socket.emit("connected")
 
     // User joins a game
-  socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
+ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
   const strGameId = String(gameId);
   const strTelegramId = String(telegramId);
   const userSelectionKey = `userSelections`;
@@ -70,6 +70,24 @@ const { v4: uuidv4 } = require("uuid");
       socket.emit("currentCardSelections", cardSelections);
     }
 
+    // 🔁 Re-bind previous selection if any
+    const previousSelectionRaw = await redis.hGet(userSelectionKey, strTelegramId);
+    if (previousSelectionRaw) {
+      const prev = JSON.parse(previousSelectionRaw);
+
+      // ✅ Re-bind this socket to the same selection
+      await redis.hSet(userSelectionKey, socket.id, previousSelectionRaw);
+
+      // ✅ Re-emit selected card so the UI shows it again
+      if (prev.cardId) {
+        socket.emit("cardConfirmed", {
+          cardId: prev.cardId,
+          card: prev.card
+        });
+        console.log(`[Reconnect] ${strTelegramId} rejoined with card ${prev.cardId}`);
+      }
+    }
+
     // Emit updated player count
     const numberOfPlayers = await redis.sCard(`gameSessions:${strGameId}`);
     io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
@@ -80,6 +98,7 @@ const { v4: uuidv4 } = require("uuid");
     socket.emit("joinError", { message: "Failed to join game. Please try again." });
   }
 });
+
 
 
 
@@ -191,7 +210,7 @@ socket.on("cardSelected", async (data) => {
       card: cleanCard,
       gameId: strGameId,
     });
-    //await redis.hSet(userSelectionsKey, socket.id, selectionData);
+    await redis.hSet(userSelectionsKey, socket.id, selectionData);
     await redis.hSet(userSelectionsKey, strTelegramId, selectionData);
 
     // 6️⃣ Emit
