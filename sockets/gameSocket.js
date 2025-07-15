@@ -228,9 +228,8 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
         { isTaken: false, takenBy: null }
       );
 
-     // await redis.hDel("userSelections", strTelegramId);
-      io.to(gameId).emit("cardAvailable", { cardId: strCardId });
-
+      await redis.hDel("userSelections", strTelegramId);
+      socket.to(gameId).emit("cardAvailable", { cardId: strCardId });
 
       console.log(`🧹 Card ${strCardId} released by ${strTelegramId}`);
     }
@@ -733,32 +732,29 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
       redis.sRem(`gameRooms:${gameId}`, telegramId),
     ]);
 
-    // Get userSelections from Redis hash "userSelections" before deleting
-    let userSelectionRaw = await redis.hGet("userSelections", socket.id);
+   let userSelectionRaw = await redis.hGet("userSelections", socket.id);
     if (!userSelectionRaw) {
       userSelectionRaw = await redis.hGet("userSelections", telegramId);
     }
-    const userSelection = userSelectionRaw ? JSON.parse(userSelectionRaw) : null;
+
+    let userSelection = userSelectionRaw ? JSON.parse(userSelectionRaw) : null;
 
     // Free selected card if owned by this player
-    if (userSelection?.cardId && !isNaN(Number(userSelection.cardId))) {
+    if (userSelection?.cardId) {
       const cardOwner = await redis.hGet(`gameCards:${gameId}`, userSelection.cardId);
       if (cardOwner === telegramId) {
         // Free card in Redis
         await redis.hDel(`gameCards:${gameId}`, userSelection.cardId);
 
         // Free card in DB
-        const result = await GameCard.findOneAndUpdate(
+        await GameCard.findOneAndUpdate(
           { gameId, cardId: Number(userSelection.cardId) },
           { isTaken: false, takenBy: null }
         );
-        console.log("✅ Card released in DB:", result);
 
-        // Notify clients card is available again
         io.to(gameId).emit("cardAvailable", { cardId: userSelection.cardId });
       }
     }
-
 
     // Remove userSelections entries by both socket.id and telegramId after usage
     await Promise.all([
@@ -785,18 +781,12 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
 
 
 
-
       // Handle disconnection events
 socket.on("disconnect", async () => {
   console.log("🔴 Client disconnected");
 
   // Get user selection from Redis hash "userSelections"
-  let userSelectionRaw = await redis.hGet("userSelections", socket.id);
-  if (!userSelectionRaw) {
-    const telegramId = await redis.hGet("socketToTelegram", socket.id);
-    userSelectionRaw = await redis.hGet("userSelections", telegramId);
-  }
-
+  const userSelectionRaw = await redis.hGet("userSelections", socket.id);
   if (!userSelectionRaw) {
     console.log("❌ No user info found for this socket.");
     return;
