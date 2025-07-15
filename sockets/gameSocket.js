@@ -723,6 +723,8 @@ async function processWinner({ telegramId, gameId, cartelaId, io, selectedSet })
 
 // ✅ Handle playerLeave event
 socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
+  const strTelegramId = String(telegramId);
+  
   try {
     console.log(`🚪 Player ${telegramId} is leaving game ${gameId}`);
 
@@ -732,10 +734,12 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
       redis.sRem(`gameRooms:${gameId}`, telegramId),
     ]);
 
-   let userSelectionRaw = await redis.hGet("userSelections", socket.id);
+    
+    let userSelectionRaw = await redis.hGet("userSelections", socket.id);
     if (!userSelectionRaw) {
-      userSelectionRaw = await redis.hGet("userSelections", telegramId);
+      userSelectionRaw = await redis.hGet("userSelections", strTelegramId);
     }
+
 
     let userSelection = userSelectionRaw ? JSON.parse(userSelectionRaw) : null;
 
@@ -757,10 +761,11 @@ socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
     }
 
     // Remove userSelections entries by both socket.id and telegramId after usage
-    await Promise.all([
-      redis.hDel("userSelections", socket.id),
-      redis.hDel("userSelections", telegramId),
-    ]);
+   await Promise.all([
+    redis.hDel("userSelections", socket.id),
+    redis.hDel("userSelections", strTelegramId),
+  ]);
+
 
     // Emit updated player count
     const playerCount = await redis.sCard(`gameRooms:${gameId}`) || 0;
