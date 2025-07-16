@@ -267,39 +267,51 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
 
 
      socket.on("joinGame", async ({ gameId, telegramId }) => {
-        try {
-          // Validate user is registered in the game via MongoDB
-          const game = await GameControl.findOne({ gameId });
-          if (!game || !game.players.includes(telegramId)) {
-            console.warn(`🚫 Blocked unpaid user ${telegramId} from joining game ${gameId}`);
-            socket.emit("joinError", { message: "You are not registered in this game." });
-            return;
-          }
+  const strGameId = String(gameId);
+  const strTelegramId = String(telegramId);
 
-          // Add player to Redis set for gameRooms (replace in-memory Set)
-        
-          await redis.sAdd(`gameRooms:${gameId}`, telegramId);
-          const playerCountAfterJoin = await redis.sCard(`gameRooms:${gameId}`);
-          console.log(`[joinGame] Player ${telegramId} joined game ${gameId}, total players now: ${playerCountAfterJoin}`);
+  try {
+    // 1️⃣ Validate user is allowed to join the game
+    const game = await GameControl.findOne({ gameId: strGameId });
+    if (!game || !game.players.includes(strTelegramId)) {
+      console.warn(`🚫 Blocked unregistered user ${strTelegramId} from joining game ${strGameId}`);
+      return socket.emit("joinError", { message: "You're not registered for this game." });
+    }
 
-          // Join the socket.io room
-          socket.join(gameId);
+    // 2️⃣ Join Redis set and Socket.IO room
+    await redis.sAdd(`gameRooms:${strGameId}`, strTelegramId);
+    socket.join(strGameId);
 
-          // Get current player count from Redis set cardinality
-          const playerCount = await redis.sCard(`gameRooms:${gameId}`);
+    // 3️⃣ Emit current player count
+    const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
+    io.to(strGameId).emit("playerCountUpdate", {
+      gameId: strGameId,
+      playerCount,
+    });
 
-          // Emit updated player count to the game room
-          io.to(gameId).emit("playerCountUpdate", {
-            gameId,
-            playerCount,
-          });
+    // 4️⃣ Send session info to the rejoining user
+    socket.emit("gameId", { gameId: strGameId, telegramId: strTelegramId });
 
-          // Confirm to the socket the gameId and telegramId
-          socket.emit("gameId", { gameId, telegramId });
-        } catch (err) {
-          console.error("❌ Redis error in joinGame:", err);
-        }
+    // 5️⃣ Resend selected card if exists
+    const selectionRaw = await redis.hGet("userSelections", strTelegramId);
+    if (selectionRaw) {
+      const selection = JSON.parse(selectionRaw);
+      socket.emit("cardConfirmed", {
+        cardId: selection.cardId,
+        card: selection.card,
       });
+    }
+
+    // 6️⃣ Send current card selections for UI refresh
+    const allSelections = await redis.hGetAll(`gameCards:${strGameId}`);
+    socket.emit("currentCardSelections", allSelections);
+
+    console.log(`✅ [joinGame] ${strTelegramId} joined ${strGameId}. Player count: ${playerCount}`);
+  } catch (err) {
+    console.error("❌ Redis error in joinGame:", err);
+    socket.emit("joinError", { message: "Join failed. Please try again." });
+  }
+});
 
 
 
