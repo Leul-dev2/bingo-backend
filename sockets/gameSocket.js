@@ -49,8 +49,8 @@ const { v4: uuidv4 } = require("uuid");
 socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
   const strGameId = String(gameId);
   const strTelegramId = String(telegramId);
-
   await redis.del(`reconnectWait:${telegramId}:${gameId}`);
+
 
   try {
     const userSelectionKey = `userSelections`;
@@ -61,7 +61,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     // ✅ Track active socket per user
     await redis.set(activeSocketKey, socket.id);
 
-    // ✅ Join game room
+    // ✅ Join room
     socket.join(strGameId);
 
     // ✅ Store user session under BOTH socket ID and telegram ID
@@ -80,7 +80,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     const cardSelections = await redis.hGetAll(gameCardsKey);
     socket.emit("currentCardSelections", cardSelections || {});
 
-    // ✅ Restore previous card if exists
+    // ✅ Restore previous selection if exists
     const prevSelectionRaw = await redis.hGet(userSelectionKey, strTelegramId);
     if (prevSelectionRaw) {
       const prev = JSON.parse(prevSelectionRaw);
@@ -99,44 +99,6 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
       numberOfPlayers,
     });
 
-    // ✅ Emit full game state after rejoin
-    const gameControl = await GameControl.findOne({ gameId: strGameId });
-    if (gameControl) {
-      const {
-        drawnNumbers = [],
-        isActive = false,
-        prizeAmount = 0,
-        winner = null,
-        winnerPattern = null,
-        board = [],
-        boardNumber = null
-      } = gameControl;
-
-      socket.emit("gameStateSync", {
-        gameId: strGameId,
-        drawnNumbers,
-        isActive,
-        prizeAmount,
-        winner,
-        winnerPattern,
-        board,
-        boardNumber
-      });
-
-      // ✅ If user was winner but got disconnected earlier
-      if (winner?.telegramId === strTelegramId) {
-        socket.emit("youAreWinner", {
-          winnerName: winner.name || "Winner",
-          prizeAmount,
-          winnerPattern,
-          board,
-          boardNumber,
-          telegramId: strTelegramId,
-          gameId: strGameId
-        });
-      }
-    }
-
     console.log(`✅ Re/joined: ${strTelegramId} to game ${strGameId}`);
   } catch (err) {
     console.error("❌ Error in userJoinedGame:", err);
@@ -145,7 +107,6 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     });
   }
 });
-
 
 
 
@@ -324,6 +285,31 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
     // 2️⃣ Join Redis set and Socket.IO room
     await redis.sAdd(`gameRooms:${strGameId}`, strTelegramId);
     socket.join(strGameId);
+
+    // 🔁 Send already drawn numbers to reconnecting player
+    const drawnNumbers = await redis.lRange(`gameDraws:${strGameId}`, 0, -1);
+    if (drawnNumbers.length > 0) {
+      const labeledDraws = drawnNumbers.map((numStr) => {
+        const num = parseInt(numStr);
+        const letter = ["B", "I", "N", "G", "O"][Math.floor((num - 1) / 15)];
+        return { number: num, label: `${letter}-${num}` };
+      });
+
+      socket.emit("drawHistory", labeledDraws);
+    }
+
+
+        // 📢 Send current game status
+    const isActive = await redis.get(`gameActive:${strGameId}`);
+    const countdown = await redis.get(`countdown:${strGameId}`);
+
+    if (countdown) {
+      socket.emit("countdownTick", { countdown: Number(countdown) });
+    } else if (isActive === "true") {
+      socket.emit("gameStart"); // frontend continues game UI
+    } else {
+      socket.emit("waitingStart"); // optional: waiting state
+    }
 
     // 3️⃣ Emit current player count
     const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
