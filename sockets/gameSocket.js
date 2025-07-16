@@ -107,12 +107,12 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             gameId: strGameId,
             numberOfPlayers,
         });
-        io.to(strGameId).emit("playerCountUpdate", { // <--- ***CRITICAL FIX: Emit for playerCount (from gameRooms)***
-            gameId: strGameId,
-            playerCount,
-        });
+        // io.to(strGameId).emit("playerCountUpdate", { // <--- ***CRITICAL FIX: Emit for playerCount (from gameRooms)***
+        //     gameId: strGameId,
+        //     playerCount,
+        // });
 
-        console.log(`✅ Re/joined: ${strTelegramId} to game ${strGameId}. Counts: Players=${playerCount}, Sessions=${numberOfPlayers}`);
+        console.log(`✅ Re/joined: ${strTelegramId} to game ${strGameId}.  Sessions=${numberOfPlayers}`);
     } catch (err) {
         console.error("❌ Error in userJoinedGame:", err);
         socket.emit("joinError", {
