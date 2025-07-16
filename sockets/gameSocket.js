@@ -76,6 +76,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
     // ✅ Emit all currently taken cards
     const cardSelections = await redis.hGetAll(gameCardsKey);
+    console.log(`[userJoinedGame] Emitting currentCardSelections for ${strTelegramId} in game ${strGameId}:`, cardSelections);
     socket.emit("currentCardSelections", cardSelections || {});
 
     // ✅ Restore previous selection if exists
