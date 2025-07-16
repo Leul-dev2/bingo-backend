@@ -450,7 +450,7 @@ socket.on("gameCount", async ({ gameId }) => {
 
         if (currentPlayers === 0) {
           console.log("🛑 No players left. Stopping drawing...");
-          // Optionally reset game here or just return
+         resetGame(gameId, io, state, redis);
           return;
         }
 
