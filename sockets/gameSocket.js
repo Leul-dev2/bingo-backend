@@ -54,27 +54,32 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     const userSelectionKey = `userSelections`;
     const gameCardsKey = `gameCards:${strGameId}`;
     const sessionKey = `gameSessions:${strGameId}`;
+    const roomKey = `gameRooms:${strGameId}`;
     const activeSocketKey = `activeSocket:${strTelegramId}`;
 
-    // ✅ Track active socket per user
+    // ✅ Track the active socket ID (optional but useful for diagnostics)
     await redis.set(activeSocketKey, socket.id);
 
-    // ✅ Join room
+    // ✅ Join the Socket.IO room
     socket.join(strGameId);
 
-    // ✅ Store user session under BOTH socket ID and telegram ID
+    // ✅ Prepare the session payload with null cardId/card to keep consistent shape
     const selectionPayload = JSON.stringify({
       telegramId: strTelegramId,
       gameId: strGameId,
+      cardId: null,
+      card: null,
     });
 
+    // ✅ Store session under socket.id and telegramId
     await Promise.all([
       redis.hSet(userSelectionKey, socket.id, selectionPayload),
       redis.hSet(userSelectionKey, strTelegramId, selectionPayload),
       redis.sAdd(sessionKey, strTelegramId),
+      redis.sAdd(roomKey, strTelegramId), // 🔒 Add to gameRooms too
     ]);
 
-    // ✅ Emit all currently taken cards
+    // ✅ Emit all currently selected cards
     const cardSelections = await redis.hGetAll(gameCardsKey);
     console.log(`[userJoinedGame] Emitting currentCardSelections for ${strTelegramId} in game ${strGameId}:`, cardSelections);
     socket.emit("currentCardSelections", cardSelections || {});
@@ -91,11 +96,16 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
       }
     }
 
-    // ✅ Update player count
+    // ✅ Emit player counts
     const numberOfPlayers = await redis.sCard(sessionKey);
+    const playerCount = await redis.sCard(roomKey); // NEW
     io.to(strGameId).emit("gameid", {
       gameId: strGameId,
       numberOfPlayers,
+    });
+    io.to(strGameId).emit("playerCountUpdate", {
+      gameId: strGameId,
+      playerCount,
     });
 
     console.log(`✅ Re/joined: ${strTelegramId} to game ${strGameId}`);
@@ -106,6 +116,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     });
   }
 });
+
 
 
 
