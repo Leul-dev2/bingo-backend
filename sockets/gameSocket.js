@@ -49,8 +49,8 @@ const { v4: uuidv4 } = require("uuid");
 socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
   const strGameId = String(gameId);
   const strTelegramId = String(telegramId);
-  await redis.del(`reconnectWait:${telegramId}:${gameId}`);
 
+  await redis.del(`reconnectWait:${telegramId}:${gameId}`);
 
   try {
     const userSelectionKey = `userSelections`;
@@ -61,7 +61,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     // ✅ Track active socket per user
     await redis.set(activeSocketKey, socket.id);
 
-    // ✅ Join room
+    // ✅ Join game room
     socket.join(strGameId);
 
     // ✅ Store user session under BOTH socket ID and telegram ID
@@ -80,7 +80,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     const cardSelections = await redis.hGetAll(gameCardsKey);
     socket.emit("currentCardSelections", cardSelections || {});
 
-    // ✅ Restore previous selection if exists
+    // ✅ Restore previous card if exists
     const prevSelectionRaw = await redis.hGet(userSelectionKey, strTelegramId);
     if (prevSelectionRaw) {
       const prev = JSON.parse(prevSelectionRaw);
@@ -99,6 +99,44 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
       numberOfPlayers,
     });
 
+    // ✅ Emit full game state after rejoin
+    const gameControl = await GameControl.findOne({ gameId: strGameId });
+    if (gameControl) {
+      const {
+        drawnNumbers = [],
+        isActive = false,
+        prizeAmount = 0,
+        winner = null,
+        winnerPattern = null,
+        board = [],
+        boardNumber = null
+      } = gameControl;
+
+      socket.emit("gameStateSync", {
+        gameId: strGameId,
+        drawnNumbers,
+        isActive,
+        prizeAmount,
+        winner,
+        winnerPattern,
+        board,
+        boardNumber
+      });
+
+      // ✅ If user was winner but got disconnected earlier
+      if (winner?.telegramId === strTelegramId) {
+        socket.emit("youAreWinner", {
+          winnerName: winner.name || "Winner",
+          prizeAmount,
+          winnerPattern,
+          board,
+          boardNumber,
+          telegramId: strTelegramId,
+          gameId: strGameId
+        });
+      }
+    }
+
     console.log(`✅ Re/joined: ${strTelegramId} to game ${strGameId}`);
   } catch (err) {
     console.error("❌ Error in userJoinedGame:", err);
@@ -107,6 +145,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     });
   }
 });
+
 
 
 
