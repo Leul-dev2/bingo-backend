@@ -49,6 +49,8 @@ const { v4: uuidv4 } = require("uuid");
 socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
   const strGameId = String(gameId);
   const strTelegramId = String(telegramId);
+  await redis.del(`reconnectWait:${telegramId}:${gameId}`);
+
 
   try {
     const userSelectionKey = `userSelections`;
@@ -266,9 +268,11 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
 
 
 
-     socket.on("joinGame", async ({ gameId, telegramId }) => {
-  const strGameId = String(gameId);
-  const strTelegramId = String(telegramId);
+  socket.on("joinGame", async ({ gameId, telegramId }) => {
+    const strGameId = String(gameId);
+    const strTelegramId = String(telegramId);
+    await redis.del(`reconnectWait:${telegramId}:${gameId}`);
+
 
   try {
     // 1️⃣ Validate user is allowed to join the game
@@ -826,74 +830,82 @@ console.log("userSelectionRaw:", userSelectionRaw);
 socket.on("disconnect", async () => {
   console.log("🔴 Client disconnected");
 
-  // Get user selection from Redis hash "userSelections"
   const userSelectionRaw = await redis.hGet("userSelections", socket.id);
   if (!userSelectionRaw) {
     console.log("❌ No user info found for this socket.");
     return;
   }
 
-  const user = JSON.parse(userSelectionRaw);
-  const { telegramId, gameId, cardId } = user;
+  const { telegramId, gameId, cardId } = JSON.parse(userSelectionRaw);
+  const reconnectKey = `reconnectWait:${telegramId}:${gameId}`;
 
   try {
-    if (cardId) {
-      const cardOwner = await redis.hGet(`gameCards:${gameId}`, cardId);
-      if (cardOwner === telegramId) {
-        // Remove card ownership from Redis
-        await redis.hDel(`gameCards:${gameId}`, cardId);
+    // ⏱ Set grace period before cleanup
+    await redis.set(reconnectKey, "waiting", "EX", 30); // 30 seconds
 
-        // Update DB: mark card as free
-        await GameCard.findOneAndUpdate(
-          { gameId, cardId: Number(cardId) },
-          { isTaken: false, takenBy: null }
+    // Delay cleanup to allow reconnects
+    setTimeout(async () => {
+      const stillWaiting = await redis.get(reconnectKey);
+      if (stillWaiting !== "waiting") {
+        console.log(`✅ ${telegramId} reconnected — no cleanup needed`);
+        return;
+      }
+
+      console.log(`🧹 Cleaning up disconnected user ${telegramId} from game ${gameId}`);
+
+      // ✅ Free card only if still owned by the user
+      if (cardId) {
+        const currentOwner = await redis.hGet(`gameCards:${gameId}`, cardId);
+        if (currentOwner === telegramId) {
+          await redis.hDel(`gameCards:${gameId}`, cardId);
+
+          await GameCard.findOneAndUpdate(
+            { gameId, cardId: Number(cardId) },
+            { isTaken: false, takenBy: null }
+          );
+
+          io.to(gameId).emit("cardAvailable", { cardId });
+          console.log(`✅ Card ${cardId} released`);
+        }
+      }
+
+      // 🧹 Remove from game sets
+      await Promise.all([
+        redis.sRem(`gameSessions:${gameId}`, telegramId),
+        redis.sRem(`gameRooms:${gameId}`, telegramId),
+        redis.hDel("userSelections", telegramId),
+        redis.hDel("userSelections", socket.id),
+      ]);
+
+      // 🔄 Update player counts
+      const playerCount = await redis.sCard(`gameRooms:${gameId}`) || 0;
+      const numberOfPlayers = await redis.sCard(`gameSessions:${gameId}`) || 0;
+
+      io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
+      io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
+
+      // ♻️ Auto-reset game if empty
+      if (playerCount === 0 && numberOfPlayers === 0) {
+        console.log(`🔁 No players left. Resetting game ${gameId}`);
+
+        await GameControl.findOneAndUpdate(
+          { gameId },
+          {
+            isActive: false,
+            totalCards: 0,
+            prizeAmount: 0,
+            players: [],
+            endedAt: new Date(),
+          }
         );
 
-        // ✅ Notify ALL players in the room (not just others)
-        io.to(gameId).emit("cardAvailable", { cardId });
-        console.log(`✅ Card ${cardId} is now available again`);
+        await syncGameIsActive(gameId, false);
+        resetGame(gameId, io, state, redis);
       }
-    }
+    }, 30000); // Delay 30 seconds
 
-    // Remove player from Redis sets
-    await Promise.all([
-      redis.sRem(`gameSessions:${gameId}`, telegramId),
-      redis.sRem(`gameRooms:${gameId}`, telegramId),
-    ]);
-
-    // Remove user selection from Redis (both socket ID and telegramId)
-    await Promise.all([
-      redis.hDel("userSelections", socket.id),
-      redis.hDel("userSelections", telegramId),
-    ]);
-
-    // Emit updated player counts
-    const playerCount = await redis.sCard(`gameRooms:${gameId}`) || 0;
-    const numberOfPlayers = await redis.sCard(`gameSessions:${gameId}`) || 0;
-
-    io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
-    io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
-
-    // Optional: Reset game if no players remain
-    if (playerCount === 0 && numberOfPlayers === 0) {
-      console.log(`🧹 No players left in game ${gameId}. Triggering full game reset.`);
-
-      await GameControl.findOneAndUpdate(
-        { gameId },
-        {
-          isActive: false,
-          totalCards: 0,
-          prizeAmount: 0,
-          players: [],
-          endedAt: new Date(),
-        }
-      );
-      await syncGameIsActive(gameId, false);
-
-      resetGame(gameId, io, state, redis);
-    }
-  } catch (error) {
-    console.error("❌ Error in disconnect cleanup:", error);
+  } catch (err) {
+    console.error("❌ Error during disconnect cleanup:", err);
   }
 });
 
