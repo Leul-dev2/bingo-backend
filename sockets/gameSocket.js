@@ -54,7 +54,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         const userSelectionKey = `userSelections`;
         const gameCardsKey = `gameCards:${strGameId}`;
         const sessionKey = `gameSessions:${strGameId}`; // For numberOfPlayers
-        const roomKey = `gameRooms:${strGameId}`;     // <--- This key is for playerCount
+       // const roomKey = `gameRooms:${strGameId}`;     // <--- This key is for playerCount
         const activeSocketKey = `activeSocket:${strTelegramId}`;
 
         // ✅ Track the active socket ID (optional but useful for diagnostics)
@@ -78,7 +78,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             redis.hSet(userSelectionKey, socket.id, selectionPayload),
             redis.hSet(userSelectionKey, strTelegramId, selectionPayload),
             redis.sAdd(sessionKey, strTelegramId), // Add to gameSessions (for numberOfPlayers)
-            redis.sAdd(roomKey, strTelegramId),    // <--- ***CRITICAL FIX: Also add to gameRooms (for playerCount)***
+           // redis.sAdd(roomKey, strTelegramId),    // <--- ***CRITICAL FIX: Also add to gameRooms (for playerCount)***
         ]);
 
         // ✅ Emit all currently selected cards
@@ -101,7 +101,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
         // ✅ Update and Broadcast BOTH player counts to ALL clients in the room
         const numberOfPlayers = await redis.sCard(sessionKey); // Count from gameSessions
-        const playerCount = await redis.sCard(roomKey);     // Count from gameRooms
+       // const playerCount = await redis.sCard(roomKey);     // Count from gameRooms
 
         io.to(strGameId).emit("gameid", { // Event for numberOfPlayers (from gameSessions)
             gameId: strGameId,
@@ -843,7 +843,7 @@ socket.on("disconnect", async () => {
 
     const { telegramId, gameId, cardId } = JSON.parse(userSelectionRaw);
     const sessionKey = `gameSessions:${gameId}`; // For numberOfPlayers
-    const roomKey = `gameRooms:${gameId}`;     // For playerCount
+   // const roomKey = `gameRooms:${gameId}`;     // For playerCount
 
     // Step 2: Free up the card if still owned by this user
     if (cardId) {
@@ -890,7 +890,7 @@ socket.on("disconnect", async () => {
         // The user has now truly fully disconnected from this game across all their connections.
         await Promise.all([
             redis.sRem(sessionKey, telegramId),  // Remove from gameSessions SET
-            redis.sRem(roomKey, telegramId),     // Remove from gameRooms SET
+          //  redis.sRem(roomKey, telegramId),     // Remove from gameRooms SET
             redis.hDel("userSelections", telegramId), // Clean up the telegramId's last-known-state entry
         ]);
         console.log(`👤 ${telegramId} fully left game ${gameId}. Removed from Redis unique player sets.`);
@@ -899,7 +899,7 @@ socket.on("disconnect", async () => {
     }
 
     // Step 5: Emit updated counts for both 'playerCount' and 'numberOfPlayers'
-    const playerCount = await redis.sCard(roomKey) || 0; // Current count for 'playerCount'
+   // const playerCount = await redis.sCard(roomKey) || 0; // Current count for 'playerCount'
     const numberOfPlayers = await redis.sCard(sessionKey) || 0; // Current count for 'numberOfPlayers'
 
     io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
