@@ -863,33 +863,39 @@ socket.on("disconnect", async () => {
     // Step 4: Determine if this user (telegramId) has ANY other active sockets.
     // This is crucial for multi-tab/multi-device handling and *releasing cards*.
     const remainingSocketsForUserInThisGame = [];
-    let cursor = '0';
+  let cursor = '0';
     do {
-        // FIX: Use object destructuring for redis.scan result for modern node-redis.
         const scanResult = await redis.scan(cursor, 'MATCH', `activeSocket:${strTelegramId}:*`);
         const nextCursor = scanResult.cursor;
         const keys = scanResult.keys;
-        
         cursor = nextCursor;
 
         for (const key of keys) {
-            // key will be like activeSocket:{telegramId}:{socket.id}
-            const activeSocketId = key.split(':').pop(); // Extract socket.id
-            // Need to verify if this remaining socket is in the *same game*
+            const activeSocketId = key.split(':').pop();
+            // Check if it's not the current socket AND it belongs to the same game
             const associatedUserSelectionRaw = await redis.hGet("userSelections", activeSocketId);
-            if (associatedUserSelectionRaw) {
+            if (activeSocketId !== socket.id && associatedUserSelectionRaw) {
                 try {
                     const associatedInfo = JSON.parse(associatedUserSelectionRaw);
-                    // Only count remaining sockets if they are for the *same user and game*
                     if (String(associatedInfo.telegramId) === strTelegramId && String(associatedInfo.gameId) === strGameId) {
-                        remainingSocketsForUserInThisGame.push(activeSocketId);
+                        await redis.del(key); // Delete the old activeSocket key
+                        await redis.hDel("userSelections", activeSocketId); // Delete its userSelection entry
+                        // Optional: You might want to disconnect the old Socket.IO client forcefully here if you have access to it
+                        // e.g., io.sockets.sockets.get(activeSocketId)?.disconnect(true);
+                        console.log(`🧹 [userJoinedGame] Forcefully cleaned up old socket ${activeSocketId} for ${strTelegramId}.`);
                     }
                 } catch (e) {
-                    console.error(`❌ Error parsing associated user selection data for socket ${activeSocketId}:`, e);
+                    console.error(`❌ Error parsing associated user selection data for old socket ${activeSocketId}:`, e);
                 }
             }
         }
     } while (cursor !== '0');
+
+
+// Now, proceed with setting the new activeSocket and adding to gameSessions
+// ... (your existing code for userJoinedGame) ...
+await redis.set(activeSocketTTLKey, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
+console.log(`[userJoinedGame] Set TTL for activeSocket:${strTelegramId}:${socket.id}`);
 
     console.log(`[DISCONNECT DEBUG] Total remaining sockets for ${strTelegramId} in game ${strGameId}: ${remainingSocketsForUserInThisGame.length}`);
 
