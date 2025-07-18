@@ -282,10 +282,6 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
 
 
 
-
-
-
-
      socket.on("joinGame", async ({ gameId, telegramId }) => {
         try {
           // Validate user is registered in the game via MongoDB
@@ -320,8 +316,6 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
           console.error("❌ Redis error in joinGame:", err);
         }
       });
-
-
 
 
       // socket.on("getPlayerCount", ({ gameId }) => {
@@ -492,9 +486,6 @@ socket.on("gameCount", async ({ gameId }) => {
     ]);
   }
 });
-
-
-
 
 
 
@@ -899,7 +890,7 @@ socket.on("disconnect", async () => {
     }
 
     // Step 5: Emit updated counts for both 'playerCount' and 'numberOfPlayers'
-   // const playerCount = await redis.sCard(roomKey) || 0; // Current count for 'playerCount'
+   const playerCount = await redis.sCard(roomKey) || 0; // Current count for 'playerCount'
     const numberOfPlayers = await redis.sCard(sessionKey) || 0; // Current count for 'numberOfPlayers'
 
     io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
