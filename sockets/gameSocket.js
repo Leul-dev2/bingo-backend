@@ -46,7 +46,7 @@ const { v4: uuidv4 } = require("uuid");
    //socket.emit("connected")
 
     // User joins a game
-      socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
+  socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     const strGameId = String(gameId);
     const strTelegramId = String(telegramId);
 
@@ -838,7 +838,12 @@ socket.on("disconnect", async () => {
         console.log("❌ No user info found for this socket ID in userSelections. Skipping disconnect cleanup.");
         // Even if userSelectionRaw is not found, attempt to clean up the activeSocket TTL key
         // This handles cases where userSelections might be out of sync or connection was very brief.
-        await redis.del(`activeSocket:unknown:${socket.id}`); // Using 'unknown' as placeholder telegramId if not found
+        // Note: Without telegramId, we can't form the exact activeSocket key here, but it's good practice
+        // to at least try to remove a potential key if the format was just `activeSocket:{socket.id}`.
+        // Given your pattern `activeSocket:{telegramId}:{socket.id}`, this specific line won't work
+        // without telegramId. The TTL mechanism is the primary safeguard for this.
+        // For now, removing this line to avoid a potential partial cleanup if telegramId is truly unknown.
+        // await redis.del(`activeSocket:unknown:${socket.id}`);
         return; // Exit if we can't identify the user/game for this socket
     }
 
@@ -888,14 +893,16 @@ socket.on("disconnect", async () => {
     // NEW: Step 5: Determine if this user (telegramId) has ANY other active sockets.
     // This is crucial for multi-tab/multi-device handling.
     // We now rely on the individual activeSocket keys set with TTLs.
-    // Using KEYS is generally discouraged for large datasets in production as it's blocking.
-    // For a robust solution, you might consider redis.scan or a more specific Redis data structure.
     const remainingSocketsForUserInThisGame = [];
-    // Iterate over activeSocket keys to find remaining connections for this user in this game
     let cursor = '0';
     do {
-        const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', `activeSocket:${strTelegramId}:*`);
-        cursor = nextCursor;
+        // FIX: Destructure the object returned by redis.scan for modern node-redis clients.
+        const scanResult = await redis.scan(cursor, 'MATCH', `activeSocket:${strTelegramId}:*`);
+        const nextCursor = scanResult.cursor; // Access cursor from the object
+        const keys = scanResult.keys;         // Access keys array from the object
+        
+        cursor = nextCursor; // Update cursor for the next iteration
+
         for (const key of keys) {
             // key will be like activeSocket:{telegramId}:{socket.id}
             const activeSocketId = key.split(':').pop(); // Extract socket.id
@@ -973,9 +980,6 @@ socket.on("disconnect", async () => {
         console.log(`Game ${strGameId} has been reset due to no players.`);
     }
 });
-
-
-
 
 
   });
