@@ -828,6 +828,8 @@ const { v4: uuidv4 } = require("uuid");
         const strGameId = String(gameId); // Ensure consistency in type
         const strTelegramId = String(telegramId); // Ensure consistency in type
 
+        console.log(`[DISCONNECT DEBUG] Disconnecting user: ${strTelegramId}, Game: ${strGameId}, Socket: ${socket.id}`);
+
         const sessionKey = `gameSessions:${strGameId}`; // This tracks unique Telegram IDs in the lobby/card selection phase
         // const roomKey = `gameRooms:${strGameId}`; // This will track unique Telegram IDs actually in game play (once implemented)
 
@@ -862,6 +864,7 @@ const { v4: uuidv4 } = require("uuid");
         // Step 4: Determine if this user (telegramId) has ANY other active sockets in this game.
         // This is crucial for multi-tab/multi-device handling.
         const allUserSelections = await redis.hGetAll("userSelections");
+        console.log("[DISCONNECT DEBUG] Raw allUserSelections after deleting current socket:", JSON.stringify(allUserSelections, null, 2));
         const remainingSocketsForUserInGame = Object.entries(allUserSelections).filter(([key, val]) => {
             try {
                 // Exclude the entry where the 'key' itself is the 'telegramId'.
@@ -878,6 +881,8 @@ const { v4: uuidv4 } = require("uuid");
                 return false; // Skip malformed entries to prevent errors
             }
         });
+
+        console.log(`[DISCONNECT DEBUG] Total remaining sockets for ${strTelegramId} in game ${strGameId}: ${remainingSocketsForUserInGame.length}`);
 
         if (remainingSocketsForUserInGame.length === 0) {
             // ✅ This was the LAST active socket for this user (telegramId) in this game.
