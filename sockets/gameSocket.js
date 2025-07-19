@@ -322,6 +322,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
 
         // 7️⃣ Emit confirmation to the requesting client
+        console.log(`DEBUG: Emitting cardConfirmed to ${socket.id} with cardId: ${strCardId}, card data:`, cardForStorageAndEmit);
         socket.emit("cardConfirmed", { cardId: strCardId, card: cardForStorageAndEmit });
         console.log(`✅ Emitted cardConfirmed to ${strTelegramId} for card ${strCardId}.`);
 
