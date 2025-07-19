@@ -114,6 +114,10 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             }
         }
 
+
+        await redis.sAdd(`gameSessions:${data.gameId}`, String(data.telegramId));
+        console.log(`👤 ${data.telegramId} added to gameSessions:${data.gameId}.`);
+
         // ✅ Update and Broadcast player count to ALL clients in the room
         const numberOfPlayers = await redis.sCard(sessionKey);
 
