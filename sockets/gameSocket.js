@@ -140,6 +140,14 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
                       card: prev.card,
                   });
 
+                  // Example in userJoinedGame before emitting cardConfirmed:
+                  console.log("Emitting cardConfirmed with data:", {
+                    cardId: prev.cardId,
+                    card: prev.card, // See what this actually contains
+                    telegramId: strTelegramId,
+                  });
+                  socket.emit("cardConfirmed", { cardId: prev.cardId, card: prev.card, telegramId: strTelegramId });
+
                   // 5. Broadcast to others if the card wasn't already shown as taken by this user
                   // You might want to skip this if currentCardSelections already covers it.
                   io.to(strGameId).emit("otherCardSelected", {
