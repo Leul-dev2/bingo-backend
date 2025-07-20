@@ -299,6 +299,8 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
           });
           await redis.hSet(userSelectionsKey, socket.id, selectionData);
           await redis.hSet(userSelectionsKey, strTelegramId, selectionData);
+          await redis.hSet("userSelectionsByTelegramId", strTelegramId, selectionData);
+
 
           // 6️⃣ Emit
          // io.to(strTelegramId).emit("cardConfirmed", { cardId: strCardId, card: cleanCard });
@@ -953,10 +955,11 @@ socket.on("disconnect", async (reason) => { // reason parameter is useful for de
     if (remainingSocketsForThisGameCount === 0) {
       console.log("inside releasing cards");
         // This user (telegramId) has truly left THIS GAME across all their tabs/devices.
-
+        console.log()
         // A. Release the card if they were holding one in this game.
         // Check `userSelectionsByTelegramId` (the user's overall game state) to see what card they owned.
         const userOverallSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
+        console.log("outside", userOverallSelectionRaw);
         if (userOverallSelectionRaw) {
             const { cardId: userHeldCardId } = JSON.parse(userOverallSelectionRaw);
             console.log("user selection form userSelection key by tgid", userOverallSelectionRaw);
