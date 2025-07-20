@@ -303,6 +303,11 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
           console.log(`Redis hSet: gameCards:${strGameId} [${strCardId}] = ${strTelegramId}`);
 
 
+          console.log("All userSelections keys:", await redis.hKeys("userSelections"));
+          console.log("Trying userSelection for socket.id:", socket.id);
+          console.log("Trying userSelection for telegramId:", strTelegramId);
+
+
           // 6️⃣ Emit
          // io.to(strTelegramId).emit("cardConfirmed", { cardId: strCardId, card: cleanCard });
           socket.emit("cardConfirmed", { cardId: strCardId, card: cleanCard });
