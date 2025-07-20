@@ -825,8 +825,11 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     // ✅ Handle playerLeave event
     socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
       const strTelegramId = String(telegramId);
+        console.log("outside if inside playerLeave");
+
       
       try {
+         console.log("inside if inside playerLeave");
         console.log(`🚪 Player ${telegramId} is leaving game ${gameId}`);
 
         // Remove from Redis sets
