@@ -959,12 +959,14 @@ socket.on("disconnect", async (reason) => { // reason parameter is useful for de
         const userOverallSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
         if (userOverallSelectionRaw) {
             const { cardId: userHeldCardId } = JSON.parse(userOverallSelectionRaw);
+            console.log("user selection form userSelection key by tgid", userOverallSelectionRaw);
 
             if (userHeldCardId && String(userHeldCardId) === String(disconnectedCardId)) { // Ensure it's the specific card they were holding
                 const gameCardsKey = `gameCards:${strGameId}`;
                 const cardOwner = await redis.hGet(gameCardsKey, String(userHeldCardId));
 
                 if (cardOwner === strTelegramId) { // Confirm they are still the Redis owner of this card
+                  console.log("inside if statement")
                     await redis.hDel(gameCardsKey, String(userHeldCardId)); // Remove from Redis hash
                     await GameCard.findOneAndUpdate( // Update MongoDB
                         { gameId: strGameId, cardId: Number(userHeldCardId) },
