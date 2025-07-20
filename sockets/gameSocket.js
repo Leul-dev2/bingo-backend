@@ -951,6 +951,7 @@ socket.on("disconnect", async (reason) => { // reason parameter is useful for de
 
     // Step 4: Act based on whether this was the user's last socket for this game.
     if (remainingSocketsForThisGameCount === 0) {
+      console.log("inside releasing cards");
         // This user (telegramId) has truly left THIS GAME across all their tabs/devices.
 
         // A. Release the card if they were holding one in this game.
