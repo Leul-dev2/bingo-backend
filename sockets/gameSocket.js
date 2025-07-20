@@ -854,20 +854,30 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             await redis.hDel(`gameCards:${gameId}`, userSelection.cardId);
 
             // Free card in DB
-            await GameCard.findOneAndUpdate(
+           const dbUpdateResult = await GameCard.findOneAndUpdate(
               { gameId, cardId: Number(userSelection.cardId) },
               { isTaken: false, takenBy: null }
             );
+
+            if (dbUpdateResult) {
+              console.log(`✅ DB updated: Card ${userSelection.cardId} released for ${telegramId}`);
+            } else {
+              console.warn(`⚠️ DB update failed: Could not find card ${userSelection.cardId} to release`);
+            }
 
             io.to(gameId).emit("cardAvailable", { cardId: userSelection.cardId });
           }
         }
 
         // Remove userSelections entries by both socket.id and telegramId after usage
-      await Promise.all([
-        redis.hDel("userSelections", socket.id),
-        redis.hDel("userSelections", strTelegramId),
-      ]);
+     // Remove userSelections entries by both socket.id and telegramId
+          await Promise.all([
+            redis.hDel("userSelections", socket.id),
+            redis.hDel("userSelections", strTelegramId),
+            redis.hDel("userSelectionsByTelegramId", strTelegramId), // ✅ Add this
+            redis.del(`activeSocket:${strTelegramId}:${socket.id}`), // ✅ Optional clean-up
+          ]);
+
 
 
         // Emit updated player count
