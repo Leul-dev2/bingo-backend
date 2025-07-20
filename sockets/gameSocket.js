@@ -854,7 +854,8 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         // Free selected card if owned by this player
         if (userSelection?.cardId) {
           console.log("inside clearening logic inplayer leave")
-          const cardOwner = await redis.hGet(`gameCards:${gameId}`, userSelection.cardId);
+          const cardOwner = await redis.hGet(`gameCards:${gameId}`, String(userSelection.cardId));
+          
           console.log("card ownerrrr", cardOwner);
           if (cardOwner === telegramId) {
             // Free card in Redis
