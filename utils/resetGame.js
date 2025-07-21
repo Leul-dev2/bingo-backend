@@ -34,7 +34,7 @@ async function resetGame(gameId, io, state, redis) {
 
   // 📢 2. Notify clients
  io.to(gameId).emit("gameEnded");
-console.log(`📢 Backend: Emitted 'gameEnded' to room ${gameId}`);
+
 
   // ⏱ 3. Clear timeouts/intervals
   if (drawIntervals?.[gameId]) {
