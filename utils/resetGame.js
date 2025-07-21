@@ -56,16 +56,16 @@ console.log(`📢 Backend: Emitted 'gameEnded' to room ${gameId}`);
   // 🧠 4. Clear in-memory state
   delete activeDrawLocks?.[gameId];
   delete gameDraws?.[gameId];
-  //delete gameSessionIds?.[gameId];
+  delete gameSessionIds?.[gameId];
   delete gameIsActive?.[gameId];
   delete gamePlayers?.[gameId];
 
   // 🗑️ 5. Redis cleanup
   try {
     await Promise.all([
-    //  redis.del(`gameSessions:${gameId}`),
+      redis.del(`gameSessions:${gameId}`),
       redis.del(`gameRooms:${gameId}`),
-     // redis.del(`gameCards:${gameId}`),
+      redis.del(`gameCards:${gameId}`),
       redis.del(`gameIsActive:${gameId}`), // optional: if stored
       redis.del(`gameActive:${gameId}`), 
     ]);
