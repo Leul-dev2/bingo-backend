@@ -33,7 +33,7 @@ async function resetGame(gameId, io, state, redis) {
   }
 
   // 📢 2. Notify clients
- io?.to(String(gameId)).emit("gameEnded");
+ io.to(gameId).emit("gameEnded");
 
 
   // ⏱ 3. Clear timeouts/intervals
