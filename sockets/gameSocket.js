@@ -48,6 +48,7 @@ const { v4: uuidv4 } = require("uuid");
     // User joins a game
 // User joins a game
 socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
+  console.log("userJoined invoked");
     const strGameId = String(gameId);
     const strTelegramId = String(telegramId);
 
