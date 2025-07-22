@@ -331,7 +331,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
 
       socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
-        //console.log("unselectCardOnLeave is called");
+        console.log("unselectCardOnLeave is called");
         try {
           const strCardId = String(cardId);
           const strTelegramId = String(telegramId);
