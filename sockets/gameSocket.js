@@ -39,8 +39,8 @@ const { v4: uuidv4 } = require("uuid");
 };
 
   io.on("connection", (socket) => {
-      console.log("🟢 New client connected");
-      console.log("Client connected with socket ID:", socket.id);
+      //console.log("🟢 New client connected");
+      //console.log("Client connected with socket ID:", socket.id);
       // User joins a game
 
    //socket.emit("connected")
@@ -64,12 +64,12 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         // It's crucial to refresh this TTL on every `userJoinedGame` or regular heartbeat
         // to keep the connection alive in Redis's eyes.
         await redis.set(activeSocketTTLKey, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
-        // console.log(`[userJoinedGame] Set TTL for activeSocket:${strTelegramId}:${socket.id}`);
+        // //console.log(`[userJoinedGame] Set TTL for activeSocket:${strTelegramId}:${socket.id}`);
 
 
         // ✅ Join the Socket.IO room
         socket.join(strGameId);
-        //console.log(`[userJoinedGame] ${strTelegramId} joining socket.io room ${strGameId}`);
+        ////console.log(`[userJoinedGame] ${strTelegramId} joining socket.io room ${strGameId}`);
 
         // ✅ Prepare the session payload with null cardId/card to keep consistent shape
         const selectionPayload = JSON.stringify({
@@ -86,7 +86,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         // ✅ Add the user's telegramId to the 'gameSessions' SET.
         // This set tracks unique players in the game lobby.
         await redis.sAdd(sessionKey, strTelegramId); // Add to gameSessions (for numberOfPlayers)
-        //console.log(`[userJoinedGame] Added ${strTelegramId} to gameSessions:${strGameId}`);
+        ////console.log(`[userJoinedGame] Added ${strTelegramId} to gameSessions:${strGameId}`);
 
         // IMPORTANT: The original code also had `redis.hSet(userSelectionKey, strTelegramId, selectionPayload);`
         // This should primarily be handled when a card is selected, to store the *last known selection*
@@ -95,7 +95,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
         // ✅ Emit all currently selected cards
         const cardSelections = await redis.hGetAll(gameCardsKey);
-        //console.log(`[userJoinedGame] Emitting currentCardSelections for ${strTelegramId} in game ${strGameId}:`, cardSelections);
+        ////console.log(`[userJoinedGame] Emitting currentCardSelections for ${strTelegramId} in game ${strGameId}:`, cardSelections);
         socket.emit("currentCardSelections", cardSelections || {});
 
         // ✅ Restore previous selection if exists (from the telegramId key in userSelections)
@@ -113,7 +113,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
               if (!cardOwner || cardOwner === strTelegramId) {
                   // Card is free OR already held by this user. Re-claim it.
-                  //console.log(`[userJoinedGame] Reclaiming card ${prev.cardId} for ${strTelegramId}`);
+                  ////console.log(`[userJoinedGame] Reclaiming card ${prev.cardId} for ${strTelegramId}`);
 
                   // 1. Re-assert ownership in gameCards hash (if it was released)
                   await redis.hSet(gameCardsKey, String(prev.cardId), strTelegramId);
@@ -141,7 +141,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
                   });
 
                   // Example in userJoinedGame before emitting cardConfirmed:
-                  //console.log("Emitting cardConfirmed with data:", {
+                  ////console.log("Emitting cardConfirmed with data:", {
                   //   cardId: prev.cardId,
                   //   card: prev.card, // See what this actually contains
                   //   telegramId: strTelegramId,
@@ -157,22 +157,22 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
               } else {
                   // Card is now taken by someone else or otherwise invalid.
-                  //console.log(`[userJoinedGame] Card ${prev.cardId} for ${strTelegramId} in game ${strGameId} is now taken by ${cardOwner}. Not restoring.`);
+                  ////console.log(`[userJoinedGame] Card ${prev.cardId} for ${strTelegramId} in game ${strGameId} is now taken by ${cardOwner}. Not restoring.`);
                   // Optionally, clear this user's overall selection if it's no longer valid.
                   await redis.hDel("userSelectionsByTelegramId", strTelegramId);
               }
           } else {
-              //console.log(`[userJoinedGame] Found stale or invalid previous selection in userSelectionsByTelegramId for ${strTelegramId}.`);
+              ////console.log(`[userJoinedGame] Found stale or invalid previous selection in userSelectionsByTelegramId for ${strTelegramId}.`);
               // Clear it if it's stale/invalid for this game
               await redis.hDel("userSelectionsByTelegramId", strTelegramId);
           }
       } else {
-          //console.log(`[userJoinedGame] No previous card selection found for ${strTelegramId} in this game.`);
+          ////console.log(`[userJoinedGame] No previous card selection found for ${strTelegramId} in this game.`);
       }
 
 
         await redis.sAdd(`gameSessions:${strGameId}`, String(strTelegramId));
-        //console.log(`👤 ${strTelegramId} added to gameSessions:${strGameId}.`);
+        ////console.log(`👤 ${strTelegramId} added to gameSessions:${strGameId}.`);
 
         // ✅ Update and Broadcast player count to ALL clients in the room
         const numberOfPlayers = await redis.sCard(sessionKey);
@@ -182,7 +182,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             numberOfPlayers,
         });
 
-        //console.log(`✅ Re/joined: ${strTelegramId} to game ${strGameId}. Sessions=${numberOfPlayers}`);
+        ////console.log(`✅ Re/joined: ${strTelegramId} to game ${strGameId}. Sessions=${numberOfPlayers}`);
     } catch (err) {
         console.error("❌ Error in userJoinedGame:", err);
         socket.emit("joinError", {
@@ -209,7 +209,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         try {
           // 1️⃣ Redis Lock
           const lock = await redis.set(lockKey, strTelegramId, "NX", "EX", 30);
-          //console.log("Lock status:", lock); // Should be "OK" or null
+          ////console.log("Lock status:", lock); // Should be "OK" or null
 
           if (!lock) {
             return socket.emit("cardError", {
@@ -300,12 +300,12 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
           await redis.hSet(userSelectionsKey, socket.id, selectionData);
           await redis.hSet(userSelectionsKey, strTelegramId, selectionData);
           await redis.hSet("userSelectionsByTelegramId", strTelegramId, selectionData);
-          //console.log(`Redis hSet: gameCards:${strGameId} [${strCardId}] = ${strTelegramId}`);
+          ////console.log(`Redis hSet: gameCards:${strGameId} [${strCardId}] = ${strTelegramId}`);
 
 
-          //console.log("All userSelections keys:", await redis.hKeys("userSelections"));
-          //console.log("Trying userSelection for socket.id:", socket.id);
-          //console.log("Trying userSelection for telegramId:", strTelegramId);
+          ////console.log("All userSelections keys:", await redis.hKeys("userSelections"));
+          ////console.log("Trying userSelection for socket.id:", socket.id);
+          ////console.log("Trying userSelection for telegramId:", strTelegramId);
 
 
           // 6️⃣ Emit
@@ -319,7 +319,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
           const numberOfPlayers = await redis.sCard(`gameSessions:${strGameId}`);
           io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
 
-          //console.log(`✅ ${strTelegramId} selected card ${strCardId} in game ${strGameId}`);
+          ////console.log(`✅ ${strTelegramId} selected card ${strCardId} in game ${strGameId}`);
         } catch (err) {
           console.error("❌ cardSelected error:", err);
           socket.emit("cardError", { message: "Card selection failed." });
@@ -330,7 +330,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
 
       socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
-        //console.log("unselectCardOnLeave is called");
+        ////console.log("unselectCardOnLeave is called");
         try {
           const strCardId = String(cardId);
           const strTelegramId = String(telegramId);
@@ -347,7 +347,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             await redis.hDel("userSelections", strTelegramId);
             socket.to(gameId).emit("cardAvailable", { cardId: strCardId });
 
-            //console.log(`🧹 Card ${strCardId} released by ${strTelegramId}`);
+            ////console.log(`🧹 Card ${strCardId} released by ${strTelegramId}`);
           }
         } catch (err) {
           console.error("unselectCardOnLeave error:", err);
@@ -370,7 +370,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         
           await redis.sAdd(`gameRooms:${gameId}`, telegramId);
           const playerCountAfterJoin = await redis.sCard(`gameRooms:${gameId}`);
-          //console.log(`[joinGame] Player ${telegramId} joined game ${gameId}, total players now: ${playerCountAfterJoin}`);
+          ////console.log(`[joinGame] Player ${telegramId} joined game ${gameId}, total players now: ${playerCountAfterJoin}`);
 
           // Join the socket.io room
           socket.join(gameId);
@@ -406,7 +406,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
       const gameDrawStateKey = `gameDrawState:${gameId}`;
       const gameDrawsKey = `gameDraws:${gameId}`;
 
-      //console.log("game count is called");
+      ////console.log("game count is called");
 
       try {
         // 1. CLEANUP essential Redis keys and intervals BEFORE starting countdown
@@ -429,7 +429,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         }
 
         const currentPlayers = await redis.sCard(`gameRooms:${gameId}`);
-        console.log(`[gameCount] Countdown ended. Current players in game ${gameId}: ${currentPlayers}`);
+        //console.log(`[gameCount] Countdown ended. Current players in game ${gameId}: ${currentPlayers}`);
 
         // 2. Check if game is already active or preparing
         const [isActive, hasCountdown, hasLock] = await Promise.all([
@@ -438,10 +438,10 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
           redis.get(lockKey),
         ]);
 
-        console.log("console of ", isActive, hasCountdown, hasLock);
+        //console.log("console of ", isActive, hasCountdown, hasLock);
 
         if (isActive || hasCountdown || hasLock) {
-          console.log(`⚠️ Game ${gameId} is already preparing or running. Ignoring gameCount event.`);
+          //console.log(`⚠️ Game ${gameId} is already preparing or running. Ignoring gameCount event.`);
           return;
         }
 
@@ -496,7 +496,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             const prizeAmount = stakeAmount * currentPlayers;
 
             if (currentPlayers === 0) {
-              console.log("🛑 No players left. Stopping drawing...");
+              //console.log("🛑 No players left. Stopping drawing...");
               // Optionally reset game here or just return
               return;
             }
@@ -526,7 +526,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
             await syncGameIsActive(gameId, true);
 
-            console.log(`✅ Game ${gameId} is now ACTIVE with ${currentPlayers} players.`);
+            //console.log(`✅ Game ${gameId} is now ACTIVE with ${currentPlayers} players.`);
 
             // Mark game as active in Redis again (to be safe)
             await redis.set(activeGameKey, "true");
@@ -567,11 +567,11 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     async function startDrawing(gameId, io) {
 
       if (drawIntervals[gameId]) {
-        console.log(`⛔️ Drawing already in progress for game ${gameId}, skipping.`);
+        //console.log(`⛔️ Drawing already in progress for game ${gameId}, skipping.`);
         return;
       }
 
-      console.log(`🎯 Starting the drawing process for gameId: ${gameId}`);
+      //console.log(`🎯 Starting the drawing process for gameId: ${gameId}`);
 
       await GameCard.updateMany({ gameId }, { isTaken: false, takenBy: null });
 
@@ -589,7 +589,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
           const currentPlayers = (await redis.sCard(gameRoomsKey)) || 0;
 
           if (currentPlayers === 0) {
-            console.log(`🛑 No players left in game ${gameId}. Stopping drawing...`);
+            //console.log(`🛑 No players left in game ${gameId}. Stopping drawing...`);
             clearInterval(drawIntervals[gameId]);
             delete drawIntervals[gameId];
 
@@ -608,7 +608,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
           // Read game state from Redis
           const gameDataRaw = await redis.get(gameDrawStateKey);
           if (!gameDataRaw) {
-            console.log(`❌ No game draw data found for ${gameId}, stopping draw.`);
+            //console.log(`❌ No game draw data found for ${gameId}, stopping draw.`);
             clearInterval(drawIntervals[gameId]);
             delete drawIntervals[gameId];
             return;
@@ -620,7 +620,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             clearInterval(drawIntervals[gameId]);
             delete drawIntervals[gameId];
             io.to(gameId).emit("allNumbersDrawn");
-            console.log(`🎯 All numbers drawn for game ${gameId}`);
+            //console.log(`🎯 All numbers drawn for game ${gameId}`);
 
             resetGame(gameId, io, state, redis);
             await redis.del(activeGameKey);
@@ -645,7 +645,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
           const letter = ["B", "I", "N", "G", "O"][letterIndex];
           const label = `${letter}-${number}`;
 
-          console.log(`🔢 Drawing number: ${label}, Index: ${gameData.index - 1}`);
+          //console.log(`🔢 Drawing number: ${label}, Index: ${gameData.index - 1}`);
 
           io.to(gameId).emit("numberDrawn", { number, label });
 
@@ -691,9 +691,9 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
           return;
         }
 
-        console.log("✅ drawnNumbers:", drawnNumbers);
-        console.log("✅ selectedNumbers (marked):", selectedSet);
-        console.log("✅ cardData.card:", cardData.card);
+        //console.log("✅ drawnNumbers:", drawnNumbers);
+        //console.log("✅ selectedNumbers (marked):", selectedSet);
+        //console.log("✅ cardData.card:", cardData.card);
 
         // 3. Backend pattern check function - implement this based on your rules
       const pattern = checkBingoPattern(cardData.card, drawnNumbers, selectedSet);
@@ -724,7 +724,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
     async function processWinner({ telegramId, gameId, cartelaId, io, selectedSet }) {
 
-      console.log("process winner", cartelaId  );
+      //console.log("process winner", cartelaId  );
       try {
         const sessionId = gameSessionIds[gameId];
         if (!sessionId) throw new Error(`No session ID found for gameId ${gameId}`);
@@ -831,12 +831,12 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     // ✅ Handle playerLeave event
     socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
       const strTelegramId = String(telegramId);
-        console.log("outside if inside playerLeave");
+        //console.log("outside if inside playerLeave");
 
       
       try {
-         console.log("inside if inside playerLeave");
-        console.log(`🚪 Player ${telegramId} is leaving game ${gameId}`);
+         //console.log("inside if inside playerLeave");
+        //console.log(`🚪 Player ${telegramId} is leaving game ${gameId}`);
 
         // Remove from Redis sets
         await Promise.all([
@@ -845,26 +845,26 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         ]);
 
         
-      console.log(`Looking for userSelections with socket.id=${socket.id} or telegramId=${strTelegramId}`);
+      //console.log(`Looking for userSelections with socket.id=${socket.id} or telegramId=${strTelegramId}`);
         let userSelectionRaw = await redis.hGet("userSelections", socket.id);
         if (!userSelectionRaw) {
           userSelectionRaw = await redis.hGet("userSelections", strTelegramId);
         }
-    console.log("userSelectionRaw:", userSelectionRaw);
+    //console.log("userSelectionRaw:", userSelectionRaw);
 
 
         let userSelection = userSelectionRaw ? JSON.parse(userSelectionRaw) : null;
-        console.log("cardId in userSelection:", userSelection?.cardId);
+        //console.log("cardId in userSelection:", userSelection?.cardId);
 
 
         // Free selected card if owned by this player
         if (userSelection?.cardId) {
-          console.log("Looking for card owner in Redis with key:", `gameCards:${gameId}`, "and field:", String(userSelection.cardId));
+          //console.log("Looking for card owner in Redis with key:", `gameCards:${gameId}`, "and field:", String(userSelection.cardId));
           const cardOwner = await redis.hGet(`gameCards:${gameId}`, String(userSelection.cardId));
-          console.log("cardOwner found:", cardOwner);
+          //console.log("cardOwner found:", cardOwner);
 
 
-          console.log("card ownerrrr", cardOwner);
+          //console.log("card ownerrrr", cardOwner);
           if (cardOwner === telegramId) {
             // Free card in Redis
             await redis.hDel(`gameCards:${gameId}`, userSelection.cardId);
@@ -876,7 +876,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             );
 
             if (dbUpdateResult) {
-              console.log(`✅ DB updated: Card ${userSelection.cardId} released for ${telegramId}`);
+              //console.log(`✅ DB updated: Card ${userSelection.cardId} released for ${telegramId}`);
             } else {
               console.warn(`⚠️ DB update failed: Could not find card ${userSelection.cardId} to release`);
             }
@@ -920,14 +920,14 @@ const ACTIVE_SOCKET_TTL_SECONDS = 60;
 
 // Handle disconnection events
 socket.on("disconnect", async (reason) => { // reason parameter is useful for debugging
-    console.log(`🔴 Client disconnected: ${socket.id}, Reason: ${reason}`);
+    //console.log(`🔴 Client disconnected: ${socket.id}, Reason: ${reason}`);
 
     // Step 1: Retrieve comprehensive user info associated with this specific disconnected socket.
     // This payload contains the gameId, telegramId, and potentially cardId this *specific socket* was handling.
     const userSelectionPayloadRaw = await redis.hGet("userSelections", socket.id);
 
     if (!userSelectionPayloadRaw) {
-        console.log("❌ No user session info found for this socket ID. Skipping disconnect cleanup.");
+        //console.log("❌ No user session info found for this socket ID. Skipping disconnect cleanup.");
         return;
     }
 
@@ -935,7 +935,7 @@ socket.on("disconnect", async (reason) => { // reason parameter is useful for de
     const strGameId = String(gameId);
     const strTelegramId = String(telegramId);
 
-    console.log(`[DISCONNECT DEBUG] Processing disconnect for User: ${strTelegramId}, Game: ${strGameId}, Socket: ${socket.id}`);
+    //console.log(`[DISCONNECT DEBUG] Processing disconnect for User: ${strTelegramId}, Game: ${strGameId}, Socket: ${socket.id}`);
 
     const sessionKey = `gameSessions:${strGameId}`; // Set to track unique Telegram IDs in this game's lobby.
 
@@ -945,7 +945,7 @@ socket.on("disconnect", async (reason) => { // reason parameter is useful for de
         redis.del(`activeSocket:${strTelegramId}:${socket.id}`), // Delete the specific active socket TTL key
         redis.hDel("userSelections", socket.id),              // Delete the socket.id-keyed payload
     ]);
-    console.log(`🧹 Cleaned up temporary records for disconnected socket ${socket.id}.`);
+    //console.log(`🧹 Cleaned up temporary records for disconnected socket ${socket.id}.`);
 
     // Step 3: Determine if this user (telegramId) still has ANY other active sockets *for this specific game*.
     // This is the core logic for deciding if it's a "full disconnect" for this game.
@@ -971,57 +971,57 @@ socket.on("disconnect", async (reason) => { // reason parameter is useful for de
             // This case indicates a stale `activeSocket` key without a corresponding `userSelections` entry.
             // This should ideally be cleaned up elsewhere (e.g., on `userJoinedGame` or periodically),
             // but we can also clean it here defensively.
-            console.log(`ℹ️ Found stale activeSocket key ${key} without userSelections entry. Deleting.`);
+            //console.log(`ℹ️ Found stale activeSocket key ${key} without userSelections entry. Deleting.`);
             await redis.del(key);
         }
     }
 
-    console.log(`[DISCONNECT DEBUG] Remaining active sockets for ${strTelegramId} in game ${strGameId}: ${remainingSocketsForThisGameCount}`);
+    //console.log(`[DISCONNECT DEBUG] Remaining active sockets for ${strTelegramId} in game ${strGameId}: ${remainingSocketsForThisGameCount}`);
 
     // Step 4: Act based on whether this was the user's last socket for this game.
     if (remainingSocketsForThisGameCount === 0) {
-      console.log("inside releasing cards");
+      //console.log("inside releasing cards");
         // This user (telegramId) has truly left THIS GAME across all their tabs/devices.
-        console.log()
+        //console.log()
         // A. Release the card if they were holding one in this game.
         // Check `userSelectionsByTelegramId` (the user's overall game state) to see what card they owned.
         const userOverallSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
-        console.log("outside", userOverallSelectionRaw);
+        //console.log("outside", userOverallSelectionRaw);
         if (userOverallSelectionRaw) {
             const { cardId: userHeldCardId } = JSON.parse(userOverallSelectionRaw);
-            console.log("user selection form userSelection key by tgid", userOverallSelectionRaw);
+            //console.log("user selection form userSelection key by tgid", userOverallSelectionRaw);
 
             if (userHeldCardId && String(userHeldCardId) === String(disconnectedCardId)) { // Ensure it's the specific card they were holding
                 const gameCardsKey = `gameCards:${strGameId}`;
                 const cardOwner = await redis.hGet(gameCardsKey, String(userHeldCardId));
 
                 if (cardOwner === strTelegramId) { // Confirm they are still the Redis owner of this card
-                  console.log("inside if statement")
+                  //console.log("inside if statement")
                     await redis.hDel(gameCardsKey, String(userHeldCardId)); // Remove from Redis hash
                     await GameCard.findOneAndUpdate( // Update MongoDB
                         { gameId: strGameId, cardId: Number(userHeldCardId) },
                         { isTaken: false, takenBy: null }
                     );
                     io.to(strGameId).emit("cardReleased", { cardId: Number(userHeldCardId), telegramId: strTelegramId });
-                    console.log(`✅ Card ${userHeldCardId} released for ${strTelegramId} due to full disconnect from game ${strGameId}.`);
+                    //console.log(`✅ Card ${userHeldCardId} released for ${strTelegramId} due to full disconnect from game ${strGameId}.`);
                 } else {
-                    console.log(`ℹ️ Card ${userHeldCardId} not released, not owned by ${strTelegramId} in Redis when user fully disconnected.`);
+                    //console.log(`ℹ️ Card ${userHeldCardId} not released, not owned by ${strTelegramId} in Redis when user fully disconnected.`);
                 }
             }
         }
 
         // B. Remove the user from the unique players set for this game.
         await redis.sRem(sessionKey, strTelegramId);
-        console.log(`👤 ${strTelegramId} removed from gameSessions:${strGameId}.`);
+        //console.log(`👤 ${strTelegramId} removed from gameSessions:${strGameId}.`);
 
         // C. Clean up the user's overall persisted selection for this game.
         // This is key: we remove the user's overall selected card *only* when they fully leave.
         await redis.hDel("userSelectionsByTelegramId", strTelegramId);
-        console.log(`🧹 Removed overall persisted selection for ${strTelegramId}.`);
+        //console.log(`🧹 Removed overall persisted selection for ${strTelegramId}.`);
 
     } else {
         // User still has other active sockets for this game. No card release or lobby removal.
-        console.log(`ℹ️ ${strTelegramId} disconnected one socket (${socket.id}) but still has ${remainingSocketsForThisGameCount} other active sockets in game ${strGameId}.`);
+        //console.log(`ℹ️ ${strTelegramId} disconnected one socket (${socket.id}) but still has ${remainingSocketsForThisGameCount} other active sockets in game ${strGameId}.`);
     }
 
     // Step 5: Recalculate and Broadcast the unique player count for the game.
@@ -1032,18 +1032,18 @@ socket.on("disconnect", async (reason) => { // reason parameter is useful for de
         gameId: strGameId,
         numberOfPlayers,
     });
-    console.log(`📊 Broadcasted counts for game ${strGameId}: Lobby Players = ${numberOfPlayers}`);
+    //console.log(`📊 Broadcasted counts for game ${strGameId}: Lobby Players = ${numberOfPlayers}`);
 
     // Step 6: Trigger full game cleanup if no unique players are left in the lobby.
     if (numberOfPlayers === 0) {
-        console.log(`🧹 No unique players left in game ${strGameId} (lobby count is 0). Triggering full game reset.`);
+        //console.log(`🧹 No unique players left in game ${strGameId} (lobby count is 0). Triggering full game reset.`);
         await GameControl.findOneAndUpdate(
             { gameId: strGameId },
             { isActive: false, totalCards: 0, prizeAmount: 0, players: [], endedAt: new Date() }
         );
         await syncGameIsActive(strGameId, false);
         resetGame(strGameId, io, state, redis); // Ensure resetGame clears all game-specific Redis data
-        console.log(`Game ${strGameId} has been fully reset.`);
+        //console.log(`Game ${strGameId} has been fully reset.`);
     }
 });
 
