@@ -102,74 +102,76 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         // ✅ Restore previous selection if exists (from the telegramId key in userSelections)
         // This assumes the `userSelections` hash also stores a key for `telegramId` itself,
         // which should contain the last selected card for that user across all their connections.
-       let prevSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
+      // let prevSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
 
-      if (prevSelectionRaw) {
-          const prev = JSON.parse(prevSelectionRaw);
+      // if (prevSelectionRaw) {
+      //     const prev = JSON.parse(prevSelectionRaw);
 
-          // Ensure the previous selection is actually for this game, and a card exists
-          if (String(prev.gameId) === strGameId && prev.cardId && prev.card) {
-              // Crucial Check: Is this card still actually available or owned by this user in the game's active cards?
-              const cardOwner = await redis.hGet(gameCardsKey, String(prev.cardId));
+      //     // Ensure the previous selection is actually for this game, and a card exists
+      //     if (String(prev.gameId) === strGameId && prev.cardId && prev.card) {
+      //         // Crucial Check: Is this card still actually available or owned by this user in the game's active cards?
+      //         const cardOwner = await redis.hGet(gameCardsKey, String(prev.cardId));
 
-              if (!cardOwner || cardOwner === strTelegramId) {
-                  // Card is free OR already held by this user. Re-claim it.
-                  //console.log(`[userJoinedGame] Reclaiming card ${prev.cardId} for ${strTelegramId}`);
+      //         if (!cardOwner || cardOwner === strTelegramId) {
+      //             // Card is free OR already held by this user. Re-claim it.
+      //             //console.log(`[userJoinedGame] Reclaiming card ${prev.cardId} for ${strTelegramId}`);
 
-                  // 1. Re-assert ownership in gameCards hash (if it was released)
-                  await redis.hSet(gameCardsKey, String(prev.cardId), strTelegramId);
-                  // 2. Update MongoDB (if necessary)
-                  await GameCard.findOneAndUpdate(
-                      { gameId: strGameId, cardId: Number(prev.cardId) },
-                      { isTaken: true, takenBy: strTelegramId },
-                      { new: true, upsert: true }
-                  );
+      //             // // 1. Re-assert ownership in gameCards hash (if it was released)
+      //             // await redis.hSet(gameCardsKey, String(prev.cardId), strTelegramId);
+      //             // // 2. Update MongoDB (if necessary)
+      //             // await GameCard.findOneAndUpdate(
+      //             //     { gameId: strGameId, cardId: Number(prev.cardId) },
+      //             //     { isTaken: true, takenBy: strTelegramId },
+      //             //     { new: true, upsert: true }
+      //             // );
 
-                  // 3. Update *this specific socket's* payload in 'userSelections' (keyed by socket.id)
-                  // This ensures your disconnect handler has correct info for this new connection.
-                  const updatedSocketPayload = JSON.stringify({
-                      telegramId: strTelegramId,
-                      gameId: strGameId,
-                      cardId: prev.cardId,
-                      card: prev.card,
-                  });
-                  await redis.hSet(userSelectionKey, socket.id, updatedSocketPayload); // <--- Use socket.id here!
+      //             // 3. Update *this specific socket's* payload in 'userSelections' (keyed by socket.id)
+      //             // This ensures your disconnect handler has correct info for this new connection.
+      //             // const updatedSocketPayload = JSON.stringify({
+      //             //     telegramId: strTelegramId,
+      //             //     gameId: strGameId,
+      //             //     cardId: prev.cardId,
+      //             //     card: prev.card,
+      //             // });
+      //             // await redis.hSet(userSelectionKey, socket.id, updatedSocketPayload); // <--- Use socket.id here!
 
-                  // 4. Emit confirmation to the client
-                  // socket.emit("cardConfirmed", {
-                  //     cardId: prev.cardId,
-                  //     card: prev.card,
-                  // });
+      //             // 4. Emit confirmation to the client
+      //             // socket.emit("cardConfirmed", {
+      //             //     cardId: prev.cardId,
+      //             //     card: prev.card,
+      //             // });
 
-                  // Example in userJoinedGame before emitting cardConfirmed:
-                  //console.log("Emitting cardConfirmed with data:", {
-                  //   cardId: prev.cardId,
-                  //   card: prev.card, // See what this actually contains
-                  //   telegramId: strTelegramId,
-                  // });
-                 // socket.emit("cardConfirmed", { cardId: prev.cardId, card: prev.card, telegramId: strTelegramId });
+      //             // Example in userJoinedGame before emitting cardConfirmed:
+      //             //console.log("Emitting cardConfirmed with data:", {
+      //             //   cardId: prev.cardId,
+      //             //   card: prev.card, // See what this actually contains
+      //             //   telegramId: strTelegramId,
+      //             // });
+      //            // socket.emit("cardConfirmed", { cardId: prev.cardId, card: prev.card, telegramId: strTelegramId });
 
-                  // 5. Broadcast to others if the card wasn't already shown as taken by this user
-                  // You might want to skip this if currentCardSelections already covers it.
-                  io.to(strGameId).emit("otherCardSelected", {
-                      telegramId: strTelegramId,
-                      cardId: prev.cardId,
-                  });
+      //             // 5. Broadcast to others if the card wasn't already shown as taken by this user
+      //             // You might want to skip this if currentCardSelections already covers it.
+      //             io.to(strGameId).emit("otherCardSelected", {
+      //                 telegramId: strTelegramId,
+      //                 cardId: prev.cardId,
+      //             });
+           
+                  
 
-              } else {
-                  // Card is now taken by someone else or otherwise invalid.
-                  //console.log(`[userJoinedGame] Card ${prev.cardId} for ${strTelegramId} in game ${strGameId} is now taken by ${cardOwner}. Not restoring.`);
-                  // Optionally, clear this user's overall selection if it's no longer valid.
-                  await redis.hDel("userSelectionsByTelegramId", strTelegramId);
-              }
-          } else {
-              //console.log(`[userJoinedGame] Found stale or invalid previous selection in userSelectionsByTelegramId for ${strTelegramId}.`);
-              // Clear it if it's stale/invalid for this game
-              await redis.hDel("userSelectionsByTelegramId", strTelegramId);
-          }
-      } else {
-          //console.log(`[userJoinedGame] No previous card selection found for ${strTelegramId} in this game.`);
-      }
+      //         } else {
+      //             // Card is now taken by someone else or otherwise invalid.
+      //             //console.log(`[userJoinedGame] Card ${prev.cardId} for ${strTelegramId} in game ${strGameId} is now taken by ${cardOwner}. Not restoring.`);
+      //             // Optionally, clear this user's overall selection if it's no longer valid.
+      //             await redis.hDel("userSelectionsByTelegramId", strTelegramId);
+      //         }
+      //     } else {
+      //         //console.log(`[userJoinedGame] Found stale or invalid previous selection in userSelectionsByTelegramId for ${strTelegramId}.`);
+      //         // Clear it if it's stale/invalid for this game
+      //         await redis.hDel("userSelectionsByTelegramId", strTelegramId);
+      //     }
+      // } else {
+      //     //console.log(`[userJoinedGame] No previous card selection found for ${strTelegramId} in this game.`);
+      // }
 
 
         await redis.sAdd(`gameSessions:${strGameId}`, String(strTelegramId));
@@ -300,7 +302,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
           });
           await redis.hSet(userSelectionsKey, socket.id, selectionData);
           await redis.hSet(userSelectionsKey, strTelegramId, selectionData);
-          await redis.hSet("userSelectionsByTelegramId", strTelegramId, selectionData);
+          //await redis.hSet("userSelectionsByTelegramId", strTelegramId, selectionData);
           //console.log(`Redis hSet: gameCards:${strGameId} [${strCardId}] = ${strTelegramId}`);
 
 
@@ -333,7 +335,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
       socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
         console.log("unselectCardOnLeave is called");
         console.log("unslected datas ", gameId, telegramId, cardId );
-        
+
         try {
           const strCardId = String(cardId);
           const strTelegramId = String(telegramId);
@@ -893,7 +895,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
           await Promise.all([
             redis.hDel("userSelections", socket.id),
             redis.hDel("userSelections", strTelegramId),
-            redis.hDel("userSelectionsByTelegramId", strTelegramId), // ✅ Add this
+           // redis.hDel("userSelectionsByTelegramId", strTelegramId), // ✅ Add this
             redis.del(`activeSocket:${strTelegramId}:${socket.id}`), // ✅ Optional clean-up
           ]);
 
