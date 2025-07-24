@@ -851,11 +851,10 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
         
       console.log(`Looking for userSelections with socket.id=${socket.id} or telegramId=${strTelegramId}`);
-        let userSelectionRaw = await redis.hGet("userSelections", socket.id);
-        if (!userSelectionRaw) {
-          userSelectionRaw = await redis.hGet("userSelections", strTelegramId);
-        }
-    console.log("userSelectionRaw:", userSelectionRaw);
+      
+      let userSelectionRaw = await redis.hGet("userSelections", strTelegramId);
+        
+      console.log("userSelectionRaw:", userSelectionRaw);
 
 
         let userSelection = userSelectionRaw ? JSON.parse(userSelectionRaw) : null;
@@ -870,7 +869,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
 
           console.log("card ownerrrr", cardOwner);
-          if (cardOwner === telegramId) {
+          if (cardOwner === strTelegramId) {
            
             // Free card in DB
            const dbUpdateResult = await GameCard.findOneAndUpdate(
