@@ -887,6 +887,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             }
 
             io.to(gameId).emit("cardAvailable", { cardId: userSelection.cardId });
+            console.log("cardAvailable emitedd🔥🔥🔥", userSelection.cardId)
           }
         }
 
