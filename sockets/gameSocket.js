@@ -871,9 +871,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
           console.log("card ownerrrr", cardOwner);
           if (cardOwner === telegramId) {
-            // Free card in Redis
-            await redis.hDel(`gameCards:${gameId}`, userSelection.cardId);
-
+           
             // Free card in DB
            const dbUpdateResult = await GameCard.findOneAndUpdate(
               { gameId, cardId: Number(userSelection.cardId) },
@@ -886,8 +884,11 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
               console.warn(`⚠️ DB update failed: Could not find card ${userSelection.cardId} to release`);
             }
 
-            io.to(gameId).emit("cardAvailable", { cardId: userSelection.cardId });
+            socket.to(gameId).emit("cardAvailable", { cardId: strCardId });
             console.log("cardAvailable emitedd🔥🔥🔥", userSelection.cardId)
+
+             // Free card in Redis
+            await redis.hDel(`gameCards:${gameId}`, userSelection.cardId);
           }
         }
 
