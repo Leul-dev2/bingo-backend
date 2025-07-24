@@ -884,7 +884,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
               console.warn(`⚠️ DB update failed: Could not find card ${userSelection.cardId} to release`);
             }
 
-            socket.to(gameId).emit("cardAvailable", { cardId: strCardId });
+            socket.to(gameId).emit("cardAvailable", { cardId: userSelection.cardId });
             console.log("cardAvailable emitedd🔥🔥🔥", userSelection.cardId)
 
              // Free card in Redis
