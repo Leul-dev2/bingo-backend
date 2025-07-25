@@ -16,6 +16,7 @@ async function checkAndResetIfEmpty(gameId, io, redis, state) {
 
     // Get total players who have ever joined this game instance (even if they've left the current round)
     const totalPlayersOverall = (await redis.sCard(gamePlayersRedisKey)) || 0;
+    console.log("total players", totalPlayersOverall);
 
     console.log(`[RESET CHECK] Game ${strGameId}: Players in current round: ${currentPlayersInRoom}, Total players in game instance: ${totalPlayersOverall}`);
 
