@@ -19,6 +19,8 @@ const { // <-- Add this line
     getGameRoomsKey,   // You also use this
     // Add any other specific key getters you defined in redisKeys.js
 } = require("../utils/redisKeys"); // <-- Make sure the path is correct
+const pendingDisconnectTimeouts = new Map(); // Key: `${telegramId}:${gameId}`, Value: setTimeout ID
+const ACTIVE_DISCONNECT_GRACE_PERIOD_MS = 4 * 1000;
 
 
 
@@ -950,8 +952,7 @@ socket.on("gameCount", async ({ gameId }) => {
 
 
 
-const pendingDisconnectTimeouts = new Map(); // Key: `${telegramId}:${gameId}`, Value: setTimeout ID
-const ACTIVE_DISCONNECT_GRACE_PERIOD_MS = 10 * 1000;
+
 
 // Handle disconnection events
 socket.on("disconnect", async (reason) => {
