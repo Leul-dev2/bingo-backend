@@ -48,6 +48,7 @@ const { v4: uuidv4 } = require("uuid");
   gameDraws,
   gameSessionIds,
   gameIsActive,
+  gameReadyToStart: {},
 };
 
   io.on("connection", (socket) => {
@@ -116,7 +117,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         console.log(`Backend: Sent 'initialCardStates' to ${strTelegramId} for game ${strGameId}. Total taken cards: ${Object.keys(initialCardsState).length}`);
         // --- END CONFIRMATION ---
 
-        console.log(`Backend: Emitted 'gameid' to room ${strGameId} with numberOfPlayers: ${numberOfPlayers}`);
+        console.log(`Backend: Emitted 'gameid' to room ${strGameId} with numberOfPlayers: ${numberOfPlayersInLobby}`);
     } catch (err) {
         console.error("❌ Error in userJoinedGame:", err);
         socket.emit("joinError", {
