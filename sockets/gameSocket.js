@@ -985,7 +985,8 @@ socket.on("disconnect", async (reason) => {
     const allActiveSocketKeysForUser = await redis.keys(`activeSocket:${strTelegramId}:*`);
     let remainingSocketsForThisGameCount = 0;
 
-    const multiGetCommands = redis.pipeline(); // Use pipelining for efficiency
+    // --- FIX IS HERE: Change redis.pipeline() to redis.multi() ---
+    const multiGetCommands = redis.multi(); // Use .multi() for node-redis (v4.x+)
     const otherSocketIds = [];
     for (const key of allActiveSocketKeysForUser) {
         const otherSocketId = key.split(':').pop(); // Extract socket ID
@@ -1072,7 +1073,7 @@ socket.on("disconnect", async (reason) => {
             const sessionKey = `gameSessions:${strGameId}`; // Ensure sessionKey is available in scope or passed
             await Promise.all([
                 redis.sRem(sessionKey, strTelegramId),
-                redis.sRem(`gameRooms:${strGameId}`, strTelegramId),
+                redis.sRem(`gameRooms:${strGameId}`, strTelegramId), // Assuming gameRooms is another set to remove from
                 redis.sRem(`gamePlayers:${strGameId}`, strTelegramId),
                 redis.hDel("userSelectionsByTelegramId", strTelegramId), // Clean up overall persisted selection
             ]);
@@ -1107,8 +1108,8 @@ socket.on("disconnect", async (reason) => {
                     { gameId: strGameId },
                     { isActive: false, totalCards: 0, prizeAmount: 0, players: [], endedAt: new Date() }
                 );
-                await syncGameIsActive(strGameId, false); // Assuming this marks game as inactive in state
-                resetGame(strGameId, io, state, redis); // This should fully clear Redis keys for the game
+                await syncGameIsActive(strGameId, false);
+                resetGame(strGameId, io, state, redis);
                 console.log(`Game ${strGameId} has been fully reset after grace period expiry.`);
             }
 
@@ -1122,7 +1123,7 @@ socket.on("disconnect", async (reason) => {
         console.log(`ℹ️ ${strTelegramId} disconnected one socket (${socket.id}) but still has ${remainingSocketsForThisGameCount} other active sockets in game ${strGameId}. No grace period timer started.`);
 
         // Still broadcast updated player counts, as a single socket's departure might affect display
-        const sessionKey = `gameSessions:${strGameId}`; // Ensure sessionKey is available in scope or passed
+        const sessionKey = `gameSessions:${strGameId}`;
         const numberOfPlayersLobby = await redis.sCard(sessionKey) || 0;
         io.to(strGameId).emit("gameid", {
             gameId: strGameId,
