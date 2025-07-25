@@ -20,7 +20,7 @@ const { // <-- Add this line
     // Add any other specific key getters you defined in redisKeys.js
 } = require("../utils/redisKeys"); // <-- Make sure the path is correct
 const pendingDisconnectTimeouts = new Map(); // Key: `${telegramId}:${gameId}`, Value: setTimeout ID
-const ACTIVE_DISCONNECT_GRACE_PERIOD_MS = 4 * 1000;
+const ACTIVE_DISCONNECT_GRACE_PERIOD_MS = 3 * 1000;
 const ACTIVE_SOCKET_TTL_SECONDS = 60 * 3; 
 
 

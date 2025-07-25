@@ -25,7 +25,11 @@ const GameHistory = require('./models/GameHistory');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] },
+    cors: { origin: "*", methods: ["GET", "POST"] },
+    // --- ADD THESE LINES TO CONFIGURE PING-PONG ---
+    pingInterval: 3000, // Server sends a ping every 5 seconds
+    pingTimeout: 3000,  // Server waits 3 seconds for a pong response
+    // ------------------------------------------------
 });
 
 // 🌐 Middleware
