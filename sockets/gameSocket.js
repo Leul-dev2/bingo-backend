@@ -884,13 +884,13 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             }
 
             // ⭐⭐ CRITICAL DEBUG STEP: List all sockets in the target room RIGHT NOW
-              // const socketsInTargetRoom = await io.in(strGameId).allSockets();
-              // console.log(`Backend: Sockets currently in room '${strGameId}' BEFORE emitting 'cardAvailable': ${socketsInTargetRoom.size} sockets.`);
-              // if (socketsInTargetRoom.size > 0) {
-              //     socketsInTargetRoom.forEach(sId => console.log(`  - Active socket in room '${strGameId}': ${sId}`));
-              // } else {
-              //     console.log(`  - Room '${strGameId}' appears to be EMPTY.`);
-              // }
+              const socketsInTargetRoom = await io.in(gameId).allSockets();
+              console.log(`Backend: Sockets currently in room '${gameId}' BEFORE emitting 'cardAvailable': ${socketsInTargetRoom.size} sockets.`);
+              if (socketsInTargetRoom.size > 0) {
+                  socketsInTargetRoom.forEach(sId => console.log(`  - Active socket in room '${gameId}': ${sId}`));
+              } else {
+                  console.log(`  - Room '${gameId}' appears to be EMPTY.`);
+              }
 
             io.to(gameId).emit("cardAvailable", { cardId: userSelection.cardId });
             console.log("cardAvailable emitedd🔥🔥🔥", userSelection.cardId)
