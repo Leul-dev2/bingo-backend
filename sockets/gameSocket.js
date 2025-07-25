@@ -95,7 +95,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             gameId: strGameId,
             numberOfPlayers, // This is now the count from gamePlayersKey
         });
-        
+
         const allTakenCardsData = await redis.hGetAll(gameCardsKey); // Get all cardId -> telegramId mappings
 
         const initialCardsState = {};
@@ -229,9 +229,13 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
           });
           await redis.hSet(userSelectionsKey, socket.id, selectionData);
           await redis.hSet(userSelectionsKey, strTelegramId, selectionData);
-          //await redis.hSet("userSelectionsByTelegramId", strTelegramId, selectionData);
+          await redis.hSet("userSelectionsByTelegramId", strTelegramId, selectionData);
           //console.log(`Redis hSet: gameCards:${strGameId} [${strCardId}] = ${strTelegramId}`);
 
+          // Add robust logging to confirm storage
+          console.log(`DEBUG_CARD_SELECTED_PERSIST: Attempting to HSET 'userSelectionsByTelegramId' for '${strTelegramId}' with:`, selectionData);
+          const verificationData = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
+          console.log(`DEBUG_CARD_SELECTED_PERSIST: VERIFICATION - Data retrieved immediately:`, verificationData);
 
           //console.log("All userSelections keys:", await redis.hKeys("userSelections"));
           //console.log("Trying userSelection for socket.id:", socket.id);
