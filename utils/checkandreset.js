@@ -3,33 +3,38 @@ const resetGame = require("./resetGame");
 const GameControl = require("../models/GameControl");
 
 async function checkAndResetIfEmpty(gameId, io, redis, state) {
-  const roomSize = await redis.sCard(`gameRooms:${gameId}`);
+    // NEW: Check the master set of all active players for this game
+    const totalPlayers = await redis.sCard(`gamePlayers:${gameId}`);
 
-  console.log("room size", roomSize);
+    console.log(`[RESET CHECK] Game ${gameId}: Total Active Players: ${totalPlayers} (from gamePlayers:${gameId})`);
 
-  if (!roomSize || roomSize === 0) {
-    console.log(`🧹 No players left in game ${gameId}. Resetting game...`);
+    // The condition for resetting is if there are truly NO players left in the game at all.
+    if (totalPlayers === 0) {
+        console.log(`🧹 No players left in game ${gameId}. Resetting game...`);
 
-    // Reset DB first
-    try {
-      await GameControl.findOneAndUpdate(
-        { gameId },
-        { isActive: false, totalCards: 0, prizeAmount: 0, players: [], endedAt: new Date() }
-      );
-      console.log(`✅ GameControl for game ${gameId} has been reset in DB.`);
-    } catch (err) {
-      console.error("❌ Error updating game status:", err);
+        // Reset DB first
+        try {
+            await GameControl.findOneAndUpdate(
+                { gameId },
+                { isActive: false, totalCards: 0, prizeAmount: 0, players: [], endedAt: new Date() }
+            );
+            console.log(`✅ GameControl for game ${gameId} has been reset in DB.`);
+        } catch (err) {
+            console.error("❌ Error updating game status:", err);
+        }
+
+        // Reset Redis and memory (this will clear gameSessions, gameRooms, gamePlayers, gameCards etc.)
+        await resetGame(gameId, io, state, redis);
+
+        io.to(gameId).emit("gameEnded"); // Emit event to inform clients the game has ended
+        return true; // Indicate that a reset occurred
+    } else {
+        console.log(`🟢 Game ${gameId} continues with ${totalPlayers} total players.`);
+        // Ensure the current total player count is broadcast, even if no reset occurred.
+        // This is important for UIs to update if a player left, but others remain.
+        io.to(gameId).emit("gameid", { gameId, numberOfPlayers: totalPlayers });
+        return false; // Indicate that no reset occurred
     }
-
-    // Reset Redis and memory
-    await resetGame(gameId, io, state, redis);
-
-    io.to(gameId).emit("gameEnded");
-    return true;
-  } else {
-    console.log(`🟢 Game ${gameId} continues with ${roomSize} players.`);
-    return false;
-  }
 }
 
 module.exports = checkAndResetIfEmpty;
