@@ -960,7 +960,5 @@ socket.on("disconnect", async (reason) => { // reason parameter is useful for de
        console.log(`Game ${strGameId} has been fully reset.`);
     }
 });
-
-
   });
 };
