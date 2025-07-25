@@ -1,12 +1,23 @@
 // checkandreset.js
 const resetGame = require("./resetGame");
 const GameControl = require("../models/GameControl");
+const resetRound = require("./resetRound");
 
 async function checkAndResetIfEmpty(gameId, io, redis, state) {
     // NEW: Check the master set of all active players for this game
+    const currentPlayers = (await redis.sCard(gameRoomsKey)) || 0;
     const totalPlayers = await redis.sCard(`gamePlayers:${gameId}`);
 
     console.log(`[RESET CHECK] Game ${gameId}: Total Active Players: ${totalPlayers} (from gamePlayers:${gameId})`);
+
+     if (currentPlayersInRoom === 0 && totalGamePlayers > 0) { // Only reset round if *some* total players exist
+        console.log(`🧹 Game room ${strGameId} is empty. Initiating round reset.`);
+        await resetRound(strGameId, io, state, redis);
+        // Optionally set GameControl.isActive to false if this scenario means the game is paused/ended
+        await GameControl.findOneAndUpdate({ gameId: strGameId }, { isActive: false });
+        io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "Game room empty, round ended." });
+        return false; // Not a full game reset
+    }
 
     // The condition for resetting is if there are truly NO players left in the game at all.
     if (totalPlayers === 0) {
