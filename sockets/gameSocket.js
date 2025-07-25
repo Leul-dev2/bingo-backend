@@ -55,138 +55,37 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     try {
         const userSelectionKey = `userSelections`;
         const gameCardsKey = `gameCards:${strGameId}`;
-        const sessionKey = `gameSessions:${strGameId}`; // For numberOfPlayers
-        
-        // NEW: Key for tracking this specific active socket with a TTL
-        const activeSocketTTLKey = `activeSocket:${strTelegramId}:${socket.id}`;
+        const sessionKey = `gameSessions:${strGameId}`;
 
-        // ✅ Track the active socket ID with a TTL.
-        // This key indicates that this specific socket connection is alive.
-        // It's crucial to refresh this TTL on every `userJoinedGame` or regular heartbeat
-        // to keep the connection alive in Redis's eyes.
-        await redis.set(activeSocketTTLKey, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
-        // console.log(`[userJoinedGame] Set TTL for activeSocket:${strTelegramId}:${socket.id}`);
+        // --- ADD THESE NEW LOGS ---
+        console.log(`Backend: Processing userJoinedGame for Telegram ID: ${strTelegramId}, Game ID: ${strGameId}`);
+        console.log(`Backend: Attempting to add ${strTelegramId} to Redis SET: ${sessionKey}`);
+        // --- END NEW LOGS ---
 
-
-        // ✅ Join the Socket.IO room
+        await redis.set(`activeSocket:${strTelegramId}:${socket.id}`, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
         socket.join(strGameId);
-        //console.log(`[userJoinedGame] ${strTelegramId} joining socket.io room ${strGameId}`);
+        await redis.hSet(userSelectionKey, socket.id, JSON.stringify({ telegramId: strTelegramId, gameId: strGameId, cardId: null, card: null }));
+        await redis.sAdd(sessionKey, strTelegramId); // This is where the user is added to the set
 
-        // ✅ Prepare the session payload with null cardId/card to keep consistent shape
-        const selectionPayload = JSON.stringify({
-            telegramId: strTelegramId,
-            gameId: strGameId,
-            cardId: null, // Ensure consistent data structure from the start
-            card: null,   // Ensure consistent data structure from the start
-        });
+        // --- ADD THESE NEW LOGS ---
+        console.log(`Backend: Successfully added ${strTelegramId} to SET ${sessionKey}.`);
+        const currentSetMembers = await redis.sMembers(sessionKey); // Get all members of the set
+        console.log(`Backend: Current members in SET ${sessionKey}:`, currentSetMembers);
+        // --- END NEW LOGS ---
 
-        // ✅ Store session under socket.id in 'userSelections' hash.
-        // This is primarily for the disconnect logic to easily retrieve user info by socket.id.
-        await redis.hSet(userSelectionKey, socket.id, selectionPayload);
+        const numberOfPlayers = await redis.sCard(sessionKey); // Get the count of members
+        
+        // --- ADD THESE NEW LOGS ---
+        console.log(`Backend: Calculated numberOfPlayers for ${sessionKey}: ${numberOfPlayers}`);
+        // --- END NEW LOGS ---
 
-        // ✅ Add the user's telegramId to the 'gameSessions' SET.
-        // This set tracks unique players in the game lobby.
-        await redis.sAdd(sessionKey, strTelegramId); // Add to gameSessions (for numberOfPlayers)
-        //console.log(`[userJoinedGame] Added ${strTelegramId} to gameSessions:${strGameId}`);
-
-        // IMPORTANT: The original code also had `redis.hSet(userSelectionKey, strTelegramId, selectionPayload);`
-        // This should primarily be handled when a card is selected, to store the *last known selection*
-        // for a user, not just on join. If you want a default state stored for the telegramId key
-        // immediately on join, you can re-add it here, but ensure your `selectCard` updates it.
-
-        // ✅ Emit all currently selected cards
-        const cardSelections = await redis.hGetAll(gameCardsKey);
-        //console.log(`[userJoinedGame] Emitting currentCardSelections for ${strTelegramId} in game ${strGameId}:`, cardSelections);
-        socket.emit("currentCardSelections", cardSelections || {});
-
-        // ✅ Restore previous selection if exists (from the telegramId key in userSelections)
-        // This assumes the `userSelections` hash also stores a key for `telegramId` itself,
-        // which should contain the last selected card for that user across all their connections.
-      // let prevSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
-
-      // if (prevSelectionRaw) {
-      //     const prev = JSON.parse(prevSelectionRaw);
-
-      //     // Ensure the previous selection is actually for this game, and a card exists
-      //     if (String(prev.gameId) === strGameId && prev.cardId && prev.card) {
-      //         // Crucial Check: Is this card still actually available or owned by this user in the game's active cards?
-      //         const cardOwner = await redis.hGet(gameCardsKey, String(prev.cardId));
-
-      //         if (!cardOwner || cardOwner === strTelegramId) {
-      //             // Card is free OR already held by this user. Re-claim it.
-      //             //console.log(`[userJoinedGame] Reclaiming card ${prev.cardId} for ${strTelegramId}`);
-
-      //             // // 1. Re-assert ownership in gameCards hash (if it was released)
-      //             // await redis.hSet(gameCardsKey, String(prev.cardId), strTelegramId);
-      //             // // 2. Update MongoDB (if necessary)
-      //             // await GameCard.findOneAndUpdate(
-      //             //     { gameId: strGameId, cardId: Number(prev.cardId) },
-      //             //     { isTaken: true, takenBy: strTelegramId },
-      //             //     { new: true, upsert: true }
-      //             // );
-
-      //             // 3. Update *this specific socket's* payload in 'userSelections' (keyed by socket.id)
-      //             // This ensures your disconnect handler has correct info for this new connection.
-      //             // const updatedSocketPayload = JSON.stringify({
-      //             //     telegramId: strTelegramId,
-      //             //     gameId: strGameId,
-      //             //     cardId: prev.cardId,
-      //             //     card: prev.card,
-      //             // });
-      //             // await redis.hSet(userSelectionKey, socket.id, updatedSocketPayload); // <--- Use socket.id here!
-
-      //             // 4. Emit confirmation to the client
-      //             // socket.emit("cardConfirmed", {
-      //             //     cardId: prev.cardId,
-      //             //     card: prev.card,
-      //             // });
-
-      //             // Example in userJoinedGame before emitting cardConfirmed:
-      //             //console.log("Emitting cardConfirmed with data:", {
-      //             //   cardId: prev.cardId,
-      //             //   card: prev.card, // See what this actually contains
-      //             //   telegramId: strTelegramId,
-      //             // });
-      //            // socket.emit("cardConfirmed", { cardId: prev.cardId, card: prev.card, telegramId: strTelegramId });
-
-      //             // 5. Broadcast to others if the card wasn't already shown as taken by this user
-      //             // You might want to skip this if currentCardSelections already covers it.
-      //             io.to(strGameId).emit("otherCardSelected", {
-      //                 telegramId: strTelegramId,
-      //                 cardId: prev.cardId,
-      //             });
-           
-                  
-
-      //         } else {
-      //             // Card is now taken by someone else or otherwise invalid.
-      //             //console.log(`[userJoinedGame] Card ${prev.cardId} for ${strTelegramId} in game ${strGameId} is now taken by ${cardOwner}. Not restoring.`);
-      //             // Optionally, clear this user's overall selection if it's no longer valid.
-      //             await redis.hDel("userSelectionsByTelegramId", strTelegramId);
-      //         }
-      //     } else {
-      //         //console.log(`[userJoinedGame] Found stale or invalid previous selection in userSelectionsByTelegramId for ${strTelegramId}.`);
-      //         // Clear it if it's stale/invalid for this game
-      //         await redis.hDel("userSelectionsByTelegramId", strTelegramId);
-      //     }
-      // } else {
-      //     //console.log(`[userJoinedGame] No previous card selection found for ${strTelegramId} in this game.`);
-      // }
-
-
-        await redis.sAdd(`gameSessions:${strGameId}`, String(strTelegramId));
-        //console.log(`👤 ${strTelegramId} added to gameSessions:${strGameId}.`);
-
-        // ✅ Update and Broadcast player count to ALL clients in the room
-        const numberOfPlayers = await redis.sCard(sessionKey);
-
-        io.to(strGameId).emit("gameid", { // Event for numberOfPlayers (from gameSessions)
+        io.to(strGameId).emit("gameid", {
             gameId: strGameId,
             numberOfPlayers,
         });
 
-        //console.log(`✅ Re/joined: ${strTelegramId} to game ${strGameId}. Sessions=${numberOfPlayers}`);
-    } catch (err) {
+        console.log(`Backend: Emitted 'gameid' to room ${strGameId} with numberOfPlayers: ${numberOfPlayers}`);
+       } catch (err) {
         console.error("❌ Error in userJoinedGame:", err);
         socket.emit("joinError", {
             message: "Failed to join game. Please refresh or retry.",
