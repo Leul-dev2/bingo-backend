@@ -491,7 +491,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
                     // Mark game as active in Redis again (to be safe and consistent)
                     await redis.set(activeGameKey, "true");
                     state.gameIsActive[strGameId] = true;
-                    state.gameReadyToStart[strGameId] = true; // Indicate game is ready to start drawing
+                    state.gameReadyToStart[strGameId] = true; // Indicate game is ready to start drawin
 
                     io.to(strGameId).emit("cardsReset", { gameId: strGameId }); // Inform clients cards are locked/reset
                     io.to(strGameId).emit("gameStart", { gameId: strGameId }); // Signal clients the game has officially started
