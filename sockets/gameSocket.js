@@ -8,6 +8,17 @@ const  syncGameIsActive = require("../utils/syncGameIsActive");
 const GameCard = require('../models/GameCard'); // Your Mongoose models
 const checkBingoPattern = require("../utils/BingoPatterns")
 const resetRound = require("../utils/resetRound");
+const { // <-- Add this line
+    getGameActiveKey,
+    getCountdownKey,
+    getActiveDrawLockKey,
+    getGameDrawStateKey,
+    getGameDrawsKey,
+    getGameSessionsKey,
+    getGamePlayersKey, // You also use this
+    getGameRoomsKey,   // You also use this
+    // Add any other specific key getters you defined in redisKeys.js
+} = require("../utils/redisKeys"); // <-- Make sure the path is correct
 
 
 
@@ -682,101 +693,108 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
 
 
-   async function processWinner({ telegramId, gameId, cartelaId, io, selectedSet }) {
-        const strTelegramId = String(telegramId);
-        const strGameId = String(gameId);
-        console.log(`Processing winner for game ${strGameId}, user ${strTelegramId}, card ${cartelaId}`);
+    async function processWinner({ telegramId, gameId, cartelaId, io, selectedSet }) {
 
-        try {
-            const sessionId = state.gameSessionIds[strGameId]; // Get from in-memory state
-            if (!sessionId) {
-                console.warn(`No session ID found in state for gameId ${strGameId}`);
-                // Proceed, but this might indicate an issue or cleanup from previous round.
-            }
+      console.log("process winner", cartelaId  );
+      try {
+        const sessionId = gameSessionIds[gameId];
+        if (!sessionId) throw new Error(`No session ID found for gameId ${gameId}`);
 
-            const gameData = await GameControl.findOne({ gameId: strGameId });
-            if (!gameData) throw new Error(`GameControl data not found for gameId ${strGameId}`);
+        const gameData = await GameControl.findOne({ gameId: gameId.toString() });
+        if (!gameData) throw new Error(`GameControl data not found for gameId ${gameId}`);
 
-            const prizeAmount = gameData.prizeAmount;
-            const stakeAmount = gameData.stakeAmount;
-            const playerCount = gameData.totalCards; // totalCards on GameControl likely means players with cards
+        const prizeAmount = gameData.prizeAmount;
+        const stakeAmount = gameData.stakeAmount;
+        const playerCount = gameData.totalCards;
 
-            if (typeof prizeAmount !== "number" || isNaN(prizeAmount)) {
-                throw new Error(`Invalid or missing prizeAmount (${prizeAmount}) for gameId: ${strGameId}`);
-            }
+        if (typeof prizeAmount !== "number" || isNaN(prizeAmount)) {
+          throw new Error(`Invalid or missing prizeAmount (${prizeAmount}) for gameId: ${gameId}`);
+        }
 
-            const winnerUser = await User.findOne({ telegramId: strTelegramId });
-            if (!winnerUser) throw new Error(`User with telegramId ${strTelegramId} not found`);
+        const winnerUser = await User.findOne({ telegramId });
+        if (!winnerUser) throw new Error(`User with telegramId ${telegramId} not found`);
 
-            winnerUser.balance = Number(winnerUser.balance || 0) + prizeAmount;
-            await winnerUser.save();
-            await redis.set(`userBalance:${strTelegramId}`, winnerUser.balance.toString());
-            console.log(`💰 Winner ${winnerUser.username} awarded ${prizeAmount} for game ${strGameId}`);
+        winnerUser.balance = Number(winnerUser.balance || 0) + prizeAmount;
+        await winnerUser.save();
 
-            const selectedCard = await GameCard.findOne({ gameId: strGameId, cardId: cartelaId });
-            const board = selectedCard?.card || [];
+        await redis.set(`userBalance:${telegramId}`, winnerUser.balance.toString());
 
-            const drawn = await redis.lRange(getGameDrawsKey(strGameId), 0, -1);
-            const drawnNumbers = new Set(drawn.map(Number));
-            const winnerPattern = checkBingoPattern(board, drawnNumbers, selectedSet);
+        const selectedCard = await GameCard.findOne({ gameId, cardId: cartelaId });
+        const board = selectedCard?.card || [];
 
-            io.to(strGameId).emit("winnerConfirmed", {
-                winnerName: winnerUser.username || "Unknown",
-                prizeAmount,
-                playerCount,
-                boardNumber: cartelaId,
-                board,
-                winnerPattern,
-                telegramId: strTelegramId,
-                gameId: strGameId,
-            });
+        // ✅ Add this block
+        const drawn = await redis.lRange(`gameDraws:${gameId}`, 0, -1);
+        const drawnNumbers = new Set(drawn.map(Number));
+
+        // ✅ Call pattern checker
+        const winnerPattern = checkBingoPattern(board, drawnNumbers, selectedSet);
+
+
+
+        io.to(gameId.toString()).emit("winnerConfirmed", {
+          winnerName: winnerUser.username || "Unknown",
+          prizeAmount,
+          playerCount,
+          boardNumber: cartelaId,
+          board, // ✅ Include board here
+          winnerPattern,
+          telegramId,
+          gameId,
+        });
+
+        await GameHistory.create({
+          sessionId,
+          gameId: gameId.toString(),
+          username: winnerUser.username || "Unknown",
+          telegramId,
+          eventType: "win",
+          winAmount: prizeAmount,
+          stake: stakeAmount,
+          createdAt: new Date(),
+        });
+
+        // Log loses for others
+        const players = await redis.sMembers(`gameRooms:${gameId}`) || [];
+        for (const playerTelegramId of players) {
+          if (playerTelegramId !== telegramId) {
+            const playerUser = await User.findOne({ telegramId: playerTelegramId });
+            if (!playerUser) continue;
 
             await GameHistory.create({
-                sessionId: sessionId || 'unknown', // Use 'unknown' if not found for history
-                gameId: strGameId,
-                username: winnerUser.username || "Unknown",
-                telegramId: strTelegramId,
-                eventType: "win",
-                winAmount: prizeAmount,
-                stake: stakeAmount,
-                createdAt: new Date(),
+              sessionId,
+              gameId: gameId.toString(),
+              username: playerUser.username || "Unknown",
+              telegramId: playerTelegramId,
+              eventType: "lose",
+              winAmount: 0,
+              stake: stakeAmount,
+              createdAt: new Date(),
             });
-
-            // Log loses for others (Iterate through players in gameRooms, not gamePlayers)
-            const playersInRoom = await redis.sMembers(getGameRoomsKey(strGameId));
-            for (const playerTelegramId of playersInRoom) {
-                if (playerTelegramId !== strTelegramId) {
-                    const playerUser = await User.findOne({ telegramId: playerTelegramId });
-                    if (!playerUser) continue;
-
-                    await GameHistory.create({
-                        sessionId: sessionId || 'unknown',
-                        gameId: strGameId,
-                        username: playerUser.username || "Unknown",
-                        telegramId: playerTelegramId,
-                        eventType: "lose",
-                        winAmount: 0,
-                        stake: stakeAmount,
-                        createdAt: new Date(),
-                    });
-                }
-            }
-
-            // ⭐ "GAMEROOM RESET ONLY" TRIGGER: WINNER FOUND ⭐
-            // Call resetRound for this scenario.
-            await resetRound(strGameId, io, state, redis);
-
-            // Update GameControl to inactive, as this specific round has ended
-            await GameControl.findOneAndUpdate({ gameId: strGameId }, { isActive: false });
-            await syncGameIsActive(strGameId, false); // Sync your in-memory/global active state
-
-            io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "Game ended: Winner Found!" });
-
-        } catch (error) {
-            console.error(`🔥 Error processing winner for game ${strGameId}:`, error);
-            // You can emit an error to the user if you want here
-            io.to(strGameId).emit("winnerError", { message: `Error processing winner: ${error.message}` });
+          }
         }
+
+        await GameControl.findOneAndUpdate({ gameId: gameId.toString() }, { isActive: false });
+        await syncGameIsActive(gameId, false);
+
+        await Promise.all([
+          redis.del(`gameRooms:${gameId}`),
+          redis.del(`gameCards:${gameId}`),
+          redis.del(`gameDraws:${gameId}`),
+          redis.del(`gameActive:${gameId}`),
+          redis.del(`countdown:${gameId}`),
+          redis.del(`activeDrawLock:${gameId}`),
+          redis.del(`gameDrawState:${gameId}`),
+        ]);
+
+        await GameCard.updateMany({ gameId }, { isTaken: false, takenBy: null });
+
+        await resetRound(String(gameId), io, state, redis);
+        io.to(gameId).emit("gameEnded");
+
+      } catch (error) {
+        console.error("🔥 Error processing winner:", error);
+        // You can emit an error to the user if you want here
+      }
     }
 
 
