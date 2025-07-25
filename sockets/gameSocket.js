@@ -95,6 +95,22 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             gameId: strGameId,
             numberOfPlayers, // This is now the count from gamePlayersKey
         });
+        
+        const allTakenCardsData = await redis.hGetAll(gameCardsKey); // Get all cardId -> telegramId mappings
+
+        const initialCardsState = {};
+        for (const cardId in allTakenCardsData) {
+            initialCardsState[cardId] = {
+                cardId: Number(cardId),
+                takenBy: allTakenCardsData[cardId],
+                isTaken: true
+            };
+        }
+
+        // Emit this initial state ONLY to the specific client that just joined (using their socket.id)
+        socket.emit("initialCardStates", { takenCards: initialCardsState });
+        console.log(`Backend: Sent 'initialCardStates' to ${strTelegramId} for game ${strGameId}. Total taken cards: ${Object.keys(initialCardsState).length}`);
+        // --- END CONFIRMATION ---
 
         console.log(`Backend: Emitted 'gameid' to room ${strGameId} with numberOfPlayers: ${numberOfPlayers}`);
     } catch (err) {
