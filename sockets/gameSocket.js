@@ -1132,6 +1132,7 @@ socket.on("disconnect", async (reason) => {
 
             // Trigger full game cleanup if no unique players are left in the lobby.
             if (numberOfPlayersLobby === 0 && totalPlayersGamePlayers) {
+              console.log("🔥🔥🔥total players", totalPlayersGamePlayers);
                 console.log(`🧹 No unique players left in game ${strGameId} (lobby count is 0) after grace period expiry. Triggering full game reset.`);
                 await GameControl.findOneAndUpdate(
                     { gameId: strGameId },
@@ -1163,6 +1164,7 @@ socket.on("disconnect", async (reason) => {
         // Also check for full game cleanup if, by some edge case, this partial disconnect
         // results in 0 *unique* players in the lobby.
         if (numberOfPlayersLobby === 0) {
+          console.log("🔥🔥🔥total players outside", totalPlayersGamePlayers);
             console.log(`🧹 No unique players left in game ${strGameId} (lobby count is 0) after partial disconnect. Triggering full game reset.`);
             await GameControl.findOneAndUpdate(
                 { gameId: strGameId },
