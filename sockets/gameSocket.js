@@ -8,6 +8,7 @@ const  syncGameIsActive = require("../utils/syncGameIsActive");
 const GameCard = require('../models/GameCard'); // Your Mongoose models
 const checkBingoPattern = require("../utils/BingoPatterns")
 const resetRound = require("../utils/resetRound");
+const clearGameSessions = require('./utils/clearGameSessions'); // Adjust path as needed
 const { // <-- Add this line
     getGameActiveKey,
     getCountdownKey,
@@ -513,7 +514,8 @@ socket.on("gameCount", async ({ gameId }) => {
 
                 // --- CRITICAL RESET FOR GAME START (SESSION-ONLY RESET) ---
                 // This is your specific requirement for gameSession reset when moving to play.
-                await redis.del(getGameSessionsKey(strGameId)); // Clear lobby sessions
+                //await redis.del(getGameSessionsKey(strGameId)); // Clear lobby sessions
+                await clearGameSessions(strGameId, redis, state); 
                 console.log(`🧹 ${getGameSessionsKey(strGameId)} cleared as game started.`);
 
                 // Mark all GameCards for this game as taken (locked) at the start of the game
@@ -1102,7 +1104,7 @@ socket.on("disconnect", async (reason) => {
             console.log(`📊 Broadcasted counts for game ${strGameId}: Lobby Players = ${numberOfPlayersLobby} after grace period cleanup.`);
 
             // Trigger full game cleanup if no unique players are left in the lobby.
-            if (numberOfPlayersLobby === 0) {
+            if (numberOfPlayersLobby === 0 && totalPlayersGamePlayers) {
                 console.log(`🧹 No unique players left in game ${strGameId} (lobby count is 0) after grace period expiry. Triggering full game reset.`);
                 await GameControl.findOneAndUpdate(
                     { gameId: strGameId },
