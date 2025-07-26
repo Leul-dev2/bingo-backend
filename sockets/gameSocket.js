@@ -814,7 +814,7 @@ socket.on("gameCount", async ({ gameId }) => {
           createdAt: new Date(),
         });
 
-        // Log loses for others
+        // Log loses for otherss
         const players = await redis.sMembers(`gameRooms:${gameId}`) || [];
         for (const playerTelegramId of players) {
           if (playerTelegramId !== telegramId) {
