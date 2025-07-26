@@ -473,7 +473,7 @@ socket.on("gameCount", async ({ gameId }) => {
         }
 
         // 4. Countdown logic via Redis and setInterval
-        let countdownValue = 5;
+        let countdownValue = 15;
         await redis.set(getCountdownKey(strGameId), countdownValue.toString());
 
         io.to(strGameId).emit("countdownTick", { countdown: countdownValue }); // Emit initial tick
