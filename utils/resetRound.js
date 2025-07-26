@@ -1,5 +1,5 @@
 // File: ../utils/resetRound.js
-
+const GameControl = require("../models/GameControl");
 const GameCard = require("../models/GameCard");
 const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLockKey } = require("./redisKeys"); // Assume redisKeys.js is updated with all helper functions
 
