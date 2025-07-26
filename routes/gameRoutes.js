@@ -13,7 +13,7 @@ const DEFAULT_IS_ACTIVE = false;
 
 router.post("/start", async (req, res) => {
     // Destructure not only gameId and telegramId, but also potential stakeAmount and totalCards
-    // that might be passed in the request body for new game creation.
+    // that might be passed in the request body for new game creation
     const { gameId, telegramId, stakeAmount, totalCards } = req.body;
 
     let game;
