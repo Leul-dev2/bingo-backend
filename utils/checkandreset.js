@@ -13,7 +13,7 @@ async function checkAndResetIfEmpty(gameId, io, redis, state) {
 
     // Get current players in the active game room (those who have a selected card and are playing)
     const currentPlayersInRoom = (await redis.sCard(gameRoomsRedisKey)) || 0;
-
+    console.log("currentPlayersInRoom", currentPlayersInRoom)
     // Get total players who have ever joined this game instance (even if they've left the current round)
     const totalPlayersOverall = (await redis.sCard(gamePlayersRedisKey)) || 0;
     console.log("total players", totalPlayersOverall);
