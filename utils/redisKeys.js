@@ -32,6 +32,10 @@ function getGameRoomsKey(gameId) {
     return `gameRooms:${gameId}`; // Players currently in the active game room
 }
 
+function getCardsKey(strGameId) {
+    return `gameCards:${strGameId}`; // Players currently in the active game room
+}
+
 // Add any other Redis key helpers you might need
 function getUserBalanceKey(telegramId) {
     return `userBalance:${telegramId}`;
@@ -53,4 +57,5 @@ module.exports = {
     getGameRoomsKey,
     getUserBalanceKey,
     getActiveSocketKey,
+    getCardsKey,
 };

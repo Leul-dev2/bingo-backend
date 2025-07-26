@@ -18,6 +18,7 @@ const { // <-- Add this line
     getGameSessionsKey,
     getGamePlayersKey, // You also use this
     getGameRoomsKey,   // You also use this
+    getCardsKey,
     // Add any other specific key getters you defined in redisKeys.js
 } = require("../utils/redisKeys"); // <-- Make sure the path is correct
 const pendingDisconnectTimeouts = new Map(); // Key: `${telegramId}:${gameId}`, Value: setTimeout ID
@@ -276,6 +277,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             card: cleanCard,
             gameId: strGameId,
           });
+          getCardsKey();
           await redis.hSet(userSelectionsKey, socket.id, selectionData);
           //await redis.hSet(userSelectionsKey, strTelegramId, selectionData);
           await redis.hSet("userSelectionsByTelegramId", strTelegramId, selectionData);
@@ -519,7 +521,7 @@ socket.on("gameCount", async ({ gameId }) => {
                 console.log(`🧹 ${getGameSessionsKey(strGameId)} cleared as game started.`);
 
                 // Mark all GameCards for this game as taken (locked) at the start of the game
-                await GameCard.updateMany({ gameId: strGameId }, { isTaken: true });
+                // await GameCard.updateMany({ gameId: strGameId }, { isTaken: true });
                 console.log(`✅ All GameCards for ${strGameId} marked as taken.`);
 
                 // Update GameControl DB with active game info
