@@ -12,7 +12,18 @@ router.post("/start", async (req, res) => {
   try {
     game = await GameControl.findOne({ gameId });
     if (!game) {
-      return res.status(404).json({ error: "Game not found." });
+     // return res.status(404).json({ error: "Game not found." });
+      game = await GameControl.create({
+            gameId: gameId,
+            isActive: defaultIsActive,
+            createdBy: defaultCreatedBy,
+            stakeAmount: defaultStakeAmount,
+            totalCards: defaultTotalCards,
+            prizeAmount: defaultPrizeAmount,
+            players: [], // New games start with no players
+            createdAt: new Date(), // Set creation date
+        });
+        console.log(`✅ Game ${gameId} created successfully.`);
     }
 
     // Check Redis membership
