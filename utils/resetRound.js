@@ -1,7 +1,7 @@
 // File: ../utils/resetRound.js
 const GameControl = require("../models/GameControl");
 const GameCard = require("../models/GameCard");
-const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLockKey } = require("./redisKeys"); // Assume redisKeys.js is updated with all helper functions
+const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLockKey, getGameActiveKey } = require("./redisKeys"); // Assume redisKeys.js is updated with all helper functions
 
 async function resetRound(gameId, io, state, redis) {
     const strGameId = String(gameId);
@@ -31,7 +31,8 @@ async function resetRound(gameId, io, state, redis) {
         redis.del(getGameDrawsKey(strGameId)),        // Clear drawn numbers for this round
         redis.del(getGameDrawStateKey(strGameId)),    // Clear drawing state
         redis.del(getActiveDrawLockKey(strGameId)),   // Clear draw lock
-        redis.del(getGameRoomsKey(strGameId)),       // Clear active players in the game room
+        redis.del(getGameRoomsKey(strGameId)), 
+        redis.del(getGameActiveKey(strGameId)),        // Clear active players in the game room
     ]);
 
     // Reset GameCard statuses for this game
