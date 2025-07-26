@@ -1009,10 +1009,18 @@ socket.on("disconnect", async (reason) => {
                 if (String(otherSocketInfo.gameId) === strGameId) {
                     remainingSocketsForThisGameCount++;
                 }
-            } catch (e) {
-                console.error(`❌ Error parsing payload for other active socket ${otherSocketId}:`, e);
-                // Consider marking this key as stale if parsing fails
-            }
+            }  catch (e) {
+            // --- MODIFY THIS CATCH BLOCK ---
+            console.error(
+                `❌ Error parsing payload for other active socket ${otherSocketId}. ` +
+                `Reason: ${e.message}. ` +
+                `Malformed Payload (quoted): "${otherSocketPayloadRaw}"` // <-- ADD THIS LINE!
+            );
+            // --- OPTIONAL: Clean up the corrupted data from Redis immediately ---
+            // This prevents the same error from logging repeatedly for the same bad data.
+            await redis.hDel("userSelections", otherSocketId);
+            console.log(`🧹 Deleted corrupted userSelections entry for ${otherSocketId} from Redis.`);
+        }
         } else {
             // This activeSocket key exists, but its corresponding userSelections entry is gone. It's stale.
             console.log(`ℹ️ Found stale activeSocket key activeSocket:${strTelegramId}:${otherSocketId} without userSelections entry. Marking for deletion.`);
