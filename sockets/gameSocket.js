@@ -688,7 +688,7 @@ socket.on("gameCount", async ({ gameId }) => {
 
     //check winner
 
-    socket.on("checkWinner", async ({ telegramId, gameId, cartelaId, selectedNumbers, redis }) => {
+    socket.on("checkWinner", async ({ telegramId, gameId, cartelaId, selectedNumbers}) => {
       const selectedSet = new Set((selectedNumbers || []).map(Number));
 
 
@@ -732,7 +732,7 @@ socket.on("gameCount", async ({ gameId }) => {
 
 
         // 4. If winner confirmed, call internal winner processing function
-        await processWinner({ telegramId, gameId, cartelaId, io, selectedSet, state });
+        await processWinner({ telegramId, gameId, cartelaId, io, selectedSet, state, redis });
 
 
         //socket.emit("winnerConfirmed", { message: "Winner verified and processed!" });
