@@ -1131,7 +1131,7 @@ socket.on("disconnect", async (reason) => {
             console.log(`📊 Broadcasted counts for game ${strGameId}: Lobby Players = ${numberOfPlayersLobby} after grace period cleanup.`);
 
             // Trigger full game cleanup if no unique players are left in the lobby.
-            if (numberOfPlayersLobby === 0 && totalPlayersGamePlayers) {
+            if (numberOfPlayersLobby === 0 && totalPlayersGamePlayers === 0) {
               console.log("🔥🔥🔥total players", totalPlayersGamePlayers);
                 console.log(`🧹 No unique players left in game ${strGameId} (lobby count is 0) after grace period expiry. Triggering full game reset.`);
                 await GameControl.findOneAndUpdate(
