@@ -37,6 +37,11 @@ async function resetRound(gameId, io, state, redis) {
     // Reset GameCard statuses for this game
     await GameCard.updateMany({ gameId: strGameId }, { isTaken: false, takenBy: null });
     console.log(`✅ GameCards for ${strGameId} reset.`);
+     await GameControl.findOneAndUpdate(
+                    { gameId: strGameId },
+                    { isActive: false, totalCards: 0, prizeAmount: 0, players: [], endedAt: new Date() }
+    );
+    console.log(`✅ Game is ready for game play `);
 
     // Clear in-memory game state for this round
     delete state.gameDraws[strGameId];
