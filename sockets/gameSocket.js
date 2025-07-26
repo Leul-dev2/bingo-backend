@@ -8,7 +8,7 @@ const  syncGameIsActive = require("../utils/syncGameIsActive");
 const GameCard = require('../models/GameCard'); // Your Mongoose models
 const checkBingoPattern = require("../utils/BingoPatterns")
 const resetRound = require("../utils/resetRound");
-const clearGameSessions = require('./utils/clearGameSessions'); // Adjust path as needed
+const clearGameSessions = require('../utils/clearGameSessions'); // Adjust path as needed
 const { // <-- Add this line
     getGameActiveKey,
     getCountdownKey,
