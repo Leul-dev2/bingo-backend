@@ -982,7 +982,7 @@ socket.on("disconnect", async (reason) => {
     ]);
     console.log(`🧹 Cleaned up temporary records for disconnected socket ${socket.id}.`);
 
-    // --- Determine remaining active sockets for this user in THIS specific game ---
+ // --- Determine remaining active sockets for this user in THIS specific game ---
     // IMPORTANT: Optimize redis.keys() if you expect many activeSocket:* entries.
     // A better approach is to maintain a Redis Set or Hash per user: `user_sockets:{telegramId}`
     // with all their active socket IDs. Then use redis.sMembers() or redis.hGetAll().
@@ -1002,40 +1002,57 @@ socket.on("disconnect", async (reason) => {
     let staleKeysToDelete = [];
     for (let i = 0; i < otherSocketIds.length; i++) {
         const otherSocketId = otherSocketIds[i];
-        const otherSocketPayloadRaw = otherSocketPayloadsRaw[i][1]; // [0] is null/error, [1] is result
+        
+        // --- FIX FOR TypeError: Cannot read properties of null (reading '1') ---
+        const resultTuple = otherSocketPayloadsRaw[i]; // Get the full [error, result] tuple at this index
 
-        if (otherSocketPayloadRaw) {
-            try {
-                const otherSocketInfo = JSON.parse(otherSocketPayloadRaw);
-                // Only count sockets that are still active for THIS specific game
-                if (String(otherSocketInfo.gameId) === strGameId) {
-                    remainingSocketsForThisGameCount++;
+        // Check if the tuple exists AND if the Redis command executed successfully (resultTuple[0] is null)
+        if (resultTuple && resultTuple[0] === null) {
+            const otherSocketPayloadRaw = resultTuple[1]; // Safely access the result [1]
+            
+            if (otherSocketPayloadRaw) { // Ensure the payload itself is not null (meaning HGET found a value)
+                try {
+                    const otherSocketInfo = JSON.parse(otherSocketPayloadRaw);
+                    // Only count sockets that are still active for THIS specific game
+                    if (String(otherSocketInfo.gameId) === strGameId) {
+                        remainingSocketsForThisGameCount++;
+                    }
+                } catch (e) {
+                    // --- Your existing, good, MODIFIED CATCH BLOCK ---
+                    console.error(
+                        `❌ Error parsing payload for other active socket ${otherSocketId}. ` +
+                        `Reason: ${e.message}. ` +
+                        `Malformed Payload (quoted): "${otherSocketPayloadRaw}"`
+                    );
+                    // Clean up the corrupted data from Redis immediately
+                    await redis.hDel("userSelections", otherSocketId);
+                    console.log(`🧹 Deleted corrupted userSelections entry for ${otherSocketId} from Redis.`);
                 }
-            }  catch (e) {
-            // --- MODIFY THIS CATCH BLOCK ---
-            console.error(
-                `❌ Error parsing payload for other active socket ${otherSocketId}. ` +
-                `Reason: ${e.message}. ` +
-                `Malformed Payload (quoted): "${otherSocketPayloadRaw}"` // <-- ADD THIS LINE!
-            );
-            // --- OPTIONAL: Clean up the corrupted data from Redis immediately ---
-            // This prevents the same error from logging repeatedly for the same bad data.
-            await redis.hDel("userSelections", otherSocketId);
-            console.log(`🧹 Deleted corrupted userSelections entry for ${otherSocketId} from Redis.`);
-        }
+            } else {
+                // This means 'activeSocket:...' key existed, but 'userSelections' HGET returned null (no value for that field).
+                // This indicates a stale 'activeSocket' key that needs cleanup.
+                console.log(`ℹ️ Found stale activeSocket key activeSocket:${strTelegramId}:${otherSocketId} without a corresponding userSelections entry (hGet returned null). Marking for deletion.`);
+                staleKeysToDelete.push(`activeSocket:${strTelegramId}:${otherSocketId}`);
+            }
         } else {
-            // This activeSocket key exists, but its corresponding userSelections entry is gone. It's stale.
-            console.log(`ℹ️ Found stale activeSocket key activeSocket:${strTelegramId}:${otherSocketId} without userSelections entry. Marking for deletion.`);
+            // This block handles two scenarios that could lead to your original TypeError:
+            // 1. `resultTuple` itself is `null` or `undefined` (the core cause of "reading '1' of null").
+            // 2. `resultTuple` exists, but `resultTuple[0]` is NOT `null`, meaning the Redis command itself failed/errored.
+            console.warn(`[DISCONNECT DEBUG] Unexpected or errored Redis result for socket ${otherSocketId} at index ${i}. Tuple:`, resultTuple);
+            if (resultTuple && resultTuple[0]) {
+                console.error(`[DISCONNECT DEBUG] Redis command error for socket ${otherSocketId}:`, resultTuple[0]);
+            }
+            // In either case, if we couldn't get valid info, this `activeSocket` key is likely stale.
             staleKeysToDelete.push(`activeSocket:${strTelegramId}:${otherSocketId}`);
         }
     }
     if (staleKeysToDelete.length > 0) {
         // Clean up stale `activeSocket:` keys
         await redis.del(...staleKeysToDelete);
+        console.log(`🧹 Cleaned up ${staleKeysToDelete.length} stale activeSocket keys.`);
     }
 
     console.log(`[DISCONNECT DEBUG] Remaining active sockets for ${strTelegramId} in game ${strGameId}: ${remainingSocketsForThisGameCount}`);
-
     // --- Logic for the 10-second grace period ---
     const timeoutKey = `${strTelegramId}:${strGameId}`;
 
