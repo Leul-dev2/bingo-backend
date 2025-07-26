@@ -4,28 +4,51 @@ const User = require("../models/user");
 const GameControl = require('../models/GameControl');
 const redis = require("../utils/redisClient"); // Your Redis client import
 
+const DEFAULT_STAKE_AMOUNT = 0; // Example: Minimum stake per player
+const DEFAULT_TOTAL_CARDS = 0;   // Example: A typical number of cards in a Bingo-like game
+// Calculate prize amount based on these meaningful defaults
+const DEFAULT_PRIZE_AMOUNT = DEFAULT_STAKE_AMOUNT * DEFAULT_TOTAL_CARDS;
+const DEFAULT_CREATED_BY = 'System';
+const DEFAULT_IS_ACTIVE = false;
+
 router.post("/start", async (req, res) => {
-  const { gameId, telegramId } = req.body;
+    // Destructure not only gameId and telegramId, but also potential stakeAmount and totalCards
+    // that might be passed in the request body for new game creation.
+    const { gameId, telegramId, stakeAmount, totalCards } = req.body;
 
-  let game;
+    let game;
 
-  try {
-    game = await GameControl.findOne({ gameId });
-    if (!game) {
-     // return res.status(404).json({ error: "Game not found." });
-      game = await GameControl.create({
-            gameId: gameId,
-            isActive: defaultIsActive,
-            createdBy: defaultCreatedBy,
-            stakeAmount: defaultStakeAmount,
-            totalCards: defaultTotalCards,
-            prizeAmount: defaultPrizeAmount,
-            players: [], // New games start with no players
-            createdAt: new Date(), // Set creation date
-        });
-        console.log(`✅ Game ${gameId} created successfully.`);
-    }
+    try {
+        game = await GameControl.findOne({ gameId });
+        if (!game) {
+            console.log(`Game ${gameId} not found. Creating new game.`);
+            
+            // Determine the actual stakeAmount and totalCards for this new game:
+            // Use values from req.body if they are provided and are valid numbers,
+            // otherwise fall back to the sensible DEFAULT values.
+            const newGameStake = (stakeAmount !== undefined && typeof stakeAmount === 'number' && stakeAmount > 0)
+                                 ? stakeAmount
+                                 : DEFAULT_STAKE_AMOUNT;
 
+            const newGameTotalCards = (totalCards !== undefined && typeof totalCards === 'number' && totalCards > 0)
+                                      ? totalCards
+                                      : DEFAULT_TOTAL_CARDS;
+
+            const newGamePrizeAmount = newGameStake * newGameTotalCards;
+
+            game = await GameControl.create({
+                gameId: gameId,
+                isActive: DEFAULT_IS_ACTIVE,
+                createdBy: DEFAULT_CREATED_BY,
+                // Assign the correctly determined numeric values
+                stakeAmount: newGameStake,
+                totalCards: newGameTotalCards,
+                prizeAmount: newGamePrizeAmount, // Calculated correctly
+                players: [], // New games start with no players
+                createdAt: new Date(), // Set creation date
+            });
+            console.log(`✅ Game ${gameId} created successfully with stake ${newGameStake} and ${newGameTotalCards} cards.`);
+        }
     // Check Redis membership
     const isMemberRedis = await redis.sIsMember(`gameRooms:${gameId}`, telegramId);
 
