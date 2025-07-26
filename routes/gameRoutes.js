@@ -4,51 +4,51 @@ const User = require("../models/user");
 const GameControl = require('../models/GameControl');
 const redis = require("../utils/redisClient"); // Your Redis client import
 
-const DEFAULT_STAKE_AMOUNT = 0; // Example: Minimum stake per player
-const DEFAULT_TOTAL_CARDS = 0;   // Example: A typical number of cards in a Bingo-like game
-// Calculate prize amount based on these meaningful defaults
-const DEFAULT_PRIZE_AMOUNT = DEFAULT_STAKE_AMOUNT * DEFAULT_TOTAL_CARDS;
-const DEFAULT_CREATED_BY = 'System';
-const DEFAULT_IS_ACTIVE = false;
+// --- IMPORTANT: Define these default values before your router.post block ---
+// DEFAULT_GAME_STAKE_AMOUNT is removed as gameId will now provide the stake.
+const DEFAULT_GAME_TOTAL_CARDS = 1;   // A numeric default for cards (e.g., 75 cards)
+const FALLBACK_STAKE_AMOUNT = 10;      // A fallback stake if gameId is not a valid number, or <= 0
+const DEFAULT_CREATED_BY = 'System'; // Default creator if not specified
+const DEFAULT_IS_ACTIVE = false;  // Default status for a newly created game
 
 router.post("/start", async (req, res) => {
-    // Destructure not only gameId and telegramId, but also potential stakeAmount and totalCards
-    // that might be passed in the request body for new game creation
-    const { gameId, telegramId, stakeAmount, totalCards } = req.body;
+    // Frontend only sends gameId and telegramId, so destructure only those.
+    const { gameId, telegramId } = req.body;
 
-    let game;
+    let game; // Declare game variable outside try block for scope in catch
 
     try {
         game = await GameControl.findOne({ gameId });
         if (!game) {
-            console.log(`Game ${gameId} not found. Creating new game.`);
+            // FIX 1: Create the game if it doesn't exist, as the frontend expects it to be startable.
+            console.log(`Game ${gameId} not found. Creating new game with default parameters.`);
             
-            // Determine the actual stakeAmount and totalCards for this new game:
-            // Use values from req.body if they are provided and are valid numbers,
-            // otherwise fall back to the sensible DEFAULT values.
-            const newGameStake = (stakeAmount !== undefined && typeof stakeAmount === 'number' && stakeAmount > 0)
-                                 ? stakeAmount
-                                 : DEFAULT_STAKE_AMOUNT;
+            // --- FIX 2: Correctly derive newGameStake from gameId and use defaults for others ---
+            const parsedGameStake = Number(gameId); // Convert gameId string to a number
 
-            const newGameTotalCards = (totalCards !== undefined && typeof totalCards === 'number' && totalCards > 0)
-                                      ? totalCards
-                                      : DEFAULT_TOTAL_CARDS;
+            // Use the parsed stake, or a fallback if it's not a valid positive number
+            const newGameStake = (isNaN(parsedGameStake) || parsedGameStake <= 0)
+                                 ? FALLBACK_STAKE_AMOUNT // Use fallback if parsing fails or stake is non-positive
+                                 : parsedGameStake;
 
+            const newGameTotalCards = DEFAULT_GAME_TOTAL_CARDS; 
             const newGamePrizeAmount = newGameStake * newGameTotalCards;
 
             game = await GameControl.create({
                 gameId: gameId,
                 isActive: DEFAULT_IS_ACTIVE,
                 createdBy: DEFAULT_CREATED_BY,
-                // Assign the correctly determined numeric values
-                stakeAmount: newGameStake,
-                totalCards: newGameTotalCards,
-                prizeAmount: newGamePrizeAmount, // Calculated correctly
-                players: [], // New games start with no players
-                createdAt: new Date(), // Set creation date
+                stakeAmount: newGameStake,       // Assign the correctly derived numeric stake
+                totalCards: newGameTotalCards,   // Assign default numeric total cards
+                prizeAmount: newGamePrizeAmount, // Assign default calculated prize
+                players: [],
+                createdAt: new Date(),
             });
             console.log(`✅ Game ${gameId} created successfully with stake ${newGameStake} and ${newGameTotalCards} cards.`);
         }
+
+
+
     // Check Redis membership
     const isMemberRedis = await redis.sIsMember(`gameRooms:${gameId}`, telegramId);
 
