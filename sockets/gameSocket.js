@@ -385,13 +385,6 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
       });
 
 
-      // socket.on("getPlayerCount", ({ gameId }) => {
-        
-      //     const playerCount = gameRooms[gameId]?.length || 0;
-      //     socket.emit("playerCountUpdate", { gameId, playerCount });
-      // });
-
-
  
 socket.on("gameCount", async ({ gameId }) => {
     const strGameId = String(gameId);
@@ -456,6 +449,7 @@ socket.on("gameCount", async ({ gameId }) => {
         const existing = await GameControl.findOne({ gameId: strGameId });
         const sessionId = uuidv4();
         state.gameSessionIds[strGameId] = sessionId; // Using state.gameSessionIds to store sessionId
+        await redis.set(`gameSessionId:${strGameId}`, sessionId, 'EX', 3600 * 24);
         const stakeAmount = Number(strGameId); // Ideally configurable
 
         if (!existing) {
@@ -517,7 +511,7 @@ socket.on("gameCount", async ({ gameId }) => {
                 // --- CRITICAL RESET FOR GAME START (SESSION-ONLY RESET) ---
                 // This is your specific requirement for gameSession reset when moving to play.
                 //await redis.del(getGameSessionsKey(strGameId)); // Clear lobby sessions
-                await clearGameSessions(strGameId, redis, state); 
+                await clearGameSessions(strGameId, redis, state, io); 
                 console.log(`🧹 ${getGameSessionsKey(strGameId)} cleared as game started.`);
 
                 // Mark all GameCards for this game as taken (locked) at the start of the game
@@ -568,8 +562,8 @@ socket.on("gameCount", async ({ gameId }) => {
         // Ensure cleanup on error for initial setup keys
         delete state.gameDraws[strGameId];
         delete state.countdownIntervals[strGameId];
-        delete state.gameSessionIds[strGameId]; // Clear this in-memory if setup failed
-
+        //delete state.gameSessionIds[strGameId]; // Clear this in-memory if setup failed
+        
         await Promise.all([
             redis.del(getGameDrawsKey(strGameId)),
             redis.del(getCountdownKey(strGameId)),
@@ -694,7 +688,7 @@ socket.on("gameCount", async ({ gameId }) => {
 
     //check winner
 
-    socket.on("checkWinner", async ({ telegramId, gameId, cartelaId, selectedNumbers }) => {
+    socket.on("checkWinner", async ({ telegramId, gameId, cartelaId, selectedNumbers, redis }) => {
       const selectedSet = new Set((selectedNumbers || []).map(Number));
 
 
@@ -738,7 +732,7 @@ socket.on("gameCount", async ({ gameId }) => {
 
 
         // 4. If winner confirmed, call internal winner processing function
-        await processWinner({ telegramId, gameId, cartelaId, io, selectedSet });
+        await processWinner({ telegramId, gameId, cartelaId, io, selectedSet, state });
 
 
         //socket.emit("winnerConfirmed", { message: "Winner verified and processed!" });
@@ -754,11 +748,11 @@ socket.on("gameCount", async ({ gameId }) => {
 
 
 
-    async function processWinner({ telegramId, gameId, cartelaId, io, selectedSet }) {
+    async function processWinner({ telegramId, gameId, cartelaId, io, selectedSet, state, redis }) {
 
       console.log("process winner", cartelaId  );
       try {
-        const sessionId = gameSessionIds[gameId];
+        const sessionId = await redis.get(`gameSessionId:${gameId}`);
         if (!sessionId) throw new Error(`No session ID found for gameId ${gameId}`);
 
         const gameData = await GameControl.findOne({ gameId: gameId.toString() });
@@ -845,6 +839,7 @@ socket.on("gameCount", async ({ gameId }) => {
           redis.del(`countdown:${gameId}`),
           redis.del(`activeDrawLock:${gameId}`),
           redis.del(`gameDrawState:${gameId}`),
+          redis.del(`gameSessionId:${gameId}`),
         ]);
 
         await GameCard.updateMany({ gameId }, { isTaken: false, takenBy: null });
