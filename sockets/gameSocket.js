@@ -503,19 +503,14 @@ socket.on("gameCount", async ({ gameId }) => {
                     delete state.activeDrawLocks[strGameId]; // Release in-memory lock
                     await redis.del(getActiveDrawLockKey(strGameId)); // Release Redis lock
                     await syncGameIsActive(strGameId, false); // Explicitly mark game inactive
-                    // Optionally call a more comprehensive reset here, e.g., resetRound if it handles DB player list cleanup
-                    await resetRound(strGameId, io, state, redis); // Use if you want to clear cards/players from room
+                    await resetRound(strGameId, io, state, redis); // This should now handle gameSessionId cleanup
                     return; // Exit the setInterval callback
                 }
 
                 // --- CRITICAL RESET FOR GAME START (SESSION-ONLY RESET) ---
-                // This is your specific requirement for gameSession reset when moving to play.
-                //await redis.del(getGameSessionsKey(strGameId)); // Clear lobby sessions
-                await clearGameSessions(strGameId, redis, state, io); 
+                await clearGameSessions(strGameId, redis, state, io);
                 console.log(`🧹 ${getGameSessionsKey(strGameId)} cleared as game started.`);
 
-                // Mark all GameCards for this game as taken (locked) at the start of the game
-                // await GameCard.updateMany({ gameId: strGameId }, { isTaken: true });
                 console.log(`✅ All GameCards for ${strGameId} marked as taken.`);
 
                 // Update GameControl DB with active game info
@@ -554,7 +549,7 @@ socket.on("gameCount", async ({ gameId }) => {
     } catch (err) {
         console.error(`❌ Error in gameCount setup for ${gameId}:`, err.message);
 
-        // --- ⭐ CRITICAL CHANGE 5: Release lock on error ⭐
+        // --- ⭐ CRITICAL CHANGE 5: Release lock and cleanup on error ⭐
         delete state.activeDrawLocks[strGameId]; // Release in-memory lock
         await redis.del(getActiveDrawLockKey(strGameId)); // Release Redis lock
         await syncGameIsActive(strGameId, false); // Mark game inactive on error
@@ -562,13 +557,13 @@ socket.on("gameCount", async ({ gameId }) => {
         // Ensure cleanup on error for initial setup keys
         delete state.gameDraws[strGameId];
         delete state.countdownIntervals[strGameId];
-        //delete state.gameSessionIds[strGameId]; // Clear this in-memory if setup failed
-        
+        delete state.gameSessionIds[strGameId]; // ADD THIS: Clear in-memory gameSessionId on error
+        await redis.del(`gameSessionId:${strGameId}`); // ADD THIS: Clear Redis gameSessionId on error
+
         await Promise.all([
             redis.del(getGameDrawsKey(strGameId)),
             redis.del(getCountdownKey(strGameId)),
             redis.del(getGameActiveKey(strGameId)),
-            // redis.del(getActiveDrawLockKey(strGameId)), // Already handled above
             redis.del(getGameDrawStateKey(strGameId)),
         ]);
         io.to(strGameId).emit("gameNotStarted", { gameId: strGameId, message: "Error during game setup. Please try again." });
@@ -578,111 +573,93 @@ socket.on("gameCount", async ({ gameId }) => {
 
 
 
-   async function startDrawing(gameId, io) {
-        const strGameId = String(gameId); // Ensure gameId is always a string for Redis keys
-        const gameDrawStateKey = getGameDrawStateKey(strGameId);
-        const gameDrawsKey = getGameDrawsKey(strGameId);
-        const gameRoomsKey = getGameRoomsKey(strGameId);
-        const activeGameKey = getGameActiveKey(strGameId);
+  async function startDrawing(gameId, io, state, redis) { // Ensure state and redis are passed
+    const strGameId = String(gameId); // Ensure gameId is always a string for Redis keys
+    const gameDrawStateKey = getGameDrawStateKey(strGameId);
+    const gameDrawsKey = getGameDrawsKey(strGameId);
+    const gameRoomsKey = getGameRoomsKey(strGameId);
+    const activeGameKey = getGameActiveKey(strGameId);
 
-        if (state.drawIntervals[strGameId]) {
-            console.log(`⛔️ Drawing already in progress for game ${strGameId}, skipping.`);
-            return;
-        }
+    if (state.drawIntervals[strGameId]) {
+        console.log(`⛔️ Drawing already in progress for game ${strGameId}, skipping.`);
+        return;
+    }
 
-        console.log(`🎯 Starting the drawing process for gameId: ${strGameId}`);
+    console.log(`🎯 Starting the drawing process for gameId: ${strGameId}`);
 
-        // Reset all cards to not taken at the start of drawing (if not handled by countdown ending)
-        // If GameCards are marked `isTaken: true` in `gameCount` then this should not be `false` here unless it's a new round.
-        // Assuming `gameCount` is meant to lock cards for the *current* game.
-        // `resetRound` handles `isTaken: false`, so we shouldn't do it here unless `startDrawing` can be called independently.
-        // If `startDrawing` is ONLY called after `gameCount`'s successful start, this line might be redundant or incorrect.
-        // await GameCard.updateMany({ gameId: strGameId }, { isTaken: false, takenBy: null }); // Potentially remove or move this
+    // Clear any existing draws list at start (redundant if `gameCount` already cleared `gameDrawsKey`)
+    await redis.del(gameDrawsKey);
 
-        // Clear any existing draws list at start (redundant if `gameCount` already cleared `gameDrawsKey`)
-        await redis.del(gameDrawsKey);
+    state.drawIntervals[strGameId] = setInterval(async () => {
+        try {
+            // Fetch current player count in the game room
+            const currentPlayersInRoom = (await redis.sCard(gameRoomsKey)) || 0;
 
-        state.drawIntervals[strGameId] = setInterval(async () => {
-            try {
-                // Fetch current player count in the game room
-                const currentPlayersInRoom = (await redis.sCard(gameRoomsKey)) || 0;
-
-                if (currentPlayersInRoom === 0) {
-                    console.log(`🛑 No players left in game room ${strGameId}. Stopping drawing and initiating round reset.`);
-                    clearInterval(state.drawIntervals[strGameId]);
-                    delete state.drawIntervals[strGameId];
-
-                    // ⭐ "GAMEROOM RESET ONLY" TRIGGER: GAME ROOM PLAYERS ZERO ⭐
-                    // Call resetRound as game room is empty, but don't clear full game instance.
-                    await resetRound(strGameId, io, state, redis);
-
-                    // Update GameControl to inactive, as this round ended due to abandonment
-                    await GameControl.findOneAndUpdate({ gameId: strGameId }, { isActive: false });
-                    await syncGameIsActive(strGameId, false); // Sync your in-memory/global active state
-                    await redis.set(getGameActiveKey(strGameId), "false");
-
-                    io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "Game ended due to all players leaving the room." });
-                    return;
-                }
-
-                // Read game state from Redis
-                const gameDataRaw = await redis.get(gameDrawStateKey);
-                if (!gameDataRaw) {
-                    console.log(`❌ No game draw data found for ${strGameId}, stopping draw.`);
-                    clearInterval(state.drawIntervals[strGameId]);
-                    delete state.drawIntervals[strGameId];
-                    return;
-                }
-                const gameData = JSON.parse(gameDataRaw);
-
-                // Check if all numbers drawn
-                if (gameData.index >= gameData.numbers.length) {
-                    clearInterval(state.drawIntervals[strGameId]);
-                    delete state.drawIntervals[strGameId];
-                    io.to(strGameId).emit("allNumbersDrawn", { gameId: strGameId });
-                    console.log(`🎯 All numbers drawn for game ${strGameId}`);
-
-                    // ⭐ "GAMEROOM RESET ONLY" TRIGGER: ALL NUMBERS DRAWN ⭐
-                    // This typically means the round has ended, but there might not be a winner.
-                    // This should trigger a round reset, not necessarily a full game purge.
-                    await resetRound(strGameId, io, state, redis);
-
-                    // Update GameControl to inactive if the round ended without a winner
-                    await GameControl.findOneAndUpdate({ gameId: strGameId }, { isActive: false });
-                    await syncGameIsActive(strGameId, false); // Sync your in-memory/global active state
-
-                    io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "All numbers drawn, game ended." });
-                    return;
-                }
-
-                // Draw the next number
-                const number = gameData.numbers[gameData.index];
-                gameData.index += 1;
-
-                // Save updated game state back to Redis
-                await redis.set(gameDrawStateKey, JSON.stringify(gameData));
-
-                // Add the drawn number to the Redis list
-                await redis.rPush(gameDrawsKey, number.toString());
-
-                // Format the number label (e.g. "B-12")
-                const letterIndex = Math.floor((number - 1) / 15);
-                const letter = ["B", "I", "N", "G", "O"][letterIndex];
-                const label = `${letter}-${number}`;
-
-                console.log(`🔢 Drawing number: ${label}, Index: ${gameData.index - 1}`);
-
-                io.to(strGameId).emit("numberDrawn", { number, label, gameId: strGameId });
-
-            } catch (error) {
-                console.error(`❌ Error during drawing interval for game ${strGameId}:`, error);
+            if (currentPlayersInRoom === 0) {
+                console.log(`🛑 No players left in game room ${strGameId}. Stopping drawing and initiating round reset.`);
                 clearInterval(state.drawIntervals[strGameId]);
                 delete state.drawIntervals[strGameId];
-                // Potentially call resetRound or resetGame here on critical error,
-                // depending on how severe the error is and if it makes the game unrecoverable.
+
+                await resetRound(strGameId, io, state, redis); // This call now handles all necessary cleanup.
+
+                io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "Game ended due to all players leaving the room." });
+                return;
             }
-        }, 3000); // Draw every 3 seconds
-    }
+
+            // Read game state from Redis
+            const gameDataRaw = await redis.get(gameDrawStateKey);
+            if (!gameDataRaw) {
+                console.log(`❌ No game draw data found for ${strGameId}, stopping draw.`);
+                clearInterval(state.drawIntervals[strGameId]);
+                delete state.drawIntervals[strGameId];
+                return;
+            }
+            const gameData = JSON.parse(gameDataRaw);
+
+            // Check if all numbers drawn
+            if (gameData.index >= gameData.numbers.length) {
+                clearInterval(state.drawIntervals[strGameId]);
+                delete state.drawIntervals[strGameId];
+                io.to(strGameId).emit("allNumbersDrawn", { gameId: strGameId });
+                console.log(`🎯 All numbers drawn for game ${strGameId}`);
+
+                await resetRound(strGameId, io, state, redis); // This call now handles all necessary cleanup.
+
+                io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "All numbers drawn, game ended." });
+                return;
+            }
+
+            // Draw the next number
+            const number = gameData.numbers[gameData.index];
+            gameData.index += 1;
+
+            // Save updated game state back to Redis
+            await redis.set(gameDrawStateKey, JSON.stringify(gameData));
+
+            // Add the drawn number to the Redis list
+            await redis.rPush(gameDrawsKey, number.toString());
+
+            // Format the number label (e.g. "B-12")
+            const letterIndex = Math.floor((number - 1) / 15);
+            const letter = ["B", "I", "N", "G", "O"][letterIndex];
+            const label = `${letter}-${number}`;
+
+            console.log(`🔢 Drawing number: ${label}, Index: ${gameData.index - 1}`);
+
+            io.to(strGameId).emit("numberDrawn", { number, label, gameId: strGameId });
+
+        } catch (error) {
+            console.error(`❌ Error during drawing interval for game ${strGameId}:`, error);
+            clearInterval(state.drawIntervals[strGameId]);
+            delete state.drawIntervals[strGameId];
+            // Potentially call resetRound or resetGame here on critical error,
+            // depending on how severe the error is and if it makes the game unrecoverable.
+            // A comprehensive reset (like resetRound) might be appropriate here too.
+            await resetRound(strGameId, io, state, redis); // Added for robust error handling
+            io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "Game ended due to drawing error." });
+        }
+    }, 3000); // Draw every 3 seconds
+}
 
 
 

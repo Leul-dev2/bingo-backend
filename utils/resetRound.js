@@ -33,6 +33,7 @@ async function resetRound(gameId, io, state, redis) {
         redis.del(getActiveDrawLockKey(strGameId)),   // Clear draw lock
         redis.del(getGameRoomsKey(strGameId)), 
         redis.del(getGameActiveKey(strGameId)),        // Clear active players in the game room
+        redis.del(`gameSessionId:${strGameId}`), 
     ]);
 
     // Reset GameCard statuses for this game
