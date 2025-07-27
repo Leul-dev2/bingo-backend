@@ -51,6 +51,10 @@ async function resetRound(gameId, io, state, redis) {
     // Note: state.gameIsActive[strGameId] is NOT cleared here, handled by GameControl DB if it means overall game
     // Note: state.gameReadyToStart[strGameId] is NOT cleared here
 
+    state.gameIsActive[strGameId] = false;
+    state.gameReadyToStart[strGameId] = false;
+    state.gameSessionIds[strGameId] = null;
+
     console.log(`🔄 Round reset complete for game: ${strGameId}`);
     io.to(strGameId).emit("roundEnded", { gameId: strGameId }); // Emit specific round ended event
 }
