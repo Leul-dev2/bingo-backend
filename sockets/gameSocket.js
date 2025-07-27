@@ -504,7 +504,7 @@ socket.on("gameCount", async ({ gameId }) => {
                     await redis.del(getActiveDrawLockKey(strGameId)); // Release Redis lock
                     await syncGameIsActive(strGameId, false); // Explicitly mark game inactive
                     // Optionally call a more comprehensive reset here, e.g., resetRound if it handles DB player list cleanup
-                    // await resetRound(strGameId, io, state, redis); // Use if you want to clear cards/players from room
+                    await resetRound(strGameId, io, state, redis); // Use if you want to clear cards/players from room
                     return; // Exit the setInterval callback
                 }
 
