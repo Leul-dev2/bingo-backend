@@ -28,6 +28,7 @@ async function resetRound(gameId, io, state, redis) {
 
     // Clear Redis keys specific to the current round
     await Promise.all([
+        redis.set(`gameIsActive:${gameId}`, "false"),
         redis.del(getGameDrawsKey(strGameId)),        // Clear drawn numbers for this round
         redis.del(getGameDrawStateKey(strGameId)),    // Clear drawing state
         redis.del(getActiveDrawLockKey(strGameId)),   // Clear draw lock
