@@ -619,7 +619,7 @@ socket.on("gameCount", async ({ gameId }) => {
                     // Update GameControl to inactive, as this round ended due to abandonment
                     await GameControl.findOneAndUpdate({ gameId: strGameId }, { isActive: false });
                     await syncGameIsActive(strGameId, false); // Sync your in-memory/global active state
-                    await redis.set(getGameActiveKey(strGameId), "true");
+                    await redis.set(getGameActiveKey(strGameId), "false");
 
                     io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "Game ended due to all players leaving the room." });
                     return;
