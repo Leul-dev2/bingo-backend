@@ -23,7 +23,7 @@ const { // <-- Add this line
 } = require("../utils/redisKeys"); // <-- Make sure the path is correct
 const pendingDisconnectTimeouts = new Map(); // Key: `${telegramId}:${gameId}`, Value: setTimeout ID
 const ACTIVE_DISCONNECT_GRACE_PERIOD_MS = 2 * 1000; // For card selection lobby (10 seconds)
-const JOIN_GAME_GRACE_PERIOD_MS = 10 * 1000; // For initial join/live game phase (5 seconds)
+const JOIN_GAME_GRACE_PERIOD_MS = 30 * 1000; // For initial join/live game phase (5 seconds)
 const ACTIVE_SOCKET_TTL_SECONDS = 60 * 3;
 
 
