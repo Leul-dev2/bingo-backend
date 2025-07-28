@@ -23,7 +23,7 @@ const { // <-- Add this line
 } = require("../utils/redisKeys"); // <-- Make sure the path is correct
 const pendingDisconnectTimeouts = new Map(); // Key: `${telegramId}:${gameId}`, Value: setTimeout ID
 const ACTIVE_DISCONNECT_GRACE_PERIOD_MS = 2 * 1000; // For card selection lobby (10 seconds)
-const JOIN_GAME_GRACE_PERIOD_MS = 30 * 1000; // For initial join/live game phase (5 seconds)
+const JOIN_GAME_GRACE_PERIOD_MS = 10 * 1000; // For initial join/live game phase (5 seconds)
 const ACTIVE_SOCKET_TTL_SECONDS = 60 * 3;
 
 
@@ -1129,6 +1129,8 @@ socket.on("gameCount", async ({ gameId }) => {
                 gracePeriodDuration = JOIN_GAME_GRACE_PERIOD_MS;
                 cleanupFunction = async () => {
                     console.log(`⏱️ JoinGame grace period expired for User: ${strTelegramId}, Game: ${strGameId}. Performing joinGame-specific cleanup.`);
+                    console.log("🎯🎯🎯🎯 this for the game page 🎯🎯🎯🎯")
+
                     // For joinGame phase, primary removal is from gameRooms
                     await redis.sRem(`gameRooms:${strGameId}`, strTelegramId);
                     console.log(`👤 ${strTelegramId} removed from gameRooms after joinGame grace period expiry for game ${strGameId}.`);
@@ -1139,6 +1141,7 @@ socket.on("gameCount", async ({ gameId }) => {
 
                     // Check if the game is completely empty across ALL player sets after this cleanup
                     const totalPlayersGamePlayers = await redis.sCard(`gamePlayers:${strGameId}`);
+                    console.log("🚀🔥🚀🔥 total players", totalPlayersGamePlayers);
                     const numberOfPlayersLobby = await redis.sCard(`gameSessions:${strGameId}`) || 0; // Check lobby too
                     if (playerCount === 0 && numberOfPlayersLobby === 0 && totalPlayersGamePlayers === 0) {
                         console.log(`🧹 Game ${strGameId} empty after joinGame phase grace period. Triggering full game reset.`);
