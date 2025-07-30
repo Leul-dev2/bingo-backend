@@ -851,20 +851,23 @@ socket.on("gameCount", async ({ gameId }) => {
 
 
          // Save winner info in Redis for reconnecting players
-        await redis.setex(
-          `winnerInfo:${gameId}`,
-          60 * 5, // TTL: 5 minutes
-          JSON.stringify({
-            winnerName: winnerUser.username || "Unknown",
-            prizeAmount,
-            playerCount,
-            boardNumber: cartelaId,
-            board,
-            winnerPattern,
-            telegramId,
-            gameId
-          })
-        );
+              await redis.set(
+                `winnerInfo:${gameId}`,
+                JSON.stringify({
+                  winnerName: winnerUser.username || "Unknown",
+                  prizeAmount,
+                  playerCount,
+                  boardNumber: cartelaId,
+                  board,
+                  winnerPattern,
+                  telegramId,
+                  gameId
+                }),
+                {
+                  EX: 60 * 5, // expire in 5 minutes
+                }
+              );
+
 
 
         await Promise.all([
