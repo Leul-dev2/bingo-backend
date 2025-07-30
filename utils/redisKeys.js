@@ -45,6 +45,12 @@ function getActiveSocketKey(telegramId, socketId) {
     return `activeSocket:${telegramId}:${socketId}`;
 }
 
+function getUserSelectionsByTelegramIdKey() 
+{ 
+    return `userSelectionsByTelegramId`;
+
+ }
+
 
 module.exports = {
     getGameActiveKey,
@@ -58,4 +64,5 @@ module.exports = {
     getUserBalanceKey,
     getActiveSocketKey,
     getCardsKey,
+    getUserSelectionsByTelegramIdKey,
 };
