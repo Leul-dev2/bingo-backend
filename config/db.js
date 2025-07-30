@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const GameConfiguration = require('./models/GameConfiguration'); // ⭐ Ensure this path is correct for your model
+const GameConfiguration = require('../models/GameConfiguration'); // ⭐ Ensure this path is correct for your model
 
 // Note: The 'gameconfig' import is no longer needed if you are hardcoding values here.
 // const gameconfig = require('../initialconfig'); // You can remove this line if initialconfig.js is not used.
