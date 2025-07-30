@@ -356,6 +356,17 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         const game = await GameControl.findOne({ gameId: strGameId });
         if (!game || !game.players.includes(strTelegramId)) {
             console.warn(`🚫 Blocked unpaid user ${strTelegramId} from joining game ${strGameId}`);
+
+            // 🧠 Check if the game already ended and has winner info
+            const winnerRaw = await redis.get(`winnerInfo:${strGameId}`);
+            if (winnerRaw) {
+                const winnerInfo = JSON.parse(winnerRaw);
+                console.log(`[Reconnected] Emitting winnerConfirmed to ${strTelegramId} for game ${strGameId}`);
+                socket.emit("winnerConfirmed", winnerInfo);
+                return;
+            }
+
+            // If no winner info, just send generic error
             socket.emit("joinError", { message: "You are not registered in this game." });
             return;
         }
@@ -814,6 +825,7 @@ socket.on("gameCount", async ({ gameId }) => {
           createdAt: new Date(),
         });
 
+
         // Log loses for otherss
         const players = await redis.sMembers(`gameRooms:${gameId}`) || [];
         for (const playerTelegramId of players) {
@@ -836,6 +848,24 @@ socket.on("gameCount", async ({ gameId }) => {
 
         await GameControl.findOneAndUpdate({ gameId: gameId.toString() }, { isActive: false });
         await syncGameIsActive(gameId, false);
+
+
+         // Save winner info in Redis for reconnecting players
+        await redis.setex(
+          `winnerInfo:${gameId}`,
+          60 * 5, // TTL: 5 minutes
+          JSON.stringify({
+            winnerName: winnerUser.username || "Unknown",
+            prizeAmount,
+            playerCount,
+            boardNumber: cartelaId,
+            board,
+            winnerPattern,
+            telegramId,
+            gameId
+          })
+        );
+
 
         await Promise.all([
           redis.del(`gameRooms:${gameId}`),
