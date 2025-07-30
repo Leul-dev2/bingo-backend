@@ -35,6 +35,7 @@ async function resetRound(gameId, io, state, redis) {
         redis.del(getGameRoomsKey(strGameId)), 
         redis.del(getGameActiveKey(strGameId)),        // Clear active players in the game room
         redis.del(`gameSessionId:${strGameId}`), 
+        redis.del(`winnerInfo:${gameId}`),
     ]);
 
     // Reset GameCard statuses for this game
