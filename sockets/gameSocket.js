@@ -16,7 +16,7 @@ const { // <-- Add this line
     getActiveDrawLockKey,
     getGameDrawStateKey,
     getGameDrawsKey,
-    getGameSessionsKey,
+    getGameSessionIdKey,
     getGamePlayersKey, // You also use this
     getGameRoomsKey,   // You also use this
     getCardsKey,

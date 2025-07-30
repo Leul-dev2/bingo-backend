@@ -20,8 +20,8 @@ function getGameDrawsKey(gameId) {
     return `gameDraws:${gameId}`;
 }
 
-function getGameSessionsKey(gameId) {
-    return `gameSessions:${gameId}`; // Represents the lobby/card selection
+function getGameSessionIdKey(gameId) {
+    return `gameSessionId:${gameId}`;
 }
 
 function getGamePlayersKey(gameId) {
@@ -52,7 +52,7 @@ module.exports = {
     getActiveDrawLockKey,
     getGameDrawStateKey,
     getGameDrawsKey,
-    getGameSessionsKey,
+    getGameSessionIdKey,
     getGamePlayersKey,
     getGameRoomsKey,
     getUserBalanceKey,
