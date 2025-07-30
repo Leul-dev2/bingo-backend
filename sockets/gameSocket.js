@@ -351,60 +351,56 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         console.log("joinGame is invoked 🔥🔥🔥 for gameId:", gameId, "telegramId:", telegramId);
         try {
             const strGameId = String(gameId);
-            const strTelegramId = String(telegramId);
-            const numTelegramId = Number(telegramId); // Use numeric for Redis sIsMember
-
-            // IMPORTANT: The `POST /start` route handles user payment and adds them to `gameRooms:${gameId}`.
-            // This `joinGame` socket event assumes that `POST /start` was already successful.
+            const strTelegramId = String(telegramId); // Keep this as string
 
             // 1. Validate if the user is in the game type's lobby (meaning they paid via /start)
-            const isUserInLobby = await redis.sIsMember(getGameRoomsKey(strGameId), numTelegramId);
+            // Use strTelegramId here!
+            const isUserInLobby = await redis.sIsMember(getGameRoomsKey(strGameId), strTelegramId);
             if (!isUserInLobby) {
-                console.warn(`🚫 Blocked user ${numTelegramId} from joining game type ${strGameId} lobby (not in Redis set).`);
+                console.warn(`🚫 Blocked user ${strTelegramId} from joining game type ${strGameId} lobby (not in Redis set).`);
                 socket.emit("joinError", { message: "You have not paid or are not registered for this game type. Please use the 'start' button." });
                 return;
             }
 
             // 2. Store essential info for disconnect handling for *this* specific socket
-            await redis.hSet(`userSocketMap`, numTelegramId, socket.id); // Map user to their active socket
-            await redis.hSet(`socketUserMap`, socket.id, numTelegramId); // Map socket to user
+            // Use strTelegramId for Redis keys and values where strings are expected!
+            await redis.hSet(`userSocketMap`, strTelegramId, socket.id);
+            await redis.hSet(`socketUserMap`, socket.id, strTelegramId); // Consistent
             await redis.hSet(`joinGameSocketsInfo`, socket.id, JSON.stringify({
                 telegramId: strTelegramId,
                 gameId: strGameId,
-                phase: 'joinGameLobby' // Indicate it's the lobby phase
+                phase: 'joinGameLobby'
             }));
-            console.log(`Backend: Socket ${socket.id} for ${numTelegramId} connected to game type lobby ${strGameId}.`);
+            console.log(`Backend: Socket ${socket.id} for ${strTelegramId} connected to game type lobby ${strGameId}.`);
 
             // 3. Join the socket.io room for the game *type*
             socket.join(strGameId);
             console.log(`[joinGame] Socket ${socket.id} joined Socket.IO room: ${strGameId}`);
 
             // 4. Update and broadcast player count for the lobby
-            const playerCount = await redis.sCard(getGameRoomsKey(strGameId)); // Count players in game type lobby
+            // sCard is fine as it doesn't take members as arguments
+            const playerCount = await redis.sCard(getGameRoomsKey(strGameId));
             io.to(strGameId).emit("playerCountUpdate", {
                 gameId: strGameId,
                 playerCount,
             });
-            console.log(`[joinGame] Player ${numTelegramId} (via socket ${socket.id}) confirmed in lobby for game type ${strGameId}, total players now: ${playerCount}`);
+            console.log(`[joinGame] Player ${strTelegramId} (via socket ${socket.id}) confirmed in lobby for game type ${strGameId}, total players now: ${playerCount}`);
 
             // 5. Confirm to the joining client which gameId and telegramId they are interacting with
-            socket.emit("gameId", { gameId: strGameId, telegramId: strTelegramId }); // Using your existing event name
+            socket.emit("gameId", { gameId: strGameId, telegramId: strTelegramId });
 
             // 6. Attempt to find if there's an ACTIVE SESSION for this game type and send its state
             const currentActiveSessionId = await redis.get(getGameSessionIdKey(strGameId));
 
             if (currentActiveSessionId) {
-                // If there's an active session, send the client relevant info about it
                 const isActive = await redis.get(getGameActiveKey(currentActiveSessionId)) === "true";
                 const countdownValue = await redis.get(getCountdownKey(currentActiveSessionId));
+                // getGameDrawsKey will use currentActiveSessionId which is a string
+                const drawnNumbersRaw = await redis.lRange(getGameDrawsKey(currentActiveSessionId), 0, -1);
+                const drawnNumbers = drawnNumbersRaw.map(Number);
 
                 if (isActive) {
                     console.log(`[joinGame] Game type ${strGameId} has active session ${currentActiveSessionId}. Sending game info.`);
-
-                    // --- NEW/RE-INTEGRATED LOGIC: Retrieve and send previously drawn numbers for the ACTIVE SESSION ---
-                    const gameDrawsKey = getGameDrawsKey(currentActiveSessionId); // Fetch from current active session
-                    const drawnNumbersRaw = await redis.lRange(gameDrawsKey, 0, -1);
-                    const drawnNumbers = drawnNumbersRaw.map(Number);
 
                     const formattedDrawnNumbers = drawnNumbers.map(number => {
                         const letterIndex = Math.floor((number - 1) / 15);
@@ -413,22 +409,23 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
                     });
 
                     if (formattedDrawnNumbers.length > 0) {
-                        socket.emit("drawnNumbersHistory", { // Using your existing event name
-                            gameId: strGameId, // Still include gameId for context
-                            sessionId: currentActiveSessionId, // Add sessionId for clarity
-                            history: formattedDrawnNumbers
+                        socket.emit("drawnNumbersHistory", {
+                            gameId: strGameId,
+                            sessionId: currentActiveSessionId,
+                            history: formattedDampedNumbers
                         });
-                        console.log(`[joinGame] Sent ${formattedDrawnNumbers.length} historical drawn numbers for session ${currentActiveSessionId} to ${numTelegramId}.`);
+                        console.log(`[joinGame] Sent ${formattedDrawnNumbers.length} historical drawn numbers for session ${currentActiveSessionId} to ${strTelegramId}.`);
                     }
-                    // --- END RE-INTEGRATED LOGIC ---
 
                     socket.emit("rejoinActiveGame", {
                         gameId: strGameId,
                         sessionId: currentActiveSessionId,
                         countdown: countdownValue ? Number(countdownValue) : null,
-                        drawnNumbers: drawnNumbers, // Send raw numbers too if needed
+                        drawnNumbers: drawnNumbers,
                         message: "Game is currently active, rejoining.",
-                        playerCard: await GameCard.findOne({ sessionId: currentActiveSessionId, takenBy: numTelegramId })
+                        // Make sure GameCard query uses Number for telegramId if your schema expects Number,
+                        // otherwise use strTelegramId if your schema expects String for takenBy
+                        playerCard: await GameCard.findOne({ sessionId: currentActiveSessionId, takenBy: Number(strTelegramId) })
                     });
                 } else if (countdownValue) {
                     console.log(`[joinGame] Game type ${strGameId} has session ${currentActiveSessionId} in countdown.`);
@@ -440,7 +437,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
                     });
                 } else {
                     console.log(`[joinGame] Game type ${strGameId} has a stale session ${currentActiveSessionId}. No active game info.`);
-                    socket.emit("noActiveGameInfo", { // Using a clear event name
+                    socket.emit("noActiveGameInfo", {
                         gameId: strGameId,
                         message: "No active game session found for this type.",
                         sessionId: null
