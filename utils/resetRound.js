@@ -1,7 +1,10 @@
 // File: ../utils/resetRound.js
 const GameControl = require("../models/GameControl");
 const GameCard = require("../models/GameCard");
-const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLockKey, getGameActiveKey } = require("./redisKeys"); // Assume redisKeys.js is updated with all helper functions
+const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLockKey, getGameActiveKey } = require("./redisKeys");
+
+// You might need a UUID generator for a more robust sessionId
+// const { v4: uuidv4 } = require('uuid'); // If you install 'uuid' package
 
 async function resetRound(gameId, io, state, redis) {
     const strGameId = String(gameId);
@@ -26,38 +29,47 @@ async function resetRound(gameId, io, state, redis) {
         delete state.activeDrawLocks[strGameId];
     }
 
-    // Clear Redis keys specific to the current round
+    // Clear Redis keys specific to the current round (including deleting the old gameSessionId)
     await Promise.all([
         redis.set(`gameIsActive:${gameId}`, "false"),
         redis.del(getGameDrawsKey(strGameId)),        // Clear drawn numbers for this round
         redis.del(getGameDrawStateKey(strGameId)),    // Clear drawing state
         redis.del(getActiveDrawLockKey(strGameId)),   // Clear draw lock
-        redis.del(getGameRoomsKey(strGameId)), 
-        redis.del(getGameActiveKey(strGameId)),        // Clear active players in the game room
-        redis.del(`gameSessionId:${strGameId}`), 
+        redis.del(getGameRoomsKey(strGameId)),        // Clear active players in the game room
+        redis.del(getGameActiveKey(strGameId)),       // Clear game active flag
+        redis.del(`gameSessionId:${strGameId}`),      // <--- THIS DELETES THE OLD SESSION ID
     ]);
 
     // Reset GameCard statuses for this game
     await GameCard.updateMany({ gameId: strGameId }, { isTaken: false, takenBy: null });
     console.log(`✅ GameCards for ${strGameId} reset.`);
-     await GameControl.findOneAndUpdate(
-                    { gameId: strGameId },
-                    { isActive: false, totalCards: 0, prizeAmount: 0, players: [], endedAt: new Date() }
+
+    await GameControl.findOneAndUpdate(
+        { gameId: strGameId },
+        { isActive: false, totalCards: 0, prizeAmount: 0, players: [], endedAt: new Date() }
     );
-    console.log(`✅ Game is ready for game play `);
+    console.log(`✅ Game state in DB reset for ${strGameId}.`);
 
     // Clear in-memory game state for this round
     delete state.gameDraws[strGameId];
-    // Note: state.gameSessionIds[strGameId] is NOT cleared here as per "gameroom only" reset
-    // Note: state.gameIsActive[strGameId] is NOT cleared here, handled by GameControl DB if it means overall game
-    // Note: state.gameReadyToStart[strGameId] is NOT cleared here
-
     state.gameIsActive[strGameId] = false;
     state.gameReadyToStart[strGameId] = false;
-    state.gameSessionIds[strGameId] = null;
+    state.gameSessionIds[strGameId] = null; // This should be consistent with Redis
+
+    // --- CRITICAL ADDITION: GENERATE AND SET NEW SESSION ID FOR THE NEXT ROUND ---
+    const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`; // Simple unique ID
+    // If you use 'uuid' package: const newSessionId = uuidv4();
+
+    await redis.set(`gameSessionId:${strGameId}`, newSessionId);
+    state.gameSessionIds[strGameId] = newSessionId; // Update in-memory state as well
+    console.log(`✨ New session ID created and set for game ${strGameId}: ${newSessionId}`);
+    // --- END CRITICAL ADDITION ---
 
     console.log(`🔄 Round reset complete for game: ${strGameId}`);
-    io.to(strGameId).emit("roundEnded", { gameId: strGameId }); // Emit specific round ended event
+    // Emit a specific "newRoundReady" or "gameReadyForNextRound" event
+    // that includes the new sessionId, so clients can prepare.
+    // This is better than "roundEnded" which might just mean the round finished.
+    io.to(strGameId).emit("newRoundReady", { gameId: strGameId, sessionId: newSessionId });
 }
 
 module.exports = resetRound;

@@ -346,31 +346,102 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
 
     // --- UPDATED: socket.on("joinGame") ---
-   socket.on("joinGame", async ({ gameId, telegramId }) => {
-    console.log("joinGame is invoked 🔥🔥🔥")
-    try {
-        const strGameId = String(gameId);
-        const strTelegramId = String(telegramId);
+ socket.on("joinGame", async ({ gameId, telegramId }) => {
+    console.log("joinGame is invoked 🔥🔥🔥");
+    const strGameId = String(gameId);
+    const strTelegramId = String(telegramId);
 
-        // Validate user is registered in the game via MongoDB
+    try {
+        // 1. Get the current active session ID for this gameId
+        const currentSessionId = await redis.get(`gameSessionId:${strGameId}`);
+        console.log(`[joinGame] User ${strTelegramId} trying to join ${strGameId}. Current active session: ${currentSessionId || 'N/A'}`);
+
+        // 2. Get the user's previously stored selection info, including their last known session ID for this game
+        const userOverallSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
+        let userPreviousSessionId = null;
+        let userSelectionParsed = null;
+
+        if (userOverallSelectionRaw) {
+            try {
+                userSelectionParsed = JSON.parse(userOverallSelectionRaw);
+                // Ensure the selection is for the *same gameId* to avoid mixing contexts
+                if (String(userSelectionParsed.gameId) === strGameId) {
+                    userPreviousSessionId = userSelectionParsed.sessionId;
+                }
+            } catch (e) {
+                console.error(`❌ Error parsing userSelectionsByTelegramId for ${strTelegramId}: ${e.message}. Clearing corrupted data.`);
+                await redis.hDel("userSelectionsByTelegramId", strTelegramId); // Clean up corrupted data
+            }
+        }
+        console.log(`[joinGame] User ${strTelegramId} previous session for ${strGameId}: ${userPreviousSessionId || 'N/A'}`);
+
+
+        // 3. Conditional Winner History Check
+        // Only check for a past winner if:
+        //    a) The user had a previous session ID.
+        //    b) That previous session ID is DIFFERENT from the current active session ID.
+        // This indicates they are joining a new round/game after a previous one concluded.
+        if (userPreviousSessionId && userPreviousSessionId !== currentSessionId) {
+            const previousWinnerRaw = await redis.get(`gameWinner:${userPreviousSessionId}`);
+            if (previousWinnerRaw) {
+                try {
+                    const winnerInfo = JSON.parse(previousWinnerRaw);
+                    console.log(`[joinGame] Found historical winner for previous session ${userPreviousSessionId} for user ${strTelegramId}. Emitting 'winnerConfirmed'.`);
+                    socket.emit("winnerConfirmed", winnerInfo);
+                    // Crucially: DO NOT return here. The user should still proceed to join the new game/lobby.
+                    // The client-side handles displaying the winner and then transitioning.
+                } catch (e) {
+                    console.error(`❌ Error parsing historical winner payload for previous session ${userPreviousSessionId}: ${e.message}. Marking for cleanup.`);
+                    await redis.del(`gameWinner:${userPreviousSessionId}`); // Clear corrupted data
+                }
+            }
+        }
+
+        // 4. Validate user registration for the *current* game state via MongoDB
         const game = await GameControl.findOne({ gameId: strGameId });
         if (!game || !game.players.includes(strTelegramId)) {
-            console.warn(`🚫 Blocked unpaid user ${strTelegramId} from joining game ${strGameId}`);
-            socket.emit("joinError", { message: "You are not registered in this game." });
+            console.warn(`🚫 Blocked user ${strTelegramId} (not registered/paid) from joining game ${strGameId}.`);
+            socket.emit("joinError", { message: "You are not registered in this game or game is not active." });
             return;
         }
 
-        // Store essential info for disconnect handling for *this* specific phase and socket
+        // 5. Update user's current session in userSelectionsByTelegramId
+        // This is critical to track what game session the user is currently "in".
+        if (currentSessionId) {
+            const updatedUserSelection = {
+                gameId: strGameId,
+                sessionId: currentSessionId,
+                // Preserve other user selections if they are stored here (e.g., last selected cardId)
+                // If you store cardId here, ensure it's cleared or managed properly for new sessions.
+                cardId: userSelectionParsed ? userSelectionParsed.cardId : null, // Example: keep last card if relevant
+                // Add other relevant user selections from userSelectionParsed if needed
+            };
+            await redis.hSet("userSelectionsByTelegramId", strTelegramId, JSON.stringify(updatedUserSelection));
+            console.log(`[joinGame] User ${strTelegramId} selection updated to current session ${currentSessionId} for game ${strGameId}.`);
+        } else {
+            // If there's no currentSessionId, it means the game is not actively running a session yet.
+            // This might be a lobby phase or waiting for a new round to start after a full reset.
+            // You might want to clear the old sessionId for this game from the user's selection if no current session exists.
+            if (userSelectionParsed && String(userSelectionParsed.gameId) === strGameId) {
+                userSelectionParsed.sessionId = null; // Clear old session association
+                await redis.hSet("userSelectionsByTelegramId", strTelegramId, JSON.stringify(userSelectionParsed));
+                console.log(`[joinGame] Cleared old session ID for user ${strTelegramId} as no current session is active for game ${strGameId}.`);
+            }
+        }
+
+
+        // 6. Store essential info for disconnect handling for *this specific socket* and phase
         await redis.hSet(`joinGameSocketsInfo`, socket.id, JSON.stringify({
             telegramId: strTelegramId,
             gameId: strGameId,
-            phase: 'joinGame'
+            phase: 'joinGame',
+            sessionId: currentSessionId // Store current sessionId with the socket
         }));
         await redis.set(`activeSocket:${strTelegramId}:${socket.id}`, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
         console.log(`Backend: Socket ${socket.id} for ${strTelegramId} set up in 'joinGame' phase.`);
 
 
-        // Add player to Redis set for gameRooms (represents overall game presence)
+        // 7. Add player to Redis set for gameRooms (represents overall game presence for this round)
         await redis.sAdd(`gameRooms:${strGameId}`, strTelegramId);
         socket.join(strGameId); // Join the socket.io room
 
@@ -381,29 +452,32 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         });
         console.log(`[joinGame] Player ${strTelegramId} joined game ${strGameId}, total players now: ${playerCount}`);
 
-        // Confirm to the socket the gameId and telegramId
-        socket.emit("gameId", { gameId: strGameId, telegramId: strTelegramId });
+        // 8. Confirm to the socket the gameId and telegramId, and crucially, the currentSessionId
+        socket.emit("gameId", { gameId: strGameId, telegramId: strTelegramId, sessionId: currentSessionId });
 
-        // --- NEW LOGIC: Retrieve and send previously drawn numbers ---
+        // 9. Retrieve and send previously drawn numbers (only if there's a current session)
         const gameDrawsKey = getGameDrawsKey(strGameId); // Assuming getGameDrawsKey is available
-        const drawnNumbersRaw = await redis.lRange(gameDrawsKey, 0, -1); // Get all drawn numbers
-        const drawnNumbers = drawnNumbersRaw.map(Number); // Convert them back to numbers if stored as strings
+        if (currentSessionId) {
+            const drawnNumbersRaw = await redis.lRange(gameDrawsKey, 0, -1); // Get all drawn numbers
+            const drawnNumbers = drawnNumbersRaw.map(Number); // Convert them back to numbers if stored as strings
 
-        // Format the drawn numbers with their letters if needed for client display
-        const formattedDrawnNumbers = drawnNumbers.map(number => {
-            const letterIndex = Math.floor((number - 1) / 15);
-            const letter = ["B", "I", "N", "G", "O"][letterIndex];
-            return { number, label: `${letter}-${number}` };
-        });
-
-        if (formattedDrawnNumbers.length > 0) {
-            socket.emit("drawnNumbersHistory", {
-                gameId: strGameId,
-                history: formattedDrawnNumbers
+            // Format the drawn numbers with their letters if needed for client display
+            const formattedDrawnNumbers = drawnNumbers.map(number => {
+                const letterIndex = Math.floor((number - 1) / 15);
+                const letter = ["B", "I", "N", "G", "O"][letterIndex];
+                return { number, label: `${letter}-${number}` };
             });
-            console.log(`[joinGame] Sent ${formattedDrawnNumbers.length} historical drawn numbers to ${strTelegramId} for game ${strGameId}.`);
+
+            if (formattedDrawnNumbers.length > 0) {
+                socket.emit("drawnNumbersHistory", {
+                    gameId: strGameId,
+                    history: formattedDrawnNumbers
+                });
+                console.log(`[joinGame] Sent ${formattedDrawnNumbers.length} historical drawn numbers to ${strTelegramId} for game ${strGameId}.`);
+            }
+        } else {
+            console.log(`[joinGame] No current session active, not sending drawn numbers history to ${strTelegramId} for game ${strGameId}.`);
         }
-        // --- END NEW LOGIC ---
 
     } catch (err) {
         console.error("❌ Redis error in joinGame:", err);
@@ -754,22 +828,35 @@ socket.on("gameCount", async ({ gameId }) => {
 
 
 
-    async function processWinner({ telegramId, gameId, cartelaId, io, selectedSet, state, redis }) {
+  async function processWinner({ telegramId, gameId, cartelaId, io, selectedSet, state, redis }) {
+    console.log("process winner", cartelaId);
+    try {
+        const strGameId = String(gameId); // Ensure gameId is string for consistency
 
-      console.log("process winner", cartelaId  );
-      try {
-        const sessionId = await redis.get(`gameSessionId:${gameId}`);
-        if (!sessionId) throw new Error(`No session ID found for gameId ${gameId}`);
+        // This is CRITICAL: Retrieve the current active sessionId
+        const sessionId = await redis.get(`gameSessionId:${strGameId}`);
+        if (!sessionId) {
+            console.error(`❌ Error: No session ID found for gameId ${strGameId} during winner processing. Cannot store session-specific winner info.`);
+            // Depending on your error handling strategy, you might choose to throw,
+            // or proceed without storing session-specific winner, but this indicates a setup issue.
+            // For now, we'll proceed but log a severe warning and won't store `gameWinner:${sessionId}`
+            // which could lead to issues for disconnected players.
+            // Consider this a MUST-FIX if it happens in production.
+            // For the purpose of this code, if sessionId is null, we can't use it for `gameWinner:`.
+            // Let's make it a throw to ensure it's addressed if it ever happens.
+            throw new Error(`No session ID found for gameId ${strGameId}. Cannot process winner correctly.`);
+        }
 
-        const gameData = await GameControl.findOne({ gameId: gameId.toString() });
-        if (!gameData) throw new Error(`GameControl data not found for gameId ${gameId}`);
+
+        const gameData = await GameControl.findOne({ gameId: strGameId });
+        if (!gameData) throw new Error(`GameControl data not found for gameId ${strGameId}`);
 
         const prizeAmount = gameData.prizeAmount;
         const stakeAmount = gameData.stakeAmount;
-        const playerCount = gameData.totalCards;
+        const playerCount = gameData.totalCards; // This typically refers to total cards in the game, not active players.
 
         if (typeof prizeAmount !== "number" || isNaN(prizeAmount)) {
-          throw new Error(`Invalid or missing prizeAmount (${prizeAmount}) for gameId: ${gameId}`);
+            throw new Error(`Invalid or missing prizeAmount (${prizeAmount}) for gameId: ${strGameId}`);
         }
 
         const winnerUser = await User.findOne({ telegramId });
@@ -780,84 +867,98 @@ socket.on("gameCount", async ({ gameId }) => {
 
         await redis.set(`userBalance:${telegramId}`, winnerUser.balance.toString());
 
-        const selectedCard = await GameCard.findOne({ gameId, cardId: cartelaId });
+        const selectedCard = await GameCard.findOne({ gameId: strGameId, cardId: cartelaId });
         const board = selectedCard?.card || [];
 
-        // ✅ Add this block
-        const drawn = await redis.lRange(`gameDraws:${gameId}`, 0, -1);
+        const drawn = await redis.lRange(`gameDraws:${strGameId}`, 0, -1);
         const drawnNumbers = new Set(drawn.map(Number));
 
-        // ✅ Call pattern checker
         const winnerPattern = checkBingoPattern(board, drawnNumbers, selectedSet);
 
 
+        // --- KEY CHANGE HERE: Use sessionId in the Redis key for winner info ---
+        const winnerInfo = {
+            winnerName: winnerUser.username || "Unknown",
+            prizeAmount,
+            playerCount, // This might be the count at the time of win, not current live count
+            boardNumber: cartelaId,
+            board,
+            winnerPattern,
+            telegramId: telegramId, // Keep as its original type
+            gameId: strGameId, // Ensure it's the string version
+            sessionId: sessionId, // Explicitly include sessionId in the stored info
+            timestamp: Date.now(),
+        };
 
-        io.to(gameId.toString()).emit("winnerConfirmed", {
-          winnerName: winnerUser.username || "Unknown",
-          prizeAmount,
-          playerCount,
-          boardNumber: cartelaId,
-          board, // ✅ Include board here
-          winnerPattern,
-          telegramId,
-          gameId,
-        });
+        // Store for a short period, e.g., 5 minutes (300 seconds) using the SESSION ID
+        await redis.set(`gameWinner:${sessionId}`, JSON.stringify(winnerInfo), 'EX', 300);
+        console.log(`🏆 Stored winner info for session ${sessionId} (game ${strGameId}) in Redis.`);
+        // --- END KEY CHANGE ---
+
+
+        // Emit to current connected clients in the game room
+        // Ensure you emit the full `winnerInfo` object which now includes `sessionId`
+        io.to(strGameId).emit("winnerConfirmed", winnerInfo);
+        // Previously, you were constructing a new object here. It's better to reuse `winnerInfo`.
+
 
         await GameHistory.create({
-          sessionId,
-          gameId: gameId.toString(),
-          username: winnerUser.username || "Unknown",
-          telegramId,
-          eventType: "win",
-          winAmount: prizeAmount,
-          stake: stakeAmount,
-          createdAt: new Date(),
+            sessionId,
+            gameId: strGameId, // Use strGameId for consistency
+            username: winnerUser.username || "Unknown",
+            telegramId,
+            eventType: "win",
+            winAmount: prizeAmount,
+            stake: stakeAmount,
+            createdAt: new Date(),
         });
 
-        // Log loses for otherss
-        const players = await redis.sMembers(`gameRooms:${gameId}`) || [];
+        // Log loses for others
+        const players = await redis.sMembers(`gameRooms:${strGameId}`) || []; // Use strGameId
         for (const playerTelegramId of players) {
-          if (playerTelegramId !== telegramId) {
-            const playerUser = await User.findOne({ telegramId: playerTelegramId });
-            if (!playerUser) continue;
+            if (playerTelegramId !== telegramId) {
+                const playerUser = await User.findOne({ telegramId: playerTelegramId });
+                if (!playerUser) continue;
 
-            await GameHistory.create({
-              sessionId,
-              gameId: gameId.toString(),
-              username: playerUser.username || "Unknown",
-              telegramId: playerTelegramId,
-              eventType: "lose",
-              winAmount: 0,
-              stake: stakeAmount,
-              createdAt: new Date(),
-            });
-          }
+                await GameHistory.create({
+                    sessionId,
+                    gameId: strGameId, // Use strGameId
+                    username: playerUser.username || "Unknown",
+                    telegramId: playerTelegramId,
+                    eventType: "lose",
+                    winAmount: 0,
+                    stake: stakeAmount,
+                    createdAt: new Date(),
+                });
+            }
         }
 
-        await GameControl.findOneAndUpdate({ gameId: gameId.toString() }, { isActive: false });
-        await syncGameIsActive(gameId, false);
+        await GameControl.findOneAndUpdate({ gameId: strGameId }, { isActive: false }); // Use strGameId
+        await syncGameIsActive(strGameId, false); // Use strGameId
 
         await Promise.all([
-          redis.del(`gameRooms:${gameId}`),
-          redis.del(`gameCards:${gameId}`),
-          redis.del(`gameDraws:${gameId}`),
-          redis.del(`gameActive:${gameId}`),
-          redis.del(`countdown:${gameId}`),
-          redis.del(`activeDrawLock:${gameId}`),
-          redis.del(`gameDrawState:${gameId}`),
-          redis.del(`gameSessionId:${gameId}`),
+            redis.del(`gameRooms:${strGameId}`),
+            redis.del(`gameCards:${strGameId}`),
+            redis.del(`gameDraws:${strGameId}`),
+            redis.del(`gameActive:${strGameId}`),
+            redis.del(`countdown:${strGameId}`),
+            redis.del(`activeDrawLock:${strGameId}`),
+            redis.del(`gameDrawState:${strGameId}`),
+            redis.del(`gameSessionId:${strGameId}`), // This key is being deleted, which is correct after we've used its value.
         ]);
 
-        await GameCard.updateMany({ gameId }, { isTaken: false, takenBy: null });
+        await GameCard.updateMany({ gameId: strGameId }, { isTaken: false, takenBy: null }); // Use strGameId
 
-        await resetRound(String(gameId), io, state, redis);
-        io.to(gameId).emit("gameEnded");
+        // This `resetRound` function *must* generate and set a NEW `gameSessionId:${strGameId}`
+        // for the next round to ensure proper session tracking.
+        await resetRound(strGameId, io, state, redis);
+        io.to(strGameId).emit("gameEnded"); // Use strGameId
 
-      } catch (error) {
+    } catch (error) {
         console.error("🔥 Error processing winner:", error);
         // You can emit an error to the user if you want here
-      }
     }
+}
 
 
 
