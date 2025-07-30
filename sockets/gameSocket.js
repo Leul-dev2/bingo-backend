@@ -352,6 +352,16 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         const strGameId = String(gameId);
         const strTelegramId = String(telegramId);
 
+         // --- ✅ INSERT WINNER CHECK HERE ---
+          const winnerRaw = await redis.get(`winnerInfo:${strGameId}`);
+          if (winnerRaw) {
+            const winnerData = JSON.parse(winnerRaw);
+            if (winnerData.telegramId === strTelegramId) {
+              console.log(`✅ Rejoining winner ${strTelegramId} detected, re-sending winnerConfirmed`);
+              socket.emit("winnerConfirmed", winnerData);
+            }
+          }
+
         // Validate user is registered in the game via MongoDB
         const game = await GameControl.findOne({ gameId: strGameId });
         if (!game || !game.players.includes(strTelegramId)) {
@@ -374,15 +384,6 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         await redis.sAdd(`gameRooms:${strGameId}`, strTelegramId);
         socket.join(strGameId); // Join the socket.io room
 
-         // --- ✅ INSERT WINNER CHECK HERE ---
-          const winnerRaw = await redis.get(`winnerInfo:${strGameId}`);
-          if (winnerRaw) {
-            const winnerData = JSON.parse(winnerRaw);
-            if (winnerData.telegramId === strTelegramId) {
-              console.log(`✅ Rejoining winner ${strTelegramId} detected, re-sending winnerConfirmed`);
-              socket.emit("winnerConfirmed", winnerData);
-            }
-          }
 
         const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
         io.to(strGameId).emit("playerCountUpdate", {
@@ -1153,6 +1154,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
                     // Check for full game reset if game is now empty of all unique players
                     const totalPlayersGamePlayers = await redis.sCard(`gamePlayers:${strGameId}`);
                     if (numberOfPlayersLobby === 0 && totalPlayersGamePlayers === 0) {
+                        console.log("🚀🎯⬅️⬅️ total players", totalPlayersGamePlayers);
                         console.log(`🧹 Game ${strGameId} empty after lobby phase grace period. Triggering full game reset.`);
                         await GameControl.findOneAndUpdate(
                             { gameId: strGameId },
