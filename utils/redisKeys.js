@@ -20,16 +20,16 @@ function getGameDrawsKey(gameId) {
     return `gameDraws:${gameId}`;
 }
 
-function getGameSessionIdKey(gameId) {
-    return `gameSessionId:${gameId}`;
+function getGameSessionsKey(gameId) {
+    return `gameSessions:${gameId}`; // Represents the lobby/card selection
 }
 
 function getGamePlayersKey(gameId) {
     return `gamePlayers:${gameId}`; // Overall players for the game instance
 }
 
-function getGameRoomsKey(gameIdOrSessionId) { 
-    return `gameRooms:${gameIdOrSessionId}`; // Players currently in the active game room
+function getGameRoomsKey(gameId) {
+    return `gameRooms:${gameId}`; // Players currently in the active game room
 }
 
 function getCardsKey(strGameId) {
@@ -45,12 +45,6 @@ function getActiveSocketKey(telegramId, socketId) {
     return `activeSocket:${telegramId}:${socketId}`;
 }
 
-function getUserSelectionsByTelegramIdKey() 
-{ 
-    return `userSelectionsByTelegramId`;
-
- }
-
 
 module.exports = {
     getGameActiveKey,
@@ -58,11 +52,10 @@ module.exports = {
     getActiveDrawLockKey,
     getGameDrawStateKey,
     getGameDrawsKey,
-    getGameSessionIdKey,
+    getGameSessionsKey,
     getGamePlayersKey,
     getGameRoomsKey,
     getUserBalanceKey,
     getActiveSocketKey,
     getCardsKey,
-    getUserSelectionsByTelegramIdKey,
 };

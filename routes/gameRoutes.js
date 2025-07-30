@@ -1,103 +1,146 @@
 const express = require('express');
 const router = express.Router();
 const User = require("../models/user");
-const GameControl = require('../models/GameControl'); // For when you need game control instances (later in socket code)
-const GameConfiguration = require('../models/GameConfiguration'); // ⭐ NEW IMPORT
-const redis = require("../utils/redisClient");
+const GameControl = require('../models/GameControl');
+const redis = require("../utils/redisClient"); // Your Redis client import
 
-const { 
-    getGameRoomsKey,
-} = require("../utils/redisKeys");
+// --- IMPORTANT: Define these default values before your router.post block ---
+// DEFAULT_GAME_STAKE_AMOUNT is removed as gameId will now provide the stake.
+const DEFAULT_GAME_TOTAL_CARDS = 1;   // A numeric default for cards (e.g., 75 cards)
+const FALLBACK_STAKE_AMOUNT = 10;      // A fallback stake if gameId is not a valid number, or <= 0
+const DEFAULT_CREATED_BY = 'System'; // Default creator if not specified
+const DEFAULT_IS_ACTIVE = false;  // Default status for a newly created game
 
 router.post("/start", async (req, res) => {
-    const { gameId, telegramId } = req.body; // gameId is the TYPE (e.g., "10")
+    // Frontend only sends gameId and telegramId, so destructure only those.
+    const { gameId, telegramId } = req.body;
 
-    let gameConfig; // Renamed from 'game' to 'gameConfig' for clarity
-    let user; // Declare user variable outside try block for scope in catch
+    let game; // Declare game variable outside try block for scope in catch
 
     try {
-        // 1. Find the game configuration for this gameId (e.g., "10")
-        gameConfig = await GameConfiguration.findOne({ gameId });
-        if (!gameConfig) {
-            // If configuration doesn't exist, it means this game type is not defined.
-            return res.status(404).json({ error: "Game type not found. Please provide a valid gameId." });
-        }
+        game = await GameControl.findOne({ gameId });
+        if (!game) {
+            // FIX 1: Create the game if it doesn't exist, as the frontend expects it to be startable.
+            console.log(`Game ${gameId} not found. Creating new game with default parameters.`);
+            
+            // --- FIX 2: Correctly derive newGameStake from gameId and use defaults for others ---
+            const parsedGameStake = Number(gameId); // Convert gameId string to a number
 
-        // 2. Check Redis membership for this game *type* room
-        // This is where users indicate their intent to join a game of this type.
-        const isMemberRedis = await redis.sIsMember(getGameRoomsKey(gameId), telegramId);
+            // Use the parsed stake, or a fallback if it's not a valid positive number
+            const newGameStake = (isNaN(parsedGameStake) || parsedGameStake <= 0)
+                                 ? FALLBACK_STAKE_AMOUNT // Use fallback if parsing fails or stake is non-positive
+                                 : parsedGameStake;
 
-        // We no longer check `game.players.includes(telegramId)` here because `game`
-        // (which is now `gameConfig`) doesn't have a `players` array.
-        // `GameControl` (the session instance) will have the `players` array.
+            const newGameTotalCards = DEFAULT_GAME_TOTAL_CARDS; 
+            const newGamePrizeAmount = newGameStake * newGameTotalCards;
 
-        // If already in the Redis room, prevent re-joining (for this specific game type)
-        if (isMemberRedis) {
-            return res.status(400).json({ error: "You are already waiting to join this game type." });
-        }
-
-        // 3. Proceed with join: lock user, deduct balance
-        // We use gameConfig.stakeAmount here
-        user = await User.findOneAndUpdate(
-            {
-                telegramId,
-                transferInProgress: null,
-                balance: { $gte: gameConfig.stakeAmount },
-            },
-            {
-                $set: { transferInProgress: { type: "gameStart", at: Date.now() } },
-                $inc: { balance: -gameConfig.stakeAmount },
-            },
-            { new: true }
-        );
-
-        if (!user) {
-            return res.status(400).json({
-                error: "Insufficient balance or transaction already in progress.",
+            game = await GameControl.create({
+                gameId: gameId,
+                isActive: DEFAULT_IS_ACTIVE,
+                createdBy: DEFAULT_CREATED_BY,
+                stakeAmount: newGameStake,       // Assign the correctly derived numeric stake
+                totalCards: newGameTotalCards,   // Assign default numeric total cards
+                prizeAmount: newGamePrizeAmount, // Assign default calculated prize
+                players: [],
+                createdAt: new Date(),
             });
+            console.log(`✅ Game ${gameId} created successfully with stake ${newGameStake} and ${newGameTotalCards} cards.`);
         }
 
-        // Sync updated balance to Redis cache immediately
-        await redis.set(`userBalance:${telegramId}`, user.balance.toString(), "EX", 60);
 
-        // 4. Add user to the Redis set for this game *type* room
-        // This indicates the user has paid and is ready for a session of this type.
-        await redis.sAdd(getGameRoomsKey(gameId), telegramId);
 
-        // 5. Release lock on user
-        await User.updateOne(
-            { telegramId },
-            { $set: { transferInProgress: null } }
-        );
+    // Check Redis membership
+    const isMemberRedis = await redis.sIsMember(`gameRooms:${gameId}`, telegramId);
 
-        return res.status(200).json({
-            success: true,
-            gameId, // This is the game TYPE ID
-            telegramId,
-            message: "Joined game type successfully. Waiting for a round to start...",
-        });
+    // Check MongoDB membership
+    const isMemberDB = game.players.includes(telegramId);
 
-    } catch (error) {
-        console.error("🔥 Game Start Error:", error);
-
-        // Rollback balance & release lock on error
-        if (user && gameConfig && error.message !== "You are already waiting to join this game type.") { // Don't rollback if already joined error
-             await User.updateOne(
-                { telegramId },
-                {
-                    $inc: { balance: gameConfig.stakeAmount || 0 }, // Use gameConfig stake
-                    $set: { transferInProgress: null },
-                }
-            );
-        } else if (user) { // If user was found but no gameConfig or other error
-            await User.updateOne(
-                { telegramId },
-                { $set: { transferInProgress: null } }
-            );
-        }
-
-        return res.status(500).json({ error: "Internal server error." });
+    // If Redis says joined but DB says not, clean Redis to fix inconsistency
+    if (isMemberRedis && !isMemberDB) {
+      await Promise.all([
+        redis.sRem(`gameRooms:${gameId}`, telegramId),
+        redis.sRem(`gameSessions:${gameId}`, telegramId),
+      ]);
+    } else if (isMemberRedis && isMemberDB) {
+      // Both say joined => block join
+      return res.status(400).json({ error: "You already joined this game." });
     }
+
+    
+
+    // const keys = await redis.keys("game*");
+    // if (keys.length > 0) {
+    //   await redis.del(...keys);
+    //   console.log("✅ Cleared all game-related Redis keys.");
+    // }
+
+
+    // Proceed with join: lock user, deduct balance
+    const user = await User.findOneAndUpdate(
+      {
+        telegramId,
+        transferInProgress: null,
+        balance: { $gte: game.stakeAmount },
+      },
+      {
+        $set: { transferInProgress: { type: "gameStart", at: Date.now() } },
+        $inc: { balance: -game.stakeAmount },
+      },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(400).json({
+        error: "Insufficient balance or transaction already in progress.",
+      });
+    }
+
+    // Sync updated balance to Redis cache immediately
+    await redis.set(`userBalance:${telegramId}`, user.balance.toString(), "EX", 60);
+
+    // Update players list in MongoDB
+    await GameControl.updateOne(
+      { gameId },
+      { $addToSet: { players: telegramId } }
+    );
+
+    // Add to Redis sets for real-time membership checks
+    await redis.sAdd(`gameRooms:${gameId}`, telegramId);
+
+    // Release lock on user
+    await User.updateOne(
+      { telegramId },
+      { $set: { transferInProgress: null } }
+    );
+
+    return res.status(200).json({
+      success: true,
+      gameId,
+      telegramId,
+      message: "Joined game successfully.",
+    });
+
+  } catch (error) {
+    console.error("🔥 Game Start Error:", error);
+
+    if (game) {
+      // Rollback balance & release lock on error
+      await User.updateOne(
+        { telegramId },
+        {
+          $inc: { balance: game.stakeAmount || 0 },
+          $set: { transferInProgress: null },
+        }
+      );
+    } else {
+      await User.updateOne(
+        { telegramId },
+        { $set: { transferInProgress: null } }
+      );
+    }
+
+    return res.status(500).json({ error: "Internal server error." });
+  }
 });
 
 
@@ -105,72 +148,46 @@ router.post("/start", async (req, res) => {
 
 // ✅ Game Status Check
 router.get('/:gameId/status', async (req, res) => {
-    const { gameId } = req.params; // This is the game TYPE ID
+  const { gameId } = req.params;
 
-    try {
-        // 1. Get the CURRENTLY ACTIVE SESSION ID for this game type from Redis mapping
-        const currentActiveSessionId = await redis.get(`gameSessionId:${gameId}`); // Use your getGameSessionIdKey helper if defined globally
+  try {
+    // Check Redis first for isActive flag (faster than DB)
+    const isActiveStr = await redis.get(`gameIsActive:${gameId}`);
 
-        if (currentActiveSessionId) {
-            // There's an active session mapped to this game type. Check its activity.
-            const isActiveStr = await redis.get(`gameActive:${currentActiveSessionId}`); // Use getGameActiveKey helper
-
-            if (isActiveStr !== null) {
-                return res.json({
-                    isActive: isActiveStr === 'true',
-                    exists: true,
-                    sessionId: currentActiveSessionId, // ⭐ Return the active session ID
-                    message: "An active game session for this type is running."
-                });
-            }
-        }
-
-        // 2. If no current active session found in Redis, check the database for the *most recent* concluded session for this game type.
-        // This is a more comprehensive check for the overall status of a game type.
-        const gameControl = await GameControl.findOne(
-            { gameId: gameId, endedAt: { $exists: true, $ne: null } } // Find by game type, and ensure it ended
-        ).sort({ endedAt: -1 }); // Get the most recent concluded one
-
-        if (gameControl) {
-            // Found a recently concluded game session
-            return res.json({
-                isActive: false, // It's concluded
-                exists: true,
-                sessionId: gameControl.sessionId, // ⭐ Return the concluded session ID
-                message: `The last game session (${gameControl.sessionId}) for this type concluded.`,
-                winnerInfoAvailable: !!gameControl.winnerTelegramId // Indicate if winner data is available
-            });
-        }
-
-        // If no active session and no recently concluded session, the game type might exist but no active/recent rounds.
-        // Optionally, check if the game type even exists in GameConfiguration
-        const gameConfig = await GameConfiguration.findOne({ gameId });
-        if (gameConfig) {
-            return res.json({
-                isActive: false,
-                exists: true,
-                message: `Game type ${gameId} exists, but no active or recently concluded sessions.`,
-                sessionId: null // No active session
-            });
-        } else {
-            // Game type doesn't exist at all
-            return res.status(404).json({
-                isActive: false,
-                message: 'Game type not found',
-                exists: false,
-                sessionId: null
-            });
-        }
-
-    } catch (error) {
-        console.error("Status check error:", error);
-        return res.status(500).json({
-            isActive: false,
-            message: 'Server error',
-            exists: false,
-            sessionId: null
-        });
+    if (isActiveStr !== null) {
+      return res.json({
+        isActive: isActiveStr === 'true',
+        exists: true
+      });
     }
+
+    // Fall back to DB if Redis cache miss
+    const game = await GameControl.findOne({ gameId });
+
+    if (!game) {
+      return res.status(404).json({
+        isActive: false,
+        message: 'Game not found',
+        exists: false
+      });
+    }
+
+    // Optionally update Redis cache for future calls (expire after 60s or so)
+    await redis.set(`gameIsActive:${gameId}`, game.isActive ? 'true' : 'false', 'EX', 60);
+
+    return res.json({
+      isActive: game.isActive,
+      exists: true
+    });
+
+  } catch (error) {
+    console.error("Status check error:", error);
+    return res.status(500).json({
+      isActive: false,
+      message: 'Server error',
+      exists: false
+    });
+  }
 });
 
 

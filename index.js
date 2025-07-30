@@ -435,3 +435,132 @@ server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
 // });
 
+
+
+//  socket.on("joinGame", async ({ gameId, telegramId }) => {
+
+//     console.log("joinGame is invoked 🔥🔥🔥")
+
+//     try {
+
+//         const strGameId = String(gameId);
+
+//         const strTelegramId = String(telegramId);
+
+
+
+//         // Validate user is registered in the game via MongoDB
+
+//         const game = await GameControl.findOne({ gameId: strGameId });
+
+//         if (!game || !game.players.includes(strTelegramId)) {
+
+//             console.warn(`🚫 Blocked unpaid user ${strTelegramId} from joining game ${strGameId}`);
+
+//             socket.emit("joinError", { message: "You are not registered in this game." });
+
+//             return;
+
+//         }
+
+
+
+//         // Store essential info for disconnect handling for *this* specific phase and socket
+
+//         await redis.hSet(`joinGameSocketsInfo`, socket.id, JSON.stringify({
+
+//             telegramId: strTelegramId,
+
+//             gameId: strGameId,
+
+//             phase: 'joinGame'
+
+//         }));
+
+//         await redis.set(`activeSocket:${strTelegramId}:${socket.id}`, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
+
+//         console.log(`Backend: Socket ${socket.id} for ${strTelegramId} set up in 'joinGame' phase.`);
+
+
+
+
+
+//         // Add player to Redis set for gameRooms (represents overall game presence)
+
+//         await redis.sAdd(`gameRooms:${strGameId}`, strTelegramId);
+
+//         socket.join(strGameId); // Join the socket.io room
+
+
+
+//         const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
+
+//         io.to(strGameId).emit("playerCountUpdate", {
+
+//             gameId: strGameId,
+
+//             playerCount,
+
+//         });
+
+//         console.log(`[joinGame] Player ${strTelegramId} joined game ${strGameId}, total players now: ${playerCount}`);
+
+
+
+//         // Confirm to the socket the gameId and telegramId
+
+//         socket.emit("gameId", { gameId: strGameId, telegramId: strTelegramId });
+
+
+
+//         // --- NEW LOGIC: Retrieve and send previously drawn numbers ---
+
+//         const gameDrawsKey = getGameDrawsKey(strGameId); // Assuming getGameDrawsKey is available
+
+//         const drawnNumbersRaw = await redis.lRange(gameDrawsKey, 0, -1); // Get all drawn numbers
+
+//         const drawnNumbers = drawnNumbersRaw.map(Number); // Convert them back to numbers if stored as strings
+
+
+
+//         // Format the drawn numbers with their letters if needed for client display
+
+//         const formattedDrawnNumbers = drawnNumbers.map(number => {
+
+//             const letterIndex = Math.floor((number - 1) / 15);
+
+//             const letter = ["B", "I", "N", "G", "O"][letterIndex];
+
+//             return { number, label: `${letter}-${number}` };
+
+//         });
+
+
+
+//         if (formattedDrawnNumbers.length > 0) {
+
+//             socket.emit("drawnNumbersHistory", {
+
+//                 gameId: strGameId,
+
+//                 history: formattedDrawnNumbers
+
+//             });
+
+//             console.log(`[joinGame] Sent ${formattedDrawnNumbers.length} historical drawn numbers to ${strTelegramId} for game ${strGameId}.`);
+
+//         }
+
+//         // --- END NEW LOGIC ---
+
+
+
+//     } catch (err) {
+
+//         console.error("❌ Redis error in joinGame:", err);
+
+//         socket.emit("joinError", { message: "Failed to join game. Please refresh or retry." });
+
+//     }
+
+// });
