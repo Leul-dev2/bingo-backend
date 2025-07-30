@@ -462,254 +462,213 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
 
  
-    socket.on("gameCount", async ({ gameId }) => {
-            const strGameId = String(gameId); // This is the game type (e.g., "10")
+   socket.on("gameCount", async ({ gameId }) => {
+        const strGameId = String(gameId); // This is the game type (e.g., "10")
 
-            // Retrieve the *current* active session ID for this game type.
-            // This is used for cleanup, not for starting a new session.
-            let oldActiveSessionIdForGameType = await redis.get(getGameSessionIdKey(strGameId));
+        let oldActiveSessionIdForGameType = await redis.get(getGameSessionIdKey(strGameId));
 
-            // Generate a brand new sessionId for *this* game round.
-            const newSessionId = uuidv4();
+        const newSessionId = uuidv4();
 
-            // --- ⭐ CRITICAL CHANGE 1: Acquire Lock and Check State FIRST (using newSessionId) ⭐ ---
-            // Locks should be tied to the specific NEW SESSION ID to prevent conflicts across rounds.
-            if (state.activeDrawLocks[newSessionId] || state.countdownIntervals[newSessionId] || state.drawIntervals[newSessionId] || state.drawStartTimeouts[newSessionId]) {
-                console.log(`⚠️ Game Session ${newSessionId} (type ${strGameId}) already has an active countdown or draw lock in memory. Ignoring gameCount event.`);
-                return;
+        if (state.activeDrawLocks[newSessionId] || state.countdownIntervals[newSessionId] || state.drawIntervals[newSessionId] || state.drawStartTimeouts[newSessionId]) {
+            console.log(`⚠️ Game Session ${newSessionId} (type ${strGameId}) already has an active countdown or draw lock in memory. Ignoring gameCount event.`);
+            return;
+        }
+
+        const [redisHasLockForNewSession, redisIsActiveForNewSession] = await Promise.all([
+            redis.get(getActiveDrawLockKey(newSessionId)),
+            redis.get(getGameActiveKey(newSessionId))
+        ]);
+
+        if (redisHasLockForNewSession === "true" || redisIsActiveForNewSession === "true") {
+            console.log(`⚠️ Game Session ${newSessionId} (type ${strGameId}) is already active or locked in Redis. Ignoring gameCount event.`);
+            return;
+        }
+
+        state.activeDrawLocks[newSessionId] = true;
+        await redis.set(getActiveDrawLockKey(newSessionId), "true", 'EX', 300);
+
+        console.log(`🚀 Attempting to start countdown for game type ${strGameId}, NEW Session: ${newSessionId}`);
+
+        try {
+            if (oldActiveSessionIdForGameType && oldActiveSessionIdForGameType !== newSessionId) {
+                console.log(`Cleaning up old session ${oldActiveSessionIdForGameType} for game type ${strGameId} before starting new one.`);
+                await Promise.all([
+                    redis.del(getGameActiveKey(oldActiveSessionIdForGameType)),
+                    redis.del(getCountdownKey(oldActiveSessionIdForGameType)),
+                    redis.del(getActiveDrawLockKey(oldActiveSessionIdForGameType)),
+                    redis.del(getGameDrawStateKey(oldActiveSessionIdForGameType)),
+                    redis.del(getGameDrawsKey(oldActiveSessionIdForGameType)),
+                    redis.del(getGameRoomsKey(oldActiveSessionIdForGameType)),
+                    redis.del(getCardsKey(oldActiveSessionIdForGameType)), // ⭐ Using getCardsKey
+                ]);
+                delete state.activeDrawLocks[oldActiveSessionIdForGameType];
+                delete state.countdownIntervals[oldActiveSessionIdForGameType];
+                delete state.drawIntervals[oldActiveSessionIdForGameType];
+                delete state.drawStartTimeouts[oldActiveSessionIdForGameType];
+                delete state.gameIsActive[oldActiveSessionIdForGameType];
+                delete state.gameReadyToStart[oldActiveSessionIdForGameType];
+                delete state.gameDraws[oldActiveSessionIdForGameType];
             }
 
-            const [redisHasLockForNewSession, redisIsActiveForNewSession] = await Promise.all([
-                redis.get(getActiveDrawLockKey(newSessionId)),
-                redis.get(getGameActiveKey(newSessionId))
-            ]);
-
-            if (redisHasLockForNewSession === "true" || redisIsActiveForNewSession === "true") {
-                console.log(`⚠️ Game Session ${newSessionId} (type ${strGameId}) is already active or locked in Redis. Ignoring gameCount event.`);
-                return;
-            }
-
-            // ⭐ CRITICAL CHANGE 2: Set the lock *immediately after passing all checks* ⭐
-            state.activeDrawLocks[newSessionId] = true; // Set in-memory lock for the new session
-            await redis.set(getActiveDrawLockKey(newSessionId), "true", 'EX', 300); // Set Redis lock with expiry (e.g., 5 min)
-
-            console.log(`🚀 Attempting to start countdown for game type ${strGameId}, NEW Session: ${newSessionId}`);
-
-            try {
-                // --- 1. Clean up old session data (if any) associated with this game type ---
-                // This is important if a previous game of this *type* crashed or ended abruptly.
-                if (oldActiveSessionIdForGameType && oldActiveSessionIdForGameType !== newSessionId) {
-                    console.log(`Cleaning up old session ${oldActiveSessionIdForGameType} for game type ${strGameId} before starting new one.`);
-                    await Promise.all([
-                        redis.del(getGameActiveKey(oldActiveSessionIdForGameType)),
-                        redis.del(getCountdownKey(oldActiveSessionIdForGameType)),
-                        redis.del(getActiveDrawLockKey(oldActiveSessionIdForGameType)),
-                        redis.del(getGameDrawStateKey(oldActiveSessionIdForGameType)),
-                        redis.del(getGameDrawsKey(oldActiveSessionIdForGameType)),
-                        redis.del(getGameRoomsKey(oldActiveSessionIdForGameType)), // Clean previous session's players
-                        redis.del(getGameCardsKey(oldActiveSessionIdForGameType)), // Clean previous session's cards
-                    ]);
-                    // Clear in-memory state for old session
-                    delete state.activeDrawLocks[oldActiveSessionIdForGameType];
-                    delete state.countdownIntervals[oldActiveSessionIdForGameType];
-                    delete state.drawIntervals[oldActiveSessionIdForGameType];
-                    delete state.drawStartTimeouts[oldActiveSessionIdForGameType];
-                    delete state.gameIsActive[oldActiveSessionIdForGameType];
-                    delete state.gameReadyToStart[oldActiveSessionIdForGameType];
-                    delete state.gameDraws[oldActiveSessionIdForGameType];
-                }
-
-                // 2. Retrieve game configuration from GameConfiguration model
-                const gameConfig = await GameConfiguration.findOne({ gameId: strGameId });
-                if (!gameConfig) {
-                    console.error(`❌ Game configuration not found for gameId: ${strGameId}. Cannot start session.`);
-                    io.to(strGameId).emit("gameNotStarted", {
-                        gameId: strGameId,
-                        sessionId: newSessionId,
-                        message: "Game configuration not found. Game cannot start.",
-                    });
-                    // Release lock and cleanup
-                    delete state.activeDrawLocks[newSessionId];
-                    await redis.del(getActiveDrawLockKey(newSessionId));
-                    return;
-                }
-                const stakeAmount = gameConfig.stakeAmount;
-
-                // 3. Get players from the game type's lobby (gameRooms:gameId)
-                const playersInLobby = await redis.sMembers(getGameRoomsKey(strGameId));
-                if (playersInLobby.length === 0) {
-                    console.log(`🛑 No players in lobby for game type ${strGameId}. Stopping session initiation.`);
-                    io.to(strGameId).emit("gameNotStarted", {
-                        gameId: strGameId,
-                        sessionId: newSessionId,
-                        message: "No players joined this game type yet. Game cannot start.",
-                    });
-                    // Release lock and cleanup
-                    delete state.activeDrawLocks[newSessionId];
-                    await redis.del(getActiveDrawLockKey(newSessionId));
-                    return;
-                }
-
-                // 4. Create a NEW GameControl document for this specific session (using newSessionId)
-                const newGameControlEntry = await GameControl.create({
-                    sessionId: newSessionId,       // The unique identifier for this game round
-                    gameId: strGameId,             // The game type (e.g., "10")
-                    stakeAmount: stakeAmount,
-                    totalCards: playersInLobby.length, // Initial count of players from lobby
-                    prizeAmount: stakeAmount * playersInLobby.length, // Initial prize calculation
-                    isActive: false,               // Will become true after countdown
-                    createdBy: "system",           // Or actual adminId
-                    createdAt: new Date(),
-                    players: playersInLobby.map(Number), // Add current players to this session's DB record
+            const gameConfig = await GameConfiguration.findOne({ gameId: strGameId });
+            if (!gameConfig) {
+                console.error(`❌ Game configuration not found for gameId: ${strGameId}. Cannot start session.`);
+                io.to(strGameId).emit("gameNotStarted", {
+                    gameId: strGameId,
+                    sessionId: newSessionId,
+                    message: "Game configuration not found. Game cannot start.",
                 });
-                console.log(`Database record created for Game Type ${strGameId}, NEW Session: ${newSessionId}. Players: ${playersInLobby.length}`);
-
-                // 5. Store the mapping: gameId (type) -> current active sessionId (instance)
-                state.gameSessionIds[strGameId] = newSessionId; // In-memory mapping
-                await redis.set(getGameSessionIdKey(strGameId), newSessionId, 'EX', 3600 * 24); // Persistent Redis mapping
-
-                // 6. Move players from game type lobby to the specific session's room & assign cards
-                const playerCardPromises = playersInLobby.map(async (telegramId) => {
-                    const numTelegramId = Number(telegramId);
-                    // Remove from the game type lobby
-                    await redis.sRem(getGameRoomsKey(strGameId), numTelegramId);
-                    // Add to the specific game session room
-                    await redis.sAdd(getGameRoomsKey(newSessionId), numTelegramId);
-
-                    // Have the socket (if connected) join the *new session's room* for targeted updates
-                    const playerSocketId = await redis.hGet('userSocketMap', numTelegramId);
-                    if (playerSocketId) {
-                        io.sockets.sockets.get(playerSocketId)?.join(newSessionId);
-                        console.log(`Player ${numTelegramId}'s socket ${playerSocketId} joined session room ${newSessionId}`);
-                    }
-
-                    // Generate/assign a card for this player for THIS SESSION
-                    const cardId = Math.floor(Math.random() * 1000000); // Simple unique ID for card
-                    const newCard = generateBingoCard(); // Assuming you have this function
-                    await GameCard.create({
-                        gameId: strGameId,
-                        sessionId: newSessionId, // ⭐ CRUCIAL: Associate card with this specific session
-                        cardId: cardId,
-                        card: newCard,
-                        isTaken: true,
-                        takenBy: numTelegramId
-                    });
-                    return { telegramId: numTelegramId, cardId: cardId, card: newCard };
-                });
-                const playersWithCards = await Promise.all(playerCardPromises);
-                console.log(`Moved ${playersWithCards.length} players from lobby to session ${newSessionId} and assigned cards.`);
-
-
-                // 7. Prepare shuffled numbers for this new session (using newSessionId)
-                const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
-                await redis.set(getGameDrawStateKey(newSessionId), JSON.stringify({ numbers, index: 0 }));
-
-                // 8. Countdown logic (using newSessionId for keys and emitting)
-                let countdownValue = 15;
-                await redis.set(getCountdownKey(newSessionId), countdownValue.toString());
-
-                // Emit countdown to the game *type* room (all clients in that lobby) AND the *new session* room
-                io.to(strGameId).emit("countdownTick", { countdown: countdownValue, sessionId: newSessionId }); // To lobby
-                io.to(newSessionId).emit("countdownTick", { countdown: countdownValue, sessionId: newSessionId }); // To specific session room
-
-                state.countdownIntervals[newSessionId] = setInterval(async () => {
-                    if (countdownValue > 0) {
-                        countdownValue--;
-                        io.to(strGameId).emit("countdownTick", { countdown: countdownValue, sessionId: newSessionId });
-                        io.to(newSessionId).emit("countdownTick", { countdown: countdownValue, sessionId: newSessionId });
-                        await redis.set(getCountdownKey(newSessionId), countdownValue.toString());
-                    } else {
-                        clearInterval(state.countdownIntervals[newSessionId]);
-                        delete state.countdownIntervals[newSessionId];
-                        await redis.del(getCountdownKey(newSessionId));
-                        console.log(`[gameCount] Countdown ended for game type ${strGameId}, Session: ${newSessionId}`);
-
-                        // Final check on players (ensure no one left during countdown)
-                        // Now correctly checks the NEW SESSION's room
-                        const currentPlayersInSessionRoom = (await redis.sCard(getGameRoomsKey(newSessionId))) || 0;
-
-                        if (currentPlayersInSessionRoom === 0) {
-                            console.log(`🛑 All players left session ${newSessionId} during countdown. Stopping game initiation.`);
-                            io.to(strGameId).emit("gameNotStarted", { // To lobby
-                                gameId: strGameId,
-                                sessionId: newSessionId,
-                                message: "All players left during countdown. Game not started.",
-                            });
-                            // Release lock and cleanup
-                            delete state.activeDrawLocks[newSessionId];
-                            await redis.del(getActiveDrawLockKey(newSessionId));
-                            // The next two lines call helper functions that will use sessionId
-                            await syncGameIsActive(newSessionId, false); // Mark this specific session inactive
-                            await redis.del(getGameSessionIdKey(strGameId)); // Clear the active sessionId mapping for this game type
-                            await resetRound(newSessionId, io, state, redis); // Use resetRound for cleanup of this newSessionId
-                            return;
-                        }
-
-                        // --- No need for clearGameSessions(strGameId) here ---
-                        // The cleanup for old session data was done at the very beginning of gameCount,
-                        // and player movement is handled in step 6.
-                        // console.log(`🧹 ${getGameSessionsKey(strGameId)} cleared as game started.`); // This line should be removed or changed
-
-                        // console.log(`✅ All GameCards for ${strGameId} marked as taken.`); // This is implicitly handled by GameCard.create
-
-                        // Update GameControl DB with final active players and prize for THIS SESSION
-                        await GameControl.findOneAndUpdate(
-                            { sessionId: newSessionId }, // Find by sessionId
-                            {
-                                $set: {
-                                    isActive: true,
-                                    totalCards: currentPlayersInSessionRoom, // Update with final count
-                                    prizeAmount: stakeAmount * currentPlayersInSessionRoom, // Recalculate prize based on final players
-                                    // createdAt remains the original creation time for this session
-                                },
-                            },
-                            { new: true }
-                        );
-                        await syncGameIsActive(newSessionId, true); // Pass newSessionId to track this session's active status
-
-                        await redis.set(getGameActiveKey(newSessionId), "true"); // Mark this specific session as active
-                        state.gameIsActive[newSessionId] = true;
-                        state.gameReadyToStart[newSessionId] = true;
-
-                        // Emit game start signals, ensuring sessionId is passed
-                        io.to(strGameId).emit("cardsReset", { gameId: strGameId, sessionId: newSessionId }); // To lobby
-                        io.to(newSessionId).emit("gameStart", { gameId: strGameId, sessionId: newSessionId, playersWithCards }); // To specific session room (critical for clients)
-
-                        // Start drawing numbers if not already running for THIS SESSION
-                        if (!state.drawIntervals[newSessionId]) {
-                            await startDrawing(newSessionId, io, state, redis); // Pass newSessionId
-                        }
-                    }
-                }, 1000);
-            } catch (err) {
-                console.error(`❌ Error in gameCount setup for ${strGameId}, Session ${newSessionId}:`, err);
-
-                // --- ⭐ CRITICAL CHANGE 3: Release lock and cleanup on error ⭐
                 delete state.activeDrawLocks[newSessionId];
                 await redis.del(getActiveDrawLockKey(newSessionId));
-                await syncGameIsActive(newSessionId, false);
-                await redis.del(getGameSessionIdKey(strGameId)); // Clear the active sessionId mapping
-
-                // Clear in-memory and Redis state for the new session
-                delete state.gameDraws[newSessionId];
-                delete state.countdownIntervals[newSessionId];
-                delete state.gameSessionIds[strGameId]; // Clear the mapping
-                // Note: drawIntervals and drawStartTimeouts for newSessionId should already be empty if error happens early
-
-                await Promise.all([
-                    redis.del(getGameDrawsKey(newSessionId)),
-                    redis.del(getCountdownKey(newSessionId)),
-                    redis.del(getGameActiveKey(newSessionId)),
-                    redis.del(getGameDrawStateKey(newSessionId)),
-                    redis.del(getGameRoomsKey(newSessionId)), // Clean rooms for the new session on error
-                    redis.del(getGameCardsKey(newSessionId)), // Clean cards for the new session on error
-                ]);
-                // Also ensure any GameControl document created for this session is removed or marked as failed
-                await GameControl.deleteOne({ sessionId: newSessionId });
-
-                io.to(strGameId).emit("gameNotStarted", { gameId: strGameId, sessionId: newSessionId, message: "Error during game setup. Please try again." });
+                return;
             }
-        });
+            const stakeAmount = gameConfig.stakeAmount;
+
+            const playersInLobby = await redis.sMembers(getGameRoomsKey(strGameId));
+            if (playersInLobby.length === 0) {
+                console.log(`🛑 No players in lobby for game type ${strGameId}. Stopping session initiation.`);
+                io.to(strGameId).emit("gameNotStarted", {
+                    gameId: strGameId,
+                    sessionId: newSessionId,
+                    message: "No players joined this game type yet. Game cannot start.",
+                });
+                delete state.activeDrawLocks[newSessionId];
+                await redis.del(getActiveDrawLockKey(newSessionId));
+                return;
+            }
+
+            const newGameControlEntry = await GameControl.create({
+                sessionId: newSessionId,
+                gameId: strGameId,
+                stakeAmount: stakeAmount,
+                totalCards: playersInLobby.length,
+                prizeAmount: stakeAmount * playersInLobby.length,
+                isActive: false,
+                createdBy: "system",
+                createdAt: new Date(),
+                players: playersInLobby.map(Number),
+            });
+            console.log(`Database record created for Game Type ${strGameId}, NEW Session: ${newSessionId}. Players: ${playersInLobby.length}`);
+
+            state.gameSessionIds[strGameId] = newSessionId;
+            await redis.set(getGameSessionIdKey(strGameId), newSessionId, 'EX', 3600 * 24);
+
+            const playerCardPromises = playersInLobby.map(async (telegramId) => {
+                const strTelegramId = String(telegramId); // ⭐ Convert to string for Redis operations
+                const numTelegramId = Number(telegramId); // Keep if needed for Mongoose schema
+
+                await redis.sRem(getGameRoomsKey(strGameId), strTelegramId); // ⭐ Use strTelegramId
+                await redis.sAdd(getGameRoomsKey(newSessionId), strTelegramId); // ⭐ Use strTelegramId
+
+                const playerSocketId = await redis.hGet('userSocketMap', strTelegramId); // ⭐ Use strTelegramId as key
+                if (playerSocketId) {
+                    io.sockets.sockets.get(playerSocketId)?.join(newSessionId);
+                    console.log(`Player ${strTelegramId}'s socket ${playerSocketId} joined session room ${newSessionId}`);
+                }
+
+                const cardId = Math.floor(Math.random() * 1000000);
+                const newCard = generateBingoCard();
+                await GameCard.create({
+                    gameId: strGameId,
+                    sessionId: newSessionId,
+                    cardId: cardId,
+                    card: newCard,
+                    isTaken: true,
+                    takenBy: numTelegramId // Use numTelegramId if GameCard.takenBy is a Number in your schema
+                });
+                return { telegramId: numTelegramId, cardId: cardId, card: newCard };
+            });
+            const playersWithCards = await Promise.all(playerCardPromises);
+            console.log(`Moved ${playersWithCards.length} players from lobby to session ${newSessionId} and assigned cards.`);
+
+            const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
+            await redis.set(getGameDrawStateKey(newSessionId), JSON.stringify({ numbers, index: 0 }));
+
+            let countdownValue = 15;
+            await redis.set(getCountdownKey(newSessionId), countdownValue.toString());
+
+            io.to(strGameId).emit("countdownTick", { countdown: countdownValue, sessionId: newSessionId });
+            io.to(newSessionId).emit("countdownTick", { countdown: countdownValue, sessionId: newSessionId });
+
+            state.countdownIntervals[newSessionId] = setInterval(async () => {
+                if (countdownValue > 0) {
+                    countdownValue--;
+                    io.to(strGameId).emit("countdownTick", { countdown: countdownValue, sessionId: newSessionId });
+                    io.to(newSessionId).emit("countdownTick", { countdown: countdownValue, sessionId: newSessionId });
+                    await redis.set(getCountdownKey(newSessionId), countdownValue.toString());
+                } else {
+                    clearInterval(state.countdownIntervals[newSessionId]);
+                    delete state.countdownIntervals[newSessionId];
+                    await redis.del(getCountdownKey(newSessionId));
+                    console.log(`[gameCount] Countdown ended for game type ${strGameId}, Session: ${newSessionId}`);
+
+                    const currentPlayersInSessionRoom = (await redis.sCard(getGameRoomsKey(newSessionId))) || 0;
+
+                    if (currentPlayersInSessionRoom === 0) {
+                        console.log(`🛑 All players left session ${newSessionId} during countdown. Stopping game initiation.`);
+                        io.to(strGameId).emit("gameNotStarted", {
+                            gameId: strGameId,
+                            sessionId: newSessionId,
+                            message: "All players left during countdown. Game not started.",
+                        });
+                        delete state.activeDrawLocks[newSessionId];
+                        await redis.del(getActiveDrawLockKey(newSessionId));
+                        await syncGameIsActive(newSessionId, false);
+                        await redis.del(getGameSessionIdKey(strGameId));
+                        await resetRound(newSessionId, io, state, redis);
+                        return;
+                    }
+
+                    await GameControl.findOneAndUpdate(
+                        { sessionId: newSessionId },
+                        {
+                            $set: {
+                                isActive: true,
+                                totalCards: currentPlayersInSessionRoom,
+                                prizeAmount: stakeAmount * currentPlayersInSessionRoom,
+                            },
+                        },
+                        { new: true }
+                    );
+                    await syncGameIsActive(newSessionId, true);
+
+                    await redis.set(getGameActiveKey(newSessionId), "true");
+                    state.gameIsActive[newSessionId] = true;
+                    state.gameReadyToStart[newSessionId] = true;
+
+                    io.to(strGameId).emit("cardsReset", { gameId: strGameId, sessionId: newSessionId });
+                    io.to(newSessionId).emit("gameStart", { gameId: strGameId, sessionId: newSessionId, playersWithCards });
+
+                    if (!state.drawIntervals[newSessionId]) {
+                        await startDrawing(newSessionId, io, state, redis);
+                    }
+                }
+            }, 1000);
+        } catch (err) {
+            console.error(`❌ Error in gameCount setup for ${strGameId}, Session ${newSessionId}:`, err);
+
+            delete state.activeDrawLocks[newSessionId];
+            await redis.del(getActiveDrawLockKey(newSessionId));
+            await syncGameIsActive(newSessionId, false);
+            await redis.del(getGameSessionIdKey(strGameId));
+
+            delete state.gameDraws[newSessionId];
+            delete state.countdownIntervals[newSessionId];
+            delete state.gameSessionIds[strGameId];
+
+            await Promise.all([
+                redis.del(getGameDrawsKey(newSessionId)),
+                redis.del(getCountdownKey(newSessionId)),
+                redis.del(getGameActiveKey(newSessionId)),
+                redis.del(getGameDrawStateKey(newSessionId)),
+                redis.del(getGameRoomsKey(newSessionId)),
+                redis.del(getCardsKey(newSessionId)), // ⭐ Corrected: Using getCardsKey here
+            ]);
+            await GameControl.deleteOne({ sessionId: newSessionId });
+
+            io.to(strGameId).emit("gameNotStarted", { gameId: strGameId, sessionId: newSessionId, message: "Error during game setup. Please try again." });
+        }
+    });
 
 
 
