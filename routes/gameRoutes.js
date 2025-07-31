@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const User = require("../models/user");
 const GameControl = require('../models/GameControl');
+const GameCard = require("../models/GameCard");
 const redis = require("../utils/redisClient"); // Your Redis client import
 
 // --- IMPORTANT: Define these default values before your router.post block ---
