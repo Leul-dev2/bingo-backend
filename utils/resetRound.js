@@ -29,22 +29,45 @@ async function resetRound(gameId, io, state, redis) {
     // Clear Redis keys specific to the current round
     await Promise.all([
         redis.set(`gameIsActive:${gameId}`, "false"),
-        redis.del(getGameDrawsKey(strGameId)),        // Clear drawn numbers for this round
+        redis.del(getGameDrawsKey(strGameId)),      // Clear drawn numbers for this round
         redis.del(getGameDrawStateKey(strGameId)),    // Clear drawing state
         redis.del(getActiveDrawLockKey(strGameId)),   // Clear draw lock
-        redis.del(getGameRoomsKey(strGameId)), 
-        redis.del(getGameActiveKey(strGameId)),        // Clear active players in the game room
-        redis.del(`gameSessionId:${strGameId}`), 
+        redis.del(getGameRoomsKey(strGameId)),
+        redis.del(getGameActiveKey(strGameId)),       // Clear active players in the game room
+        redis.del(`gameSessionId:${strGameId}`),
     ]);
 
     // Reset GameCard statuses for this game
     await GameCard.updateMany({ gameId: strGameId }, { isTaken: false, takenBy: null });
     console.log(`✅ GameCards for ${strGameId} reset.`);
-     await GameControl.findOneAndUpdate(
-                    { gameId: strGameId },
-                    { isActive: false, totalCards: 0, prizeAmount: 0, players: [], endedAt: new Date() }
+    await GameControl.findOneAndUpdate(
+        { gameId: strGameId },
+        { isActive: false, totalCards: 0, prizeAmount: 0, players: [], endedAt: new Date() }
     );
     console.log(`✅ Game is ready for game play `);
+
+    // --- NEW: Clear user selections for the specific gameId ---
+    const userSelections = await redis.hGetAll("userSelectionsByTelegramId");
+    const telegramIdsToDelete = [];
+
+    for (const telegramId in userSelections) {
+        try {
+            const selectionData = JSON.parse(userSelections[telegramId]);
+            if (selectionData.gameId === strGameId) {
+                telegramIdsToDelete.push(telegramId);
+            }
+        } catch (error) {
+            console.error(`Error parsing user selection for Telegram ID ${telegramId}:`, error);
+        }
+    }
+
+    if (telegramIdsToDelete.length > 0) {
+        await redis.hDel("userSelectionsByTelegramId", ...telegramIdsToDelete);
+        console.log(`🗑️ Deleted ${telegramIdsToDelete.length} user selections for game ${strGameId}.`);
+    } else {
+        console.log(`No user selections found for game ${strGameId} to delete.`);
+    }
+    // --- END NEW ---
 
     // Clear in-memory game state for this round
     delete state.gameDraws[strGameId];
