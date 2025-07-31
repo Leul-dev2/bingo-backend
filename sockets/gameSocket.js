@@ -9,6 +9,7 @@ const GameCard = require('../models/GameCard'); // Your Mongoose models
 const checkBingoPattern = require("../utils/BingoPatterns")
 const resetRound = require("../utils/resetRound");
 const clearGameSessions = require('../utils/clearGameSessions'); // Adjust path as needed
+const deleteCardsByTelegramId = require('../utils/deleteCardsByTelegramId');
 const { // <-- Add this line
     getGameActiveKey,
     getCountdownKey,
@@ -969,7 +970,8 @@ socket.on("gameCount", async ({ gameId }) => {
             redis.hDel("userSelections", socket.id),
             redis.hDel("userSelections", strTelegramId),
             redis.hDel("userSelectionsByTelegramId", strTelegramId), // ✅ Add this
-            redis.del(getGameRoomsKey(strGameId)),
+            redis.sRem(getGameRoomsKey(gameId), strTelegramId),
+            deleteCardsByTelegramId(strGameId , strTelegramId),
             redis.del(`activeSocket:${strTelegramId}:${socket.id}`), // ✅ Optional clean-up
           ]);
 
