@@ -13,7 +13,7 @@ const DEFAULT_IS_ACTIVE = false;  // Default status for a newly created game
 
 router.post("/start", async (req, res) => {
     // Frontend only sends gameId and telegramId, so destructure only those.
-    const { gameId, telegramId } = req.body;
+    const { gameId, telegramId, cardId } = req.body;
 
     let game; // Declare game variable outside try block for scope in catch
 
@@ -73,6 +73,20 @@ router.post("/start", async (req, res) => {
     //   await redis.del(...keys);
     //   console.log("✅ Cleared all game-related Redis keys.");
     // }
+
+
+    // ✅ Validate claimed card ownership before proceeding
+      const card = await GameCard.findOne({
+        gameId,
+        cardId,
+      });
+
+      if (!card || !card.isTaken || card.takenBy !== telegramId) {
+        return res.status(400).json({
+          error: "Please try another card.",
+        });
+}
+
 
 
     // Proceed with join: lock user, deduct balance
