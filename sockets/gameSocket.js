@@ -320,6 +320,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
           const strTelegramId = String(telegramId);
 
           const currentCardOwner = await redis.hGet(`gameCards:${gameId}`, strCardId);
+          console.log("🍔🍔🍔 cardowner", currentCardOwner);
 
           if (currentCardOwner === strTelegramId) {
             await redis.hDel(`gameCards:${gameId}`, strCardId);
