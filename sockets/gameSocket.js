@@ -898,7 +898,7 @@ socket.on("gameCount", async ({ gameId }) => {
     // ✅ Handle playerLeave event
     socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
       const strTelegramId = String(telegramId);
-      const strGameId = string(gameId);
+      const strGameId = String(gameId);
         console.log("outside if inside playerLeave");
 
       
