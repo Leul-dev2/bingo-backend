@@ -967,7 +967,8 @@ socket.on("gameCount", async ({ gameId }) => {
           await Promise.all([
             redis.hDel("userSelections", socket.id),
             redis.hDel("userSelections", strTelegramId),
-           // redis.hDel("userSelectionsByTelegramId", strTelegramId), // ✅ Add this
+            redis.hDel("userSelectionsByTelegramId", strTelegramId), // ✅ Add this
+            redis.del(getGameRoomsKey(strGameId)),
             redis.del(`activeSocket:${strTelegramId}:${socket.id}`), // ✅ Optional clean-up
           ]);
 
