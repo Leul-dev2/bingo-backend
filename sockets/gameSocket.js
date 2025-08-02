@@ -514,7 +514,7 @@ socket.on("gameCount", async ({ gameId }) => {
         }
 
         // 4. Countdown logic via Redis and setIntervall
-        
+
         let countdownValue = 15;
         await redis.set(getCountdownKey(strGameId), countdownValue.toString());
 
@@ -1172,11 +1172,7 @@ socket.on("gameCount", async ({ gameId }) => {
                         numberOfPlayers: numberOfPlayersLobby,
                     });
                     console.log(`📊 Broadcasted counts for game ${strGameId}: Lobby Players = ${numberOfPlayersLobby} after grace period cleanup.`);
-                    if(numberOfPlayersLobby === 0){
-                      console.log("inside number of players");
-                      resetRound(gameId, io, state, redis);
-                    }
-
+                   
                     // Check for full game reset if game is now empty of all unique players
                     const totalPlayersGamePlayers = await redis.sCard(`gamePlayers:${strGameId}`);
                     if (numberOfPlayersLobby === 0 && totalPlayersGamePlayers === 0) {
