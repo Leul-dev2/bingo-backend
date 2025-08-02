@@ -525,16 +525,15 @@ socket.on("gameCount", async ({ gameId }) => {
                 const playersAtCountdownEnd = await redis.sMembers(getGameRoomsKey(strGameId));
                 let successfulDeductions = 0;
                 let prizeAmount = 0;
+                let successfullyDeductedPlayers = []; // New array to track players who need a refund if game aborts
 
                 for (const telegramId of playersAtCountdownEnd) {
-                    // --- ⭐ DEBUGGING STEP: Log user's reservation status before deduction ⭐
                     const debugUser = await User.findOne({ telegramId });
                     if (debugUser) {
                         console.log(`[DEBUG] Player ${telegramId} state: balance=${debugUser.balance}, reservedForGameId=${debugUser.reservedForGameId}, expectedGameId=${strGameId}`);
                     } else {
                         console.log(`[DEBUG] Player ${telegramId} not found in database.`);
                     }
-                    // --- ⭐ END DEBUGGING STEP ⭐ ---
 
                     try {
                         const user = await User.findOneAndUpdate(
@@ -549,10 +548,15 @@ socket.on("gameCount", async ({ gameId }) => {
                         if (user) {
                             successfulDeductions++;
                             finalPlayerList.push(telegramId);
+                            successfullyDeductedPlayers.push(telegramId); // Add to the refund list
                             console.log(`✅ Balance deducted for player ${telegramId}. Final balance: ${user.balance}.`);
                             await redis.set(`userBalance:${telegramId}`, user.balance.toString(), "EX", 60);
                         } else {
                             console.log(`⚠️ Failed to deduct balance for player ${telegramId}. Removing from game.`);
+                            await User.updateOne(
+                                { telegramId },
+                                { $unset: { reservedForGameId: "" } } // 🟢 ADDED: Unset reservation even if deduction fails
+                            );
                             await redis.sRem(getGameRoomsKey(strGameId), telegramId);
                             await GameControl.updateOne(
                                 { gameId: strGameId },
@@ -572,10 +576,23 @@ socket.on("gameCount", async ({ gameId }) => {
                 console.log(`✅ Final prize amount calculated: ${prizeAmount} from ${successfulDeductions} players.`);
 
                 if (successfulDeductions < 2) {
-                    console.log("🛑 Not enough players to start the game after deductions. Resetting.");
+                    console.log("🛑 Not enough players to start the game after deductions. Refunding stakes.");
+                    
+                    // 🟢 NEW: Refund players who were successfully charged
+                    for (const playerId of successfullyDeductedPlayers) {
+                        console.log(`💰 Refunding stake for player ${playerId}`);
+                        await User.updateOne(
+                            { telegramId: playerId },
+                            {
+                                $inc: { balance: stakeAmount },
+                                $unset: { reservedForGameId: "" }
+                            }
+                        );
+                    }
+
                     io.to(strGameId).emit("gameNotStarted", {
                         gameId: strGameId,
-                        message: "Not enough players in game room to start.",
+                        message: "Not enough players in game room to start. Your stake has been refunded.",
                     });
 
                     delete state.activeDrawLocks[strGameId];
