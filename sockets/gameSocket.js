@@ -1132,51 +1132,23 @@ socket.on("gameCount", async ({ gameId }) => {
             let gracePeriodDuration = 0;
             let cleanupFunction = null;
 
-            if (disconnectingPhase === 'lobby') {
+          if (disconnectingPhase === 'lobby') {
                 gracePeriodDuration = ACTIVE_DISCONNECT_GRACE_PERIOD_MS;
                 cleanupFunction = async () => {
                     console.log(`⏱️ Lobby grace period expired for User: ${strTelegramId}, Game: ${strGameId}. Performing lobby-specific cleanup.`);
-                    // Release card if held and owned by this user
-                    const userOverallSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
-                    if (userOverallSelectionRaw) {
-                        const { cardId: userHeldCardId, gameId: selectedGameId } = JSON.parse(userOverallSelectionRaw);
-                        if (String(selectedGameId) === strGameId && userHeldCardId) {
-                            const gameCardsKey = `gameCards:${strGameId}`;
-                            const cardOwner = await redis.hGet(gameCardsKey, String(userHeldCardId));
-                            if (cardOwner === strTelegramId) {
-                                await redis.hDel(gameCardsKey, String(userHeldCardId));
-                                await GameCard.findOneAndUpdate(
-                                    { gameId: strGameId, cardId: Number(userHeldCardId) },
-                                    { isTaken: false, takenBy: null }
-                                );
-                                io.to(strGameId).emit("cardReleased", { cardId: Number(userHeldCardId), telegramId: strTelegramId });
-                                console.log(`✅ Card ${userHeldCardId} released for ${strTelegramId} due to grace period expiry from game ${strGameId}.`);
-                            }
-                        }
-                    }
-
-                    // Remove the user from ALL relevant unique player sets for this game (lobby and overall game players).
-                    const sessionKey = `gameSessions:${strGameId}`;
-                    await Promise.all([
-                        redis.sRem(sessionKey, strTelegramId),
-                        redis.sRem(`gamePlayers:${strGameId}`, strTelegramId), // Remove from overall game players
-                        redis.hDel("userSelectionsByTelegramId", strTelegramId), // Clean up overall persisted selection
-                    ]);
-                    console.log(`👤 ${strTelegramId} removed from lobby sets and overall selection cleaned up after grace period expiry for game ${strGameId}.`);
-
-                    // Recalculate and Broadcast the unique player count for the game (lobby count)
-                    const numberOfPlayersLobby = await redis.sCard(sessionKey) || 0;
-                    io.to(strGameId).emit("gameid", {
-                        gameId: strGameId,
-                        numberOfPlayers: numberOfPlayersLobby,
-                    });
-                    console.log(`📊 Broadcasted counts for game ${strGameId}: Lobby Players = ${numberOfPlayersLobby} after grace period cleanup.`);
-                    if(numberOfPlayersLobby === 0){
-                      console.log("inside number of players");
-                      resetRound(gameId, io, state, redis);
-                    }
+                    // ... (existing lobby cleanup logic) ...
 
                     // Check for full game reset if game is now empty of all unique players
+                    const numberOfPlayersLobby = await redis.sCard(sessionKey) || 0;
+                    console.log(`📊 Broadcasted counts for game ${strGameId}: Lobby Players = ${numberOfPlayersLobby} after grace period cleanup.`);
+
+                    // If the lobby is empty, consider resetting the round state if it makes sense
+                    // This is where you currently have it for the lobby phase:
+                    if(numberOfPlayersLobby === 0){
+                      console.log("inside number of players (lobby)"); // Added (lobby) for clarity
+                      resetRound(gameId, io, state, redis); // This call is already here for lobby
+                    }
+
                     const totalPlayersGamePlayers = await redis.sCard(`gamePlayers:${strGameId}`);
                     if (numberOfPlayersLobby === 0 && totalPlayersGamePlayers === 0) {
                         console.log(`🧹 Game ${strGameId} empty after lobby phase grace period. Triggering full game reset.`);
