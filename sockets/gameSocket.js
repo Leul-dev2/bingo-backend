@@ -427,6 +427,20 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
 
  
+const clearUserReservations = async (playerIds) => {
+    if (!playerIds || playerIds.length === 0) return;
+
+    try {
+        await User.updateMany(
+            { telegramId: { $in: playerIds } },
+            { $unset: { reservedForGameId: "" } }
+        );
+        console.log(`✅ Reservations cleared for ${playerIds.length} players.`);
+    } catch (error) {
+        console.error("❌ Error clearing user reservations:", error);
+    }
+};
+
 socket.on("gameCount", async ({ gameId }) => {
     const strGameId = String(gameId);
     let finalPlayerList = []; // Array to store players who successfully paid their stake
@@ -618,6 +632,9 @@ socket.on("gameCount", async ({ gameId }) => {
 
                 console.log(`✅ Game ${strGameId} is now ACTIVE with ${successfulDeductions} players. Prize: ${prizeAmount}`);
                 
+                // 🟢 NEW: Clear the reservation lock for all participating players
+                await clearUserReservations(finalPlayerList);
+
                 await clearGameSessions(strGameId, redis, state, io);
                 await redis.set(getGameActiveKey(strGameId), "true");
                 state.gameIsActive[strGameId] = true;
