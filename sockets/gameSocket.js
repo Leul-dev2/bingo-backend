@@ -564,13 +564,21 @@ socket.on("gameCount", async ({ gameId }) => {
                             finalPlayerList.push(telegramId);
                             successfullyDeductedPlayers.push(telegramId); // Add to the refund list
                             console.log(`✅ Balance deducted for player ${telegramId}. Final balance: ${user.balance}.`);
+                            // 🟢 FIX: Update Redis cache after successful deduction
                             await redis.set(`userBalance:${telegramId}`, user.balance.toString(), "EX", 60);
                         } else {
                             console.log(`⚠️ Failed to deduct balance for player ${telegramId}. Removing from game.`);
-                            await User.updateOne(
+                            const userAfterUnset = await User.updateOne(
                                 { telegramId },
                                 { $unset: { reservedForGameId: "" } } // 🟢 ADDED: Unset reservation even if deduction fails
                             );
+                            // 🟢 FIX: Update Redis cache after a failed deduction to reflect the unchanged balance
+                            if (userAfterUnset) {
+                                const userDoc = await User.findOne({ telegramId });
+                                if (userDoc) {
+                                    await redis.set(`userBalance:${telegramId}`, userDoc.balance.toString(), "EX", 60);
+                                }
+                            }
                             await redis.sRem(getGameRoomsKey(strGameId), telegramId);
                             await GameControl.updateOne(
                                 { gameId: strGameId },
@@ -583,6 +591,11 @@ socket.on("gameCount", async ({ gameId }) => {
                             { telegramId },
                             { $unset: { reservedForGameId: "" } }
                         );
+                        // 🟢 FIX: Update Redis cache after error to reflect the unchanged balance
+                        const userDoc = await User.findOne({ telegramId });
+                        if (userDoc) {
+                            await redis.set(`userBalance:${telegramId}`, userDoc.balance.toString(), "EX", 60);
+                        }
                     }
                 }
                 
@@ -606,6 +619,8 @@ socket.on("gameCount", async ({ gameId }) => {
 
                         if (refundedUser) {
                             console.log(`✅ Refund successful for player ${playerId}. New balance: ${refundedUser.balance}`);
+                            // 🟢 FIX: Update Redis cache after a successful refund
+                            await redis.set(`userBalance:${playerId}`, refundedUser.balance.toString(), "EX", 60);
                         } else {
                             console.error(`❌ FATAL: Refund failed for player ${playerId}. User document not found or update failed.`);
                         }
