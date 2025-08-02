@@ -592,16 +592,23 @@ socket.on("gameCount", async ({ gameId }) => {
                 if (successfulDeductions < 2) {
                     console.log("🛑 Not enough players to start the game after deductions. Refunding stakes.");
                     
-                    // 🟢 NEW: Refund players who were successfully charged
+                    // 🟢 FIX: Use findOneAndUpdate to ensure the refund is successful and visible
                     for (const playerId of successfullyDeductedPlayers) {
                         console.log(`💰 Refunding stake for player ${playerId}`);
-                        await User.updateOne(
+                        const refundedUser = await User.findOneAndUpdate(
                             { telegramId: playerId },
                             {
                                 $inc: { balance: stakeAmount },
                                 $unset: { reservedForGameId: "" }
-                            }
+                            },
+                            { new: true } // Return the updated document
                         );
+
+                        if (refundedUser) {
+                            console.log(`✅ Refund successful for player ${playerId}. New balance: ${refundedUser.balance}`);
+                        } else {
+                            console.error(`❌ FATAL: Refund failed for player ${playerId}. User document not found or update failed.`);
+                        }
                     }
 
                     io.to(strGameId).emit("gameNotStarted", {
