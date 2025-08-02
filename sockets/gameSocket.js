@@ -1179,7 +1179,7 @@ socket.on("gameCount", async ({ gameId }) => {
                         console.log(`🧹 Game ${strGameId} empty after lobby phase grace period. Triggering full game reset.`);
                         await GameControl.findOneAndUpdate(
                             { gameId: strGameId },
-                            { isActive: false, totalCards: 0, prizeAmount: 0, players: [], endedAt: new Date() }
+                            { isActive: false, totalCards: 0, players: [], endedAt: new Date() }
                         );
                         await syncGameIsActive(strGameId, false);
                         resetGame(strGameId, io, state, redis);
@@ -1213,7 +1213,7 @@ socket.on("gameCount", async ({ gameId }) => {
                         console.log(`🧹 Game ${strGameId} empty after joinGame phase grace period. Triggering full game reset.`);
                         await GameControl.findOneAndUpdate(
                             { gameId: strGameId },
-                            { isActive: false, totalCards: 0, prizeAmount: 0, players: [], endedAt: new Date() }
+                            { isActive: false, totalCards: 0, players: [], endedAt: new Date() }
                         );
                         await syncGameIsActive(strGameId, false);
                         resetGame(strGameId, io, state, redis);
@@ -1266,7 +1266,7 @@ socket.on("gameCount", async ({ gameId }) => {
                     console.log(`🧹 No unique players left in game ${strGameId} across all phases after partial disconnect. Triggering full game reset.`);
                     await GameControl.findOneAndUpdate(
                         { gameId: strGameId },
-                        { isActive: false, totalCards: 0, prizeAmount: 0, players: [], endedAt: new Date() }
+                        { isActive: false, totalCards: 0, players: [], endedAt: new Date() }
                     );
                     await syncGameIsActive(strGameId, false);
                     resetGame(strGameId, io, state, redis);
