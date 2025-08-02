@@ -522,34 +522,38 @@ socket.on("gameCount", async ({ gameId }) => {
                 delete state.countdownIntervals[strGameId];
                 await redis.del(getCountdownKey(strGameId));
 
-                // --- CRITICAL: BALANCE DEDUCTION AND PRIZE CALCULATION HERE ---
                 const playersAtCountdownEnd = await redis.sMembers(getGameRoomsKey(strGameId));
                 let successfulDeductions = 0;
                 let prizeAmount = 0;
 
                 for (const telegramId of playersAtCountdownEnd) {
+                    // --- ⭐ DEBUGGING STEP: Log user's reservation status before deduction ⭐
+                    const debugUser = await User.findOne({ telegramId });
+                    if (debugUser) {
+                        console.log(`[DEBUG] Player ${telegramId} state: balance=${debugUser.balance}, reservedForGameId=${debugUser.reservedForGameId}, expectedGameId=${strGameId}`);
+                    } else {
+                        console.log(`[DEBUG] Player ${telegramId} not found in database.`);
+                    }
+                    // --- ⭐ END DEBUGGING STEP ⭐ ---
+
                     try {
                         const user = await User.findOneAndUpdate(
-                            { telegramId, reservedForGameId: strGameId },
+                            { telegramId, reservedForGameId: strGameId, balance: { $gte: stakeAmount } },
                             {
-                                $inc: { balance: -stakeAmount }, // Deduct the balance
-                                $unset: { reservedForGameId: "" } // Release the lock
+                                $inc: { balance: -stakeAmount },
+                                $unset: { reservedForGameId: "" }
                             },
                             { new: true }
                         );
 
                         if (user) {
-                            // Deduction was successful
                             successfulDeductions++;
                             finalPlayerList.push(telegramId);
                             console.log(`✅ Balance deducted for player ${telegramId}. Final balance: ${user.balance}.`);
                             await redis.set(`userBalance:${telegramId}`, user.balance.toString(), "EX", 60);
                         } else {
-                            // Deduction failed (e.g., spent money, left game)
                             console.log(`⚠️ Failed to deduct balance for player ${telegramId}. Removing from game.`);
-                            // Remove player from game if deduction fails
                             await redis.sRem(getGameRoomsKey(strGameId), telegramId);
-                            // Also update GameControl players list (as they might have been added earlier)
                             await GameControl.updateOne(
                                 { gameId: strGameId },
                                 { $pull: { players: telegramId } }
@@ -557,7 +561,6 @@ socket.on("gameCount", async ({ gameId }) => {
                         }
                     } catch (error) {
                         console.error(`❌ Error deducting balance for player ${telegramId}:`, error);
-                        // Clean up any remaining lock if an error occurred during deduction
                         await User.updateOne(
                             { telegramId },
                             { $unset: { reservedForGameId: "" } }
@@ -565,19 +568,16 @@ socket.on("gameCount", async ({ gameId }) => {
                     }
                 }
                 
-                // Now, calculate the prize based on successful deductions
                 prizeAmount = stakeAmount * successfulDeductions;
                 console.log(`✅ Final prize amount calculated: ${prizeAmount} from ${successfulDeductions} players.`);
 
-                // Check for minimum players before starting
-                if (successfulDeductions < 2) { // Assuming a minimum of 2 players
+                if (successfulDeductions < 2) {
                     console.log("🛑 Not enough players to start the game after deductions. Resetting.");
                     io.to(strGameId).emit("gameNotStarted", {
                         gameId: strGameId,
                         message: "Not enough players in game room to start.",
                     });
 
-                    // Cleanup
                     delete state.activeDrawLocks[strGameId];
                     await redis.del(getActiveDrawLockKey(strGameId));
                     await syncGameIsActive(strGameId, false);
@@ -585,7 +585,6 @@ socket.on("gameCount", async ({ gameId }) => {
                     return;
                 }
 
-                // Update GameControl with final, confirmed details
                 await GameControl.findOneAndUpdate(
                     { gameId: strGameId },
                     {
@@ -593,7 +592,7 @@ socket.on("gameCount", async ({ gameId }) => {
                             isActive: true,
                             totalCards: successfulDeductions,
                             prizeAmount: prizeAmount,
-                            players: finalPlayerList, // Update players list with only those who paid
+                            players: finalPlayerList,
                             createdAt: new Date(),
                         },
                     }
@@ -602,7 +601,6 @@ socket.on("gameCount", async ({ gameId }) => {
 
                 console.log(`✅ Game ${strGameId} is now ACTIVE with ${successfulDeductions} players. Prize: ${prizeAmount}`);
                 
-                // Clean up session data and emit start events
                 await clearGameSessions(strGameId, redis, state, io);
                 await redis.set(getGameActiveKey(strGameId), "true");
                 state.gameIsActive[strGameId] = true;
@@ -619,7 +617,6 @@ socket.on("gameCount", async ({ gameId }) => {
     } catch (err) {
         console.error(`❌ Error in gameCount setup for ${gameId}:`, err.message);
 
-        // Release lock and cleanup on error
         delete state.activeDrawLocks[strGameId];
         await redis.del(getActiveDrawLockKey(strGameId));
         await syncGameIsActive(strGameId, false);
