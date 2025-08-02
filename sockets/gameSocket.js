@@ -429,15 +429,14 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
  
 socket.on("gameCount", async ({ gameId }) => {
     const strGameId = String(gameId);
+    let finalPlayerList = []; // Array to store players who successfully paid their stake
 
-    // --- ⭐ CRITICAL CHANGE 1: Acquire Lock and Check State FIRST ⭐ ---
-    // Check in-memory state for immediate, low-latency lock.
+    // --- CRITICAL: Acquire Lock and Check State FIRST ---
     if (state.activeDrawLocks[strGameId] || state.countdownIntervals[strGameId] || state.drawIntervals[strGameId] || state.drawStartTimeouts[strGameId]) {
         console.log(`⚠️ Game ${strGameId} already has an active countdown or draw lock in memory. Ignoring gameCount event.`);
         return;
     }
 
-    // Now check Redis for a persistent lock or active game status (cross-instance safety)
     const [redisHasLock, redisIsActive] = await Promise.all([
         redis.get(getActiveDrawLockKey(strGameId)),
         redis.get(getGameActiveKey(strGameId))
@@ -448,26 +447,20 @@ socket.on("gameCount", async ({ gameId }) => {
         return;
     }
 
-    // ⭐ CRITICAL CHANGE 2: Set the lock *immediately after passing all checks* ⭐
-    state.activeDrawLocks[strGameId] = true; // Set in-memory lock
-    await redis.set(getActiveDrawLockKey(strGameId), "true"); // Set Redis lock (with EX/PX if desired for auto-expiry)
-    // You might want to set an expiry on this Redis lock if a game could get stuck
-    // await redis.set(getActiveDrawLockKey(strGameId), "true", 'EX', 300); // e.g., expires in 5 minutes
+    state.activeDrawLocks[strGameId] = true;
+    await redis.set(getActiveDrawLockKey(strGameId), "true");
 
     console.log(`🚀 Attempting to start countdown for game ${strGameId}`);
 
     try {
-        // --- 1. CLEANUP essential Redis keys and intervals (now that we've acquired the lock and are ready to proceed) ---
-        // This cleanup is valid here, as we're preparing a new countdown.
+        // --- 1. CLEANUP essential Redis keys and intervals ---
         await Promise.all([
             redis.del(getGameActiveKey(strGameId)),
             redis.del(getCountdownKey(strGameId)),
-            // redis.del(getActiveDrawLockKey(strGameId)), // Do NOT delete the lock we just acquired!
             redis.del(getGameDrawStateKey(strGameId)),
             redis.del(getGameDrawsKey(strGameId)),
         ]);
 
-        // Clear any old in-memory intervals if they somehow survived (redundant but safe)
         if (state.countdownIntervals[strGameId]) {
             clearInterval(state.countdownIntervals[strGameId]);
             delete state.countdownIntervals[strGameId];
@@ -480,45 +473,44 @@ socket.on("gameCount", async ({ gameId }) => {
             clearTimeout(state.drawStartTimeouts[strGameId]);
             delete state.drawStartTimeouts[strGameId];
         }
-        // state.activeDrawLocks[strGameId] is managed by the new logic.
 
-        // 2. Prepare shuffled numbers and save to Redis under gameDrawStateKey
+        // 2. Prepare shuffled numbers and save to Redis
         const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
         await redis.set(getGameDrawStateKey(strGameId), JSON.stringify({ numbers, index: 0 }));
 
         // 3. Create or update GameControl in DB
-        const existing = await GameControl.findOne({ gameId: strGameId });
+        let gameControlDoc = await GameControl.findOne({ gameId: strGameId });
         const sessionId = uuidv4();
-        state.gameSessionIds[strGameId] = sessionId; // Using state.gameSessionIds to store sessionId
+        state.gameSessionIds[strGameId] = sessionId;
         await redis.set(`gameSessionId:${strGameId}`, sessionId, 'EX', 3600 * 24);
-        const stakeAmount = Number(strGameId); // Ideally configurable
 
-        if (!existing) {
-            await GameControl.create({
+        const stakeAmount = Number(strGameId);
+
+        if (!gameControlDoc) {
+            gameControlDoc = await GameControl.create({
                 sessionId,
                 gameId: strGameId,
                 stakeAmount,
                 totalCards: 0,
                 prizeAmount: 0,
-                isActive: false, // Will become true after countdown
+                isActive: false,
                 createdBy: "system",
             });
         } else {
-            existing.sessionId = sessionId;
-            existing.stakeAmount = stakeAmount;
-            existing.totalCards = 0;
-            existing.prizeAmount = 0;
-            existing.isActive = false; // Will become true after countdown
-            existing.createdAt = new Date(); // Update creation time for new session
-            await existing.save();
+            gameControlDoc.sessionId = sessionId;
+            gameControlDoc.stakeAmount = stakeAmount;
+            gameControlDoc.totalCards = 0;
+            gameControlDoc.prizeAmount = 0;
+            gameControlDoc.isActive = false;
+            gameControlDoc.createdAt = new Date();
+            await gameControlDoc.save();
         }
 
-        // 4. Countdown logic via Redis and setIntervall
-
+        // 4. Countdown logic
         let countdownValue = 15;
         await redis.set(getCountdownKey(strGameId), countdownValue.toString());
 
-        io.to(strGameId).emit("countdownTick", { countdown: countdownValue }); // Emit initial tick
+        io.to(strGameId).emit("countdownTick", { countdown: countdownValue });
 
         state.countdownIntervals[strGameId] = setInterval(async () => {
             if (countdownValue > 0) {
@@ -529,78 +521,113 @@ socket.on("gameCount", async ({ gameId }) => {
                 clearInterval(state.countdownIntervals[strGameId]);
                 delete state.countdownIntervals[strGameId];
                 await redis.del(getCountdownKey(strGameId));
-                console.log(`[gameCount] Countdown ended for game ${strGameId}`);
 
-                const currentPlayersInRoom = (await redis.sCard(getGameRoomsKey(strGameId))) || 0;
-                const prizeAmount = stakeAmount * currentPlayersInRoom;
+                // --- CRITICAL: BALANCE DEDUCTION AND PRIZE CALCULATION HERE ---
+                const playersAtCountdownEnd = await redis.sMembers(getGameRoomsKey(strGameId));
+                let successfulDeductions = 0;
+                let prizeAmount = 0;
 
-                if (currentPlayersInRoom === 0) {
-                    console.log("🛑 No players left in game room after countdown. Stopping game initiation.");
+                for (const telegramId of playersAtCountdownEnd) {
+                    try {
+                        const user = await User.findOneAndUpdate(
+                            { telegramId, reservedForGameId: strGameId },
+                            {
+                                $inc: { balance: -stakeAmount }, // Deduct the balance
+                                $unset: { reservedForGameId: "" } // Release the lock
+                            },
+                            { new: true }
+                        );
+
+                        if (user) {
+                            // Deduction was successful
+                            successfulDeductions++;
+                            finalPlayerList.push(telegramId);
+                            console.log(`✅ Balance deducted for player ${telegramId}. Final balance: ${user.balance}.`);
+                            await redis.set(`userBalance:${telegramId}`, user.balance.toString(), "EX", 60);
+                        } else {
+                            // Deduction failed (e.g., spent money, left game)
+                            console.log(`⚠️ Failed to deduct balance for player ${telegramId}. Removing from game.`);
+                            // Remove player from game if deduction fails
+                            await redis.sRem(getGameRoomsKey(strGameId), telegramId);
+                            // Also update GameControl players list (as they might have been added earlier)
+                            await GameControl.updateOne(
+                                { gameId: strGameId },
+                                { $pull: { players: telegramId } }
+                            );
+                        }
+                    } catch (error) {
+                        console.error(`❌ Error deducting balance for player ${telegramId}:`, error);
+                        // Clean up any remaining lock if an error occurred during deduction
+                        await User.updateOne(
+                            { telegramId },
+                            { $unset: { reservedForGameId: "" } }
+                        );
+                    }
+                }
+                
+                // Now, calculate the prize based on successful deductions
+                prizeAmount = stakeAmount * successfulDeductions;
+                console.log(`✅ Final prize amount calculated: ${prizeAmount} from ${successfulDeductions} players.`);
+
+                // Check for minimum players before starting
+                if (successfulDeductions < 2) { // Assuming a minimum of 2 players
+                    console.log("🛑 Not enough players to start the game after deductions. Resetting.");
                     io.to(strGameId).emit("gameNotStarted", {
                         gameId: strGameId,
                         message: "Not enough players in game room to start.",
                     });
 
-                    // ⭐ CRITICAL CHANGE 3: Release lock and cleanup on no players ⭐
-                    delete state.activeDrawLocks[strGameId]; // Release in-memory lock
-                    await redis.del(getActiveDrawLockKey(strGameId)); // Release Redis lock
-                    await syncGameIsActive(strGameId, false); // Explicitly mark game inactive
-                    await resetRound(strGameId, io, state, redis); // This should now handle gameSessionId cleanup
-                    return; // Exit the setInterval callback
+                    // Cleanup
+                    delete state.activeDrawLocks[strGameId];
+                    await redis.del(getActiveDrawLockKey(strGameId));
+                    await syncGameIsActive(strGameId, false);
+                    await resetRound(strGameId, io, state, redis);
+                    return;
                 }
 
-                // --- CRITICAL RESET FOR GAME START (SESSION-ONLY RESET) ---
-                await clearGameSessions(strGameId, redis, state, io);
-                console.log(`🧹 ${getGameSessionsKey(strGameId)} cleared as game started.`);
-
-                console.log(`✅ All GameCards for ${strGameId} marked as taken.`);
-
-                // Update GameControl DB with active game info
+                // Update GameControl with final, confirmed details
                 await GameControl.findOneAndUpdate(
                     { gameId: strGameId },
                     {
                         $set: {
                             isActive: true,
-                            totalCards: currentPlayersInRoom, // Total cards in play is current players
+                            totalCards: successfulDeductions,
                             prizeAmount: prizeAmount,
-                            createdAt: new Date(), // Re-set createdAt for the active game start
+                            players: finalPlayerList, // Update players list with only those who paid
+                            createdAt: new Date(),
                         },
                     }
                 );
-                await syncGameIsActive(strGameId, true); // Sync your in-memory/global active state
+                await syncGameIsActive(strGameId, true);
 
-                console.log(`✅ Game ${strGameId} is now ACTIVE with ${currentPlayersInRoom} players.`);
-
-                // Mark game as active in Redis again (to be safe and consistent)
+                console.log(`✅ Game ${strGameId} is now ACTIVE with ${successfulDeductions} players. Prize: ${prizeAmount}`);
+                
+                // Clean up session data and emit start events
+                await clearGameSessions(strGameId, redis, state, io);
                 await redis.set(getGameActiveKey(strGameId), "true");
                 state.gameIsActive[strGameId] = true;
-                state.gameReadyToStart[strGameId] = true; // Indicate game is ready to start drawin
+                state.gameReadyToStart[strGameId] = true;
+                
+                io.to(strGameId).emit("cardsReset", { gameId: strGameId });
+                io.to(strGameId).emit("gameStart", { gameId: strGameId });
 
-                io.to(strGameId).emit("cardsReset", { gameId: strGameId }); // Inform clients cards are locked/reset
-                io.to(strGameId).emit("gameStart", { gameId: strGameId }); // Signal clients the game has officially started
-
-                // Start drawing numbers if not already running
                 if (!state.drawIntervals[strGameId]) {
-                    // ⭐ CRITICAL CHANGE 4: Ensure startDrawing also uses the same lock mechanism ⭐
-                    // The startDrawing function also needs to check `state.activeDrawLocks`
-                    // and potentially acquire its own lock if it's a separate phase
-                    await startDrawing(strGameId, io, state, redis); // Pass state and redis if needed
+                    await startDrawing(strGameId, io, state, redis);
                 }
             }
         }, 1000);
     } catch (err) {
         console.error(`❌ Error in gameCount setup for ${gameId}:`, err.message);
 
-        // --- ⭐ CRITICAL CHANGE 5: Release lock and cleanup on error ⭐
-        delete state.activeDrawLocks[strGameId]; // Release in-memory lock
-        await redis.del(getActiveDrawLockKey(strGameId)); // Release Redis lock
-        await syncGameIsActive(strGameId, false); // Mark game inactive on error
+        // Release lock and cleanup on error
+        delete state.activeDrawLocks[strGameId];
+        await redis.del(getActiveDrawLockKey(strGameId));
+        await syncGameIsActive(strGameId, false);
 
-        // Ensure cleanup on error for initial setup keys
         delete state.gameDraws[strGameId];
         delete state.countdownIntervals[strGameId];
-        delete state.gameSessionIds[strGameId]; // ADD THIS: Clear in-memory gameSessionId on error
-        await redis.del(`gameSessionId:${strGameId}`); // ADD THIS: Clear Redis gameSessionId on error
+        delete state.gameSessionIds[strGameId];
+        await redis.del(`gameSessionId:${strGameId}`);
 
         await Promise.all([
             redis.del(getGameDrawsKey(strGameId)),
@@ -899,28 +926,39 @@ socket.on("gameCount", async ({ gameId }) => {
 
     // ✅ Handle playerLeave event
     socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
-      const strTelegramId = String(telegramId);
-      const strGameId = String(gameId);
-        console.log("outside if inside playerLeave");
+    const strTelegramId = String(telegramId);
+    const strGameId = String(gameId);
+    console.log("outside if inside playerLeave");
 
-      
-      try {
-         console.log("inside if inside playerLeave");
+    try {
+        console.log("inside if inside playerLeave");
         console.log(`🚪 Player ${telegramId} is leaving game ${gameId}`);
+
+        // --- CRITICAL ADDITION: UNSET THE RESERVATION LOCK ---
+        // This is the key change to support the "lock now, deduct at end" flow.
+        // If the player leaves, their reserved spot is freed up immediately.
+        const userUpdateResult = await User.updateOne(
+            { telegramId: strTelegramId, reservedForGameId: strGameId },
+            { $unset: { reservedForGameId: "" } }
+        );
+
+        if (userUpdateResult.modifiedCount > 0) {
+            console.log(`✅ Balance reservation lock for player ${telegramId} released.`);
+        } else {
+            console.log(`⚠️ No balance reservation lock found for player ${telegramId}.`);
+        }
 
         // Remove from Redis sets
         await Promise.all([
-          redis.sRem(`gameSessions:${gameId}`, telegramId),
-          redis.sRem(`gameRooms:${gameId}`, telegramId),
+            redis.sRem(`gameSessions:${gameId}`, telegramId),
+            redis.sRem(`gameRooms:${gameId}`, telegramId),
         ]);
 
-        
-      console.log(`Looking for userSelections with socket.id=${socket.id} or telegramId=${strTelegramId}`);
-      
-     let userSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
-        
-      console.log("userSelectionRaw:", userSelectionRaw);
+        console.log(`Looking for userSelections with socket.id=${socket.id} or telegramId=${strTelegramId}`);
 
+        let userSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
+
+        console.log("userSelectionRaw:", userSelectionRaw);
 
         let userSelection = userSelectionRaw ? JSON.parse(userSelectionRaw) : null;
         console.log("cardId in userSelection:", userSelection?.cardId);
@@ -928,55 +966,52 @@ socket.on("gameCount", async ({ gameId }) => {
 
         // Free selected card if owned by this player
         if (userSelection?.cardId) {
-          console.log("Looking for card owner in Redis with key:", `gameCards:${gameId}`, "and field:", String(userSelection.cardId));
-          const cardOwner = await redis.hGet(`gameCards:${gameId}`, String(userSelection.cardId));
-          console.log("cardOwner found:", cardOwner);
+            console.log("Looking for card owner in Redis with key:", `gameCards:${gameId}`, "and field:", String(userSelection.cardId));
+            const cardOwner = await redis.hGet(`gameCards:${gameId}`, String(userSelection.cardId));
+            console.log("cardOwner found:", cardOwner);
 
+            console.log("card ownerrrr", cardOwner);
+            if (cardOwner === strTelegramId) {
 
-          console.log("card ownerrrr", cardOwner);
-          if (cardOwner === strTelegramId) {
-           
-            // Free card in DB
-           const dbUpdateResult = await GameCard.findOneAndUpdate(
-              { gameId, cardId: Number(userSelection.cardId) },
-              { isTaken: false, takenBy: null }
-            );
+                // Free card in DB
+                const dbUpdateResult = await GameCard.findOneAndUpdate(
+                    { gameId, cardId: Number(userSelection.cardId) },
+                    { isTaken: false, takenBy: null }
+                );
 
-            if (dbUpdateResult) {
-              console.log(`✅ DB updated: Card ${userSelection.cardId} released for ${telegramId}`);
-            } else {
-              console.warn(`⚠️ DB update failed: Could not find card ${userSelection.cardId} to release`);
+                if (dbUpdateResult) {
+                    console.log(`✅ DB updated: Card ${userSelection.cardId} released for ${telegramId}`);
+                } else {
+                    console.warn(`⚠️ DB update failed: Could not find card ${userSelection.cardId} to release`);
+                }
+
+                // ⭐⭐ CRITICAL DEBUG STEP: List all sockets in the target room RIGHT NOW
+                const socketsInTargetRoom = await io.in(gameId).allSockets();
+                console.log(`Backend: Sockets currently in room '${gameId}' BEFORE emitting 'cardAvailable': ${socketsInTargetRoom.size} sockets.`);
+                if (socketsInTargetRoom.size > 0) {
+                    socketsInTargetRoom.forEach(sId => console.log(`   - Active socket in room '${gameId}': ${sId}`));
+                } else {
+                    console.log(`   - Room '${gameId}' appears to be EMPTY.`);
+                }
+
+                io.to(gameId).emit("cardAvailable", { cardId: userSelection.cardId });
+                console.log("cardAvailable emitedd🔥🔥🔥", userSelection.cardId)
+
+                // Free card in Redis
+                await redis.hDel(`gameCards:${gameId}`, userSelection.cardId);
             }
-
-            // ⭐⭐ CRITICAL DEBUG STEP: List all sockets in the target room RIGHT NOW
-              const socketsInTargetRoom = await io.in(gameId).allSockets();
-              console.log(`Backend: Sockets currently in room '${gameId}' BEFORE emitting 'cardAvailable': ${socketsInTargetRoom.size} sockets.`);
-              if (socketsInTargetRoom.size > 0) {
-                  socketsInTargetRoom.forEach(sId => console.log(`  - Active socket in room '${gameId}': ${sId}`));
-              } else {
-                  console.log(`  - Room '${gameId}' appears to be EMPTY.`);
-              }
-
-            io.to(gameId).emit("cardAvailable", { cardId: userSelection.cardId });
-            console.log("cardAvailable emitedd🔥🔥🔥", userSelection.cardId)
-
-             // Free card in Redis
-            await redis.hDel(`gameCards:${gameId}`, userSelection.cardId);
-          }
         }
 
         // Remove userSelections entries by both socket.id and telegramId after usage
-     // Remove userSelections entries by both socket.id and telegramId
-          await Promise.all([
+        // Remove userSelections entries by both socket.id and telegramId
+        await Promise.all([
             redis.hDel("userSelections", socket.id),
             redis.hDel("userSelections", strTelegramId),
             redis.hDel("userSelectionsByTelegramId", strTelegramId), // ✅ Add this
             redis.sRem(getGameRoomsKey(gameId), strTelegramId),
-            deleteCardsByTelegramId(strGameId , strTelegramId),
+            deleteCardsByTelegramId(strGameId, strTelegramId),
             redis.del(`activeSocket:${strTelegramId}:${socket.id}`), // ✅ Optional clean-up
-          ]);
-
-
+        ]);
 
         // Emit updated player count
         const playerCount = await redis.sCard(`gameRooms:${gameId}`) || 0;
@@ -988,11 +1023,11 @@ socket.on("gameCount", async ({ gameId }) => {
         await checkAndResetIfEmpty(gameId, io, redis, state);
 
         if (callback) callback();
-      } catch (error) {
+    } catch (error) {
         console.error("❌ Error handling playerLeave:", error);
         if (callback) callback();
-      }
-    });
+    }
+});
 
 
 
