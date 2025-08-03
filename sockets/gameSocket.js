@@ -1277,7 +1277,7 @@ socket.on("gameCount", async ({ gameId }) => {
             
 
             io.to(strGameId).emit("updateGracePlayers", { gracePlayers });
-            console.log("grace player is emited is  ⏳🍔⬅️🚀 " )
+            console.log("grace player is emited is  ⏳🍔⬅️🚀 ", { gracePlayers } )
 
         cleanupFunction = async () => {
             try {
