@@ -24,7 +24,7 @@ const { // <-- Add this line
 } = require("../utils/redisKeys"); // <-- Make sure the path is correct
 const pendingDisconnectTimeouts = new Map(); // Key: `${telegramId}:${gameId}`, Value: setTimeout ID
 const ACTIVE_DISCONNECT_GRACE_PERIOD_MS = 2 * 1000; // For card selection lobby (10 seconds)
-const JOIN_GAME_GRACE_PERIOD_MS = 10 * 1000; // For initial join/live game phase (5 seconds)
+const JOIN_GAME_GRACE_PERIOD_MS = 2 * 1000; // For initial join/live game phase (5 seconds)
 const ACTIVE_SOCKET_TTL_SECONDS = 60 * 3;
 
 
@@ -1287,6 +1287,28 @@ socket.on("gameCount", async ({ gameId }) => {
                     const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
                     io.to(strGameId).emit("playerCountUpdate", { gameId: strGameId, playerCount });
                     console.log(`📊 Broadcasted counts for game ${strGameId}: Total Players = ${playerCount} after joinGame grace period cleanup.`);
+
+                    const userOverallSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
+                        if (userOverallSelectionRaw) {
+                            const { cardId: userHeldCardId, gameId: selectedGameId } = JSON.parse(userOverallSelectionRaw);
+                            if (String(selectedGameId) === strGameId && userHeldCardId) {
+                                const gameCardsKey = `gameCards:${strGameId}`;
+                                const cardOwner = await redis.hGet(gameCardsKey, String(userHeldCardId));
+                                if (cardOwner === strTelegramId) {
+                                    await redis.hDel(gameCardsKey, String(userHeldCardId));
+                                    await GameCard.findOneAndUpdate(
+                                        { gameId: strGameId, cardId: Number(userHeldCardId) },
+                                        { isTaken: false, takenBy: null }
+                                    );
+                                    io.to(strGameId).emit("cardReleased", {
+                                        cardId: Number(userHeldCardId),
+                                        telegramId: strTelegramId,
+                                    });
+                                    console.log(`✅ Card ${userHeldCardId} released for ${strTelegramId} (was in lobby, disconnected from joinGame).`);
+                                }
+                            }
+                        }
+                        await redis.hDel("userSelectionsByTelegramId", strTelegramId);
 
                      if (playerCount === 0) {
                         console.log(`✅ All players have left game room ${strGameId}. Calling resetRound.`);
