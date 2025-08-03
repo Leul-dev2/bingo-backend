@@ -1266,15 +1266,18 @@ socket.on("gameCount", async ({ gameId }) => {
                     }
                 };
             }else if (disconnectingPhase === 'joinGame') {
-        gracePeriodDuration = JOIN_GAME_GRACE_PERIOD_MS;
+          gracePeriodDuration = JOIN_GAME_GRACE_PERIOD_MS;
 
               // 🟡 Mark player as temporarily disconnected
-        await redis.hSet(`disconnectFlags:${strGameId}`, strTelegramId, 'grace');
+          await redis.hSet(`disconnectFlags:${strGameId}`, strTelegramId, 'grace');
 
             // ✅ Fetch updated gracePlayers before emitting
             const gracePlayers = await redis.hKeys(`disconnectFlags:${strGameId}`);
 
+            
+
             io.to(strGameId).emit("updateGracePlayers", { gracePlayers });
+            console.log("grace player is emited is  ⏳🍔⬅️🚀 " )
 
         cleanupFunction = async () => {
             try {
@@ -1307,7 +1310,7 @@ socket.on("gameCount", async ({ gameId }) => {
                 }
 
                   // 🧹 Remove from disconnectFlags
-            await redis.hDel(`disconnectFlags:${strGameId}`, strTelegramId);
+                 await redis.hDel(`disconnectFlags:${strGameId}`, strTelegramId);
 
                 // ✅ Unset reservedForGameId so user can rejoin
                     await User.findOneAndUpdate(
