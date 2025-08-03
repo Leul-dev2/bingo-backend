@@ -1303,7 +1303,8 @@ socket.on("gameCount", async ({ gameId }) => {
                 }
 
                   // 🧹 Remove from disconnectFlags
-            await redis.hDel(`disconnectFlags:${strGameId}`, strTelegramId);
+           const gracePlayers = await redis.hKeys(`disconnectFlags:${strGameId}`);
+
 
                 // ✅ Unset reservedForGameId so user can rejoin
                     await User.findOneAndUpdate(
