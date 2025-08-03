@@ -1270,7 +1270,11 @@ socket.on("gameCount", async ({ gameId }) => {
 
               // 🟡 Mark player as temporarily disconnected
         await redis.hSet(`disconnectFlags:${strGameId}`, strTelegramId, 'grace');
-         io.to(strGameId).emit("updateGracePlayers", { gracePlayers });
+
+            // ✅ Fetch updated gracePlayers before emitting
+            const gracePlayers = await redis.hKeys(`disconnectFlags:${strGameId}`);
+
+            io.to(strGameId).emit("updateGracePlayers", { gracePlayers });
 
         cleanupFunction = async () => {
             try {
@@ -1303,8 +1307,7 @@ socket.on("gameCount", async ({ gameId }) => {
                 }
 
                   // 🧹 Remove from disconnectFlags
-           const gracePlayers = await redis.hKeys(`disconnectFlags:${strGameId}`);
-
+            await redis.hDel(`disconnectFlags:${strGameId}`, strTelegramId);
 
                 // ✅ Unset reservedForGameId so user can rejoin
                     await User.findOneAndUpdate(
