@@ -74,7 +74,11 @@ router.post("/start", async (req, res) => {
                 telegramId,
                 // Check for sufficient balance and that user is not reserved for another game
                 balance: { $gte: game.stakeAmount },
-                reservedForGameId: { $exists: false } // Check for no existing lock
+                $or: [
+                  { reservedForGameId: { $exists: false } }, // Field does not exist
+                  { reservedForGameId: null },                // Field exists and is null
+                  { reservedForGameId: "" }                   // Field exists and is an empty string
+              ]
             },
             {
                 // Lock the user's funds by setting a reservation flag with the current gameId
