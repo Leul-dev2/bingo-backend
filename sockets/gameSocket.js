@@ -1267,7 +1267,7 @@ socket.on("gameCount", async ({ gameId }) => {
                 };
      } else if (disconnectedPhase === 'joinGame') {
            console.log("🔥🔥🔥 disconnected joinGame");
-            // The logic that was previously inside cleanupFunction now runs immediately
+            // The logic that was previously inside cleanupFunction now runs immediatelyy
             try {
                 // Remove player from joinGame room immediately
                 await redis.sRem(`gameRooms:${strGameId}`, strTelegramId);
