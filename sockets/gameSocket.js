@@ -1266,53 +1266,59 @@ socket.on("gameCount", async ({ gameId }) => {
                     }
                 };
             }else if (disconnectingPhase === 'joinGame') {
-    gracePeriodDuration = JOIN_GAME_GRACE_PERIOD_MS;
-    cleanupFunction = async () => {
-        try {
-            // Remove player from joinGame room
-            await redis.sRem(`gameRooms:${strGameId}`, strTelegramId);
-            const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
-            io.to(strGameId).emit("playerCountUpdate", { gameId: strGameId, playerCount });
+        gracePeriodDuration = JOIN_GAME_GRACE_PERIOD_MS;
+        cleanupFunction = async () => {
+            try {
+                // Remove player from joinGame room
+                await redis.sRem(`gameRooms:${strGameId}`, strTelegramId);
+                const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
+                io.to(strGameId).emit("playerCountUpdate", { gameId: strGameId, playerCount });
 
-            // 🔁 Release selected card if the player picked one
-            const userSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
-            if (userSelectionRaw) {
-                const { cardId: userHeldCardId, gameId: selectedGameId } = JSON.parse(userSelectionRaw);
-                if (String(selectedGameId) === strGameId && userHeldCardId) {
-                    const gameCardsKey = `gameCards:${strGameId}`;
-                    const cardOwner = await redis.hGet(gameCardsKey, String(userHeldCardId));
-                    if (cardOwner === strTelegramId) {
-                        await redis.hDel(gameCardsKey, String(userHeldCardId));
-                        await GameCard.findOneAndUpdate(
-                            { gameId: strGameId, cardId: Number(userHeldCardId) },
-                            { isTaken: false, takenBy: null }
-                        );
-                        io.to(strGameId).emit("cardReleased", {
-                            cardId: Number(userHeldCardId),
-                            telegramId: strTelegramId,
-                        });
-                        console.log(`✅ Card ${userHeldCardId} released (joinGame disconnect by ${strTelegramId})`);
+                // 🔁 Release selected card if the player picked one
+                const userSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
+                if (userSelectionRaw) {
+                    const { cardId: userHeldCardId, gameId: selectedGameId } = JSON.parse(userSelectionRaw);
+                    if (String(selectedGameId) === strGameId && userHeldCardId) {
+                        const gameCardsKey = `gameCards:${strGameId}`;
+                        const cardOwner = await redis.hGet(gameCardsKey, String(userHeldCardId));
+                        if (cardOwner === strTelegramId) {
+                            await redis.hDel(gameCardsKey, String(userHeldCardId));
+                            await GameCard.findOneAndUpdate(
+                                { gameId: strGameId, cardId: Number(userHeldCardId) },
+                                { isTaken: false, takenBy: null }
+                            );
+                            io.to(strGameId).emit("cardReleased", {
+                                cardId: Number(userHeldCardId),
+                                telegramId: strTelegramId,
+                            });
+                            console.log(`✅ Card ${userHeldCardId} released (joinGame disconnect by ${strTelegramId})`);
+                        }
                     }
+                    await redis.hDel("userSelectionsByTelegramId", strTelegramId);
                 }
-                await redis.hDel("userSelectionsByTelegramId", strTelegramId);
-            }
 
-            // 🧼 If all players are gone, clean up game
-            const totalPlayersGamePlayers = await redis.sCard(`gamePlayers:${strGameId}`);
-            const numberOfPlayersLobby = await redis.sCard(`gameSessions:${strGameId}`) || 0;
-            if (playerCount === 0 && numberOfPlayersLobby === 0 && totalPlayersGamePlayers === 0) {
-                await GameControl.findOneAndUpdate(
-                    { gameId: strGameId },
-                    { isActive: false, totalCards: 0, players: [], endedAt: new Date() }
-                );
-                await syncGameIsActive(strGameId, false);
-                resetGame(strGameId, io, state, redis);
+                // ✅ Unset reservedForGameId so user can rejoin
+                    await User.findOneAndUpdate(
+                        { telegramId: strTelegramId, reservedForGameId: strGameId },
+                        { $unset: { reservedForGameId: "" } }
+                    );
+
+                // 🧼 If all players are gone, clean up game
+                const totalPlayersGamePlayers = await redis.sCard(`gamePlayers:${strGameId}`);
+                const numberOfPlayersLobby = await redis.sCard(`gameSessions:${strGameId}`) || 0;
+                if (playerCount === 0 && numberOfPlayersLobby === 0 && totalPlayersGamePlayers === 0) {
+                    await GameControl.findOneAndUpdate(
+                        { gameId: strGameId },
+                        { isActive: false, totalCards: 0, players: [], endedAt: new Date() }
+                    );
+                    await syncGameIsActive(strGameId, false);
+                    resetGame(strGameId, io, state, redis);
+                }
+            } catch (e) {
+                console.error(`❌ Error during joinGame grace period cleanup:`, e);
             }
-        } catch (e) {
-            console.error(`❌ Error during joinGame grace period cleanup:`, e);
-        }
-    };
-}
+        };
+     }
 
 
             if (remainingActiveSocketsCount === 0) {
