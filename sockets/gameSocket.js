@@ -1310,6 +1310,11 @@ socket.on("gameCount", async ({ gameId }) => {
                         }
                         await redis.hDel("userSelectionsByTelegramId", strTelegramId);
 
+                    await User.findOneAndUpdate(
+                        { telegramId: strTelegramId, reservedForGameId: strGameId },
+                        { $unset: { reservedForGameId: "" } }
+                    );
+
                      if (playerCount === 0) {
                         console.log(`✅ All players have left game room ${strGameId}. Calling resetRound.`);
                         resetRound(strGameId, io, state, redis);
