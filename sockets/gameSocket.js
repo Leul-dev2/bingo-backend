@@ -559,7 +559,7 @@ const clearUserReservations = async (playerIds) => {
                         delete state.activeDrawLocks[strGameId];
                         await redis.del(getActiveDrawLockKey(strGameId));
                         await syncGameIsActive(strGameId, false);
-                        await resetRound(strGameId, io, state, redis); // Cleanup game state
+                       // await resetRound(strGameId, io, state, redis); // Cleanup game state
                         return;
                     }
                     console.log(`✅ Proceeding with deductions for ${playersForDeduction.length} players from GameControl.players.`);
@@ -657,7 +657,7 @@ const clearUserReservations = async (playerIds) => {
                         delete state.activeDrawLocks[strGameId];
                         await redis.del(getActiveDrawLockKey(strGameId));
                         await syncGameIsActive(strGameId, false);
-                        await resetRound(strGameId, io, state, redis);
+                        //await resetRound(strGameId, io, state, redis);
                         return;
                     }
 
