@@ -1101,6 +1101,7 @@ socket.on("gameCount", async ({ gameId }) => {
             try {
                 userPayload = JSON.parse(userSelectionPayloadRaw);
                 disconnectedPhase = userPayload.phase || 'lobby'; // Default to 'lobby' if phase not explicitly set
+                console.log(`DEBUG: Socket ${socket.id} found in userSelections. Payload: ${userSelectionPayloadRaw}, Deduced Phase: ${disconnectedPhase}`);
             } catch (e) {
                 console.error(`❌ Error parsing userSelections payload for ${socket.id}: ${e.message}`);
                 await redis.hDel("userSelections", socket.id); // Clean up corrupted data
@@ -1120,6 +1121,7 @@ socket.on("gameCount", async ({ gameId }) => {
                 }
             }
         }
+    console.log(`[DISCONNECT DEBUG] Processing disconnect for User: ${strTelegramId}, Game: ${strGameId}, Socket: ${socket.id}, Final Deduced Phase: ${disconnectedPhase}`);
 
         if (!userPayload) {
             console.log("❌ No relevant user session info found for this disconnected socket ID. Skipping full disconnect cleanup.");
