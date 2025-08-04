@@ -1286,7 +1286,11 @@ socket.on("gameCount", async ({ gameId }) => {
 
                     // For joinGame phase, primary removal is from gameRooms
                     await redis.sRem(`gameRooms:${strGameId}`, strTelegramId);
-                    game.players = game.players.filter(id => id !== strTelegramId);  // Remove from DB array
+                    const gameControl = await GameControl.findOne({ gameId: strGameId });
+                    if (gameControl) {
+                    gameControl.players = gameControl.players.filter(id => id !== strTelegramId);
+                    await gameControl.save();
+                    }
                     await game.save();  // Save DB changes
                     console.log(`👤 ${strTelegramId} removed from gameRooms after joinGame grace period expiry for game ${strGameId}.`);
 
