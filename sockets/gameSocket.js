@@ -1089,324 +1089,341 @@ socket.on("gameCount", async ({ gameId }) => {
 
 // Handle disconnection events
 // --- REFACTORED: socket.on("disconnect") ---
-    socket.on("disconnect", async (reason) => {
-        console.log(`🔴 Client disconnected: ${socket.id}, Reason: ${reason}`);
+   socket.on("disconnect", async (reason) => {
+    console.log(`🔴 Client disconnected: ${socket.id}, Reason: ${reason}`);
 
-        let userPayload = null;
-        let disconnectedPhase = null;
+    let userPayload = null;
+    let disconnectedPhase = null;
+    let strTelegramId = null; // Declare here
+    let strGameId = null;     // Declare here
 
-        // 1. Try to retrieve info from 'lobby' phase (userSelections)
-        const userSelectionPayloadRaw = await redis.hGet("userSelections", socket.id);
-        if (userSelectionPayloadRaw) {
+    // 1. Try to retrieve info from 'lobby' phase (userSelections)
+    const userSelectionPayloadRaw = await redis.hGet("userSelections", socket.id);
+    if (userSelectionPayloadRaw) {
+        try {
+            userPayload = JSON.parse(userSelectionPayloadRaw);
+            disconnectedPhase = userPayload.phase || 'lobby'; // Default to 'lobby' if phase not explicitly set
+            console.log(`DEBUG: Socket ${socket.id} found in userSelections. Payload: ${userSelectionPayloadRaw}, Deduced Phase: ${disconnectedPhase}`);
+        } catch (e) {
+            console.error(`❌ Error parsing userSelections payload for ${socket.id}: ${e.message}. Cleaning up.`);
+            await redis.hDel("userSelections", socket.id); // Clean up corrupted data
+            // userPayload, disconnectedPhase, strTelegramId, strGameId remain null if parsing fails
+        }
+    }
+
+    // 2. If not found in 'lobby' OR if parsing failed for lobby, try 'joinGame' phase
+    if (!userPayload) {
+        const joinGamePayloadRaw = await redis.hGet("joinGameSocketsInfo", socket.id);
+        if (joinGamePayloadRaw) {
             try {
-                userPayload = JSON.parse(userSelectionPayloadRaw);
-                disconnectedPhase = userPayload.phase || 'lobby'; // Default to 'lobby' if phase not explicitly set
-                console.log(`DEBUG: Socket ${socket.id} found in userSelections. Payload: ${userSelectionPayloadRaw}, Deduced Phase: ${disconnectedPhase}`);
+                userPayload = JSON.parse(joinGamePayloadRaw);
+                disconnectedPhase = userPayload.phase || 'joinGame'; // Default to 'joinGame'
+                console.log(`DEBUG: Socket ${socket.id} found in joinGameSocketsInfo. Payload: ${joinGamePayloadRaw}, Deduced Phase: ${disconnectedPhase}`);
             } catch (e) {
-                console.error(`❌ Error parsing userSelections payload for ${socket.id}: ${e.message}`);
-                await redis.hDel("userSelections", socket.id); // Clean up corrupted data
+                console.error(`❌ Error parsing joinGameSocketsInfo payload for ${socket.id}: ${e.message}. Cleaning up.`);
+                await redis.hDel("joinGameSocketsInfo", socket.id); // Clean up corrupted data
+                // userPayload, disconnectedPhase, strTelegramId, strGameId remain null if parsing fails
             }
         }
+    }
 
-        // 2. If not found in 'lobby', try to retrieve info from 'joinGame' phase (joinGameSocketsInfo)
-        if (!userPayload) {
-            const joinGamePayloadRaw = await redis.hGet("joinGameSocketsInfo", socket.id);
-            if (joinGamePayloadRaw) {
-                try {
-                    userPayload = JSON.parse(joinGamePayloadRaw);
-                    disconnectedPhase = userPayload.phase || 'joinGame'; // Default to 'joinGame'
-                } catch (e) {
-                    console.error(`❌ Error parsing joinGameSocketsInfo payload for ${socket.id}: ${e.message}`);
-                    await redis.hDel("joinGameSocketsInfo", socket.id); // Clean up corrupted data
-                }
-            }
-        }
+    // Now, attempt to extract strTelegramId and strGameId from userPayload
+    // This must happen AFTER userPayload is potentially assigned in the blocks above
+    if (userPayload && typeof userPayload.telegramId !== 'undefined' && typeof userPayload.gameId !== 'undefined') {
+        strTelegramId = String(userPayload.telegramId);
+        strGameId = String(userPayload.gameId);
+    }
 
-        if (!userPayload) {
-            console.log("❌ No relevant user session info found for this disconnected socket ID. Skipping full disconnect cleanup.");
-            return;
-        }
+    // Early exit if crucial info is missing or corrupted
+    if (!userPayload || !strTelegramId || !strGameId || !disconnectedPhase) {
+        console.log("❌ No relevant user session info found or payload corrupted for this disconnected socket ID. Skipping full disconnect cleanup.");
+        // If an activeSocket key exists without corresponding payload, it might be stale. Clean it up immediately.
+        await redis.del(`activeSocket:${socket.handshake.query.telegramId || 'unknown'}:${socket.id}`);
+        return;
+    }
 
-        const { telegramId, gameId } = userPayload;
-        const strGameId = String(gameId);
-        const strTelegramId = String(telegramId);
+    console.log(`[DISCONNECT DEBUG] Processing disconnect for User: ${strTelegramId}, Game: ${strGameId}, Socket: ${socket.id}, Final Deduced Phase: ${disconnectedPhase}`);
 
-        console.log(`[DISCONNECT DEBUG] Processing disconnect for User: ${strTelegramId}, Game: ${strGameId}, Socket: ${socket.id}, Phase: ${disconnectedPhase}`);
-         console.log(`[DISCONNECT DEBUG] Processing disconnect for User: ${strTelegramId}, Game: ${strGameId}, Socket: ${socket.id}, Final Deduced Phase: ${disconnectedPhase}`);
+    // --- Initial cleanup for the specific disconnected socket TTL key ---
+    // Removed hDel for userSelections and joinGameSocketsInfo here.
+    // They will be handled by the specific phase cleanup functions if they expire.
+    await redis.del(`activeSocket:${strTelegramId}:${socket.id}`); // Delete the specific active socket TTL key
+    console.log(`🧹 Cleaned up temporary activeSocket record for disconnected socket ${socket.id}.`);
 
-        // --- Initial cleanup for the specific disconnected socket based on its phase ---
-        await Promise.all([
-            redis.del(`activeSocket:${strTelegramId}:${socket.id}`), // Delete the specific active socket TTL key
-            redis.hDel("userSelections", socket.id), // Attempt to delete from userSelections (safe if not present)
-            redis.hDel("joinGameSocketsInfo", socket.id), // Attempt to delete from joinGameSocketsInfo (safe if not present)
-        ]);
-        console.log(`🧹 Cleaned up temporary records for disconnected socket ${socket.id}.`);
+    // --- Determine remaining active sockets for this user in THIS specific game ---
+    const allActiveSocketKeysForUser = await redis.keys(`activeSocket:${strTelegramId}:*`);
+    let remainingSocketsForThisGameCount = 0;
+    // currentActiveSocketsInfo is not used in the remaining logic below, so can be removed if not needed elsewhere.
+    // let currentActiveSocketsInfo = []; // To hold parsed info of other active sockets
 
-        // --- Determine remaining active sockets for this user in THIS specific game ---
-        const allActiveSocketKeysForUser = await redis.keys(`activeSocket:${strTelegramId}:*`);
-        let remainingSocketsForThisGameCount = 0;
-        let currentActiveSocketsInfo = []; // To hold parsed info of other active sockets
+    const multiGetCommands = redis.multi();
+    const otherSocketIds = [];
 
-        const multiGetCommands = redis.multi();
-        const otherSocketIds = [];
+    for (const key of allActiveSocketKeysForUser) {
+        const otherSocketId = key.split(':').pop();
+        if (otherSocketId === socket.id) continue; // Skip the currently disconnected socket
 
-        for (const key of allActiveSocketKeysForUser) {
-            const otherSocketId = key.split(':').pop();
-            if (otherSocketId === socket.id) continue; // Skip the currently disconnected socket
+        otherSocketIds.push(otherSocketId);
+        multiGetCommands.hGet("userSelections", otherSocketId);     // Try lobby info
+        multiGetCommands.hGet("joinGameSocketsInfo", otherSocketId); // Try joinGame info
+    }
 
-            otherSocketIds.push(otherSocketId);
-            multiGetCommands.hGet("userSelections", otherSocketId); // Try lobby info
-            multiGetCommands.hGet("joinGameSocketsInfo", otherSocketId); // Try joinGame info
-        }
+    // Execute all batched commands to get info for other sockets
+    const otherSocketPayloadsRaw = await multiGetCommands.exec();
 
-        // Execute all batched commands to get info for other sockets
-        const otherSocketPayloadsRaw = await multiGetCommands.exec();
+    let staleKeysToDelete = [];
+    for (let i = 0; i < otherSocketIds.length; i++) {
+        const otherSocketId = otherSocketIds[i];
+        // multi().exec() returns an array of results, where each result is [error, value].
+        // So, userSelectionResult[1] is the value.
+        const userSelectionResult = otherSocketPayloadsRaw[i * 2];
+        const joinGameResult = otherSocketPayloadsRaw[i * 2 + 1];
 
-        let staleKeysToDelete = [];
-        for (let i = 0; i < otherSocketIds.length; i++) {
-            const otherSocketId = otherSocketIds[i];
-            const userSelectionResult = otherSocketPayloadsRaw[i * 2]; // Result for userSelections hGet
-            const joinGameResult = otherSocketPayloadsRaw[i * 2 + 1]; // Result for joinGameSocketsInfo hGet
+        let otherSocketInfo = null;
+        let otherSocketPhase = null;
 
-            let otherSocketInfo = null;
-            let otherSocketPhase = null;
-
-            if (userSelectionResult && userSelectionResult[0] === null && userSelectionResult[1]) {
-                try {
-                    otherSocketInfo = JSON.parse(userSelectionResult[1]);
-                    otherSocketPhase = otherSocketInfo.phase || 'lobby';
-                } catch (e) {
-                    console.error(`❌ Error parsing userSelections payload for other socket ${otherSocketId}: ${e.message}. Marking for cleanup.`);
-                    await redis.hDel("userSelections", otherSocketId);
-                    staleKeysToDelete.push(`activeSocket:${strTelegramId}:${otherSocketId}`);
-                }
-            } else if (joinGameResult && joinGameResult[0] === null && joinGameResult[1]) {
-                try {
-                    otherSocketInfo = JSON.parse(joinGameResult[1]);
-                    otherSocketPhase = otherSocketInfo.phase || 'joinGame';
-                } catch (e) {
-                    console.error(`❌ Error parsing joinGameSocketsInfo payload for other socket ${otherSocketId}: ${e.message}. Marking for cleanup.`);
-                    await redis.hDel("joinGameSocketsInfo", otherSocketId);
-                    staleKeysToDelete.push(`activeSocket:${strTelegramId}:${otherSocketId}`);
-                }
-            } else {
-                // No valid payload found for this activeSocket key
-                console.log(`ℹ️ Found stale activeSocket key activeSocket:${strTelegramId}:${otherSocketId} without a corresponding userSelections or joinGameSocketsInfo entry. Marking for deletion.`);
+        // Check userSelections first
+        if (userSelectionResult && userSelectionResult[0] === null && userSelectionResult[1]) {
+            try {
+                otherSocketInfo = JSON.parse(userSelectionResult[1]);
+                otherSocketPhase = otherSocketInfo.phase || 'lobby';
+            } catch (e) {
+                console.error(`❌ Error parsing userSelections payload for other socket ${otherSocketId}: ${e.message}. Marking for cleanup.`);
+                await redis.hDel("userSelections", otherSocketId);
                 staleKeysToDelete.push(`activeSocket:${strTelegramId}:${otherSocketId}`);
             }
-
-            if (otherSocketInfo && String(otherSocketInfo.gameId) === strGameId) {
-                remainingSocketsForThisGameCount++;
-                currentActiveSocketsInfo.push(otherSocketInfo); // Store info about the remaining sockets
+        }
+        // If not in userSelections, check joinGameSocketsInfo
+        else if (joinGameResult && joinGameResult[0] === null && joinGameResult[1]) {
+            try {
+                otherSocketInfo = JSON.parse(joinGameResult[1]);
+                otherSocketPhase = otherSocketInfo.phase || 'joinGame';
+            } catch (e) {
+                console.error(`❌ Error parsing joinGameSocketsInfo payload for other socket ${otherSocketId}: ${e.message}. Marking for cleanup.`);
+                await redis.hDel("joinGameSocketsInfo", otherSocketId);
+                staleKeysToDelete.push(`activeSocket:${strTelegramId}:${otherSocketId}`);
             }
+        } else {
+            // No valid payload found for this activeSocket key
+            console.log(`ℹ️ Found stale activeSocket key activeSocket:${strTelegramId}:${otherSocketId} without a corresponding userSelections or joinGameSocketsInfo entry. Marking for deletion.`);
+            staleKeysToDelete.push(`activeSocket:${strTelegramId}:${otherSocketId}`);
         }
 
-        if (staleKeysToDelete.length > 0) {
-            await redis.del(...staleKeysToDelete);
-            console.log(`🧹 Cleaned up ${staleKeysToDelete.length} stale activeSocket keys.`);
+        if (otherSocketInfo && String(otherSocketInfo.gameId) === strGameId) {
+            remainingSocketsForThisGameCount++;
+            // currentActiveSocketsInfo.push(otherSocketInfo); // Only if you need this info later
         }
+    }
 
-        console.log(`[DISCONNECT DEBUG] Remaining active sockets for ${strTelegramId} in game ${strGameId}: ${remainingSocketsForThisGameCount}`);
+    if (staleKeysToDelete.length > 0) {
+        await redis.del(...staleKeysToDelete);
+        console.log(`🧹 Cleaned up ${staleKeysToDelete.length} stale activeSocket keys.`);
+    }
 
-        // --- Unified Grace Period Management based on whether this was the last socket ---
-        const timeoutKey = `${strTelegramId}:${strGameId}`;
+    console.log(`[DISCONNECT DEBUG] Remaining active sockets for ${strTelegramId} in game ${strGameId}: ${remainingSocketsForThisGameCount}`);
 
-        // Always clear any *existing* pending timeout for this user/game to prevent race conditions
-        if (pendingDisconnectTimeouts.has(timeoutKey)) {
-            clearTimeout(pendingDisconnectTimeouts.get(timeoutKey));
-            pendingDisconnectTimeouts.delete(timeoutKey);
-            console.log(`🕒 Cleared existing pending disconnect timeout for ${timeoutKey}.`);
-        }
+    // --- Grace Period Management based on whether this was the last socket for THIS SPECIFIC PHASE ---
+    const timeoutKeyForPhase = `${strTelegramId}:${strGameId}:${disconnectedPhase}`; // THIS IS THE KEY CHANGE
 
-        // Helper function to handle grace period and cleanup
-        const determineGracePeriodAndCleanup = async (disconnectingPhase, remainingActiveSocketsCount) => {
-            let gracePeriodDuration = 0;
-            let cleanupFunction = null;
+    // Clear any *existing* pending timeout for this user/game/PHASE
+    if (pendingDisconnectTimeouts.has(timeoutKeyForPhase)) {
+        clearTimeout(pendingDisconnectTimeouts.get(timeoutKeyForPhase));
+        pendingDisconnectTimeouts.delete(timeoutKeyForPhase);
+        console.log(`🕒 Cleared existing pending disconnect timeout for ${timeoutKeyForPhase}.`);
+    }
 
-            if (disconnectingPhase === 'lobby') {
-                gracePeriodDuration = ACTIVE_DISCONNECT_GRACE_PERIOD_MS;
-                cleanupFunction = async () => {
-                    console.log(`⏱️ Lobby grace period expired for User: ${strTelegramId}, Game: ${strGameId}. Performing lobby-specific cleanup.`);
-                    // Release card if held and owned by this user
-                    const userOverallSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
-                    if (userOverallSelectionRaw) {
-                        const { cardId: userHeldCardId, gameId: selectedGameId } = JSON.parse(userOverallSelectionRaw);
-                        if (String(selectedGameId) === strGameId && userHeldCardId) {
-                            const gameCardsKey = `gameCards:${strGameId}`;
-                            const cardOwner = await redis.hGet(gameCardsKey, String(userHeldCardId));
-                            if (cardOwner === strTelegramId) {
-                                await redis.hDel(gameCardsKey, String(userHeldCardId));
-                                await GameCard.findOneAndUpdate(
-                                    { gameId: strGameId, cardId: Number(userHeldCardId) },
-                                    { isTaken: false, takenBy: null }
-                                );
-                                io.to(strGameId).emit("cardReleased", { cardId: Number(userHeldCardId), telegramId: strTelegramId });
-                                console.log(`✅ Card ${userHeldCardId} released for ${strTelegramId} due to grace period expiry from game ${strGameId}.`);
-                            }
+    // Helper function to handle grace period and cleanup
+    const determineGracePeriodAndCleanup = async (disconnectingPhase, remainingActiveSocketsCount) => {
+        let gracePeriodDuration = 0;
+        let cleanupFunction = null;
+
+        if (disconnectingPhase === 'lobby') {
+            gracePeriodDuration = ACTIVE_DISCONNECT_GRACE_PERIOD_MS;
+            cleanupFunction = async () => {
+                console.log(`⏱️ Lobby grace period expired for User: ${strTelegramId}, Game: ${strGameId}. Performing lobby-specific cleanup.`);
+                // Release card if held and owned by this user
+                const userOverallSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
+                if (userOverallSelectionRaw) {
+                    const { cardId: userHeldCardId, gameId: selectedGameId } = JSON.parse(userOverallSelectionRaw);
+                    if (String(selectedGameId) === strGameId && userHeldCardId) {
+                        const gameCardsKey = `gameCards:${strGameId}`;
+                        const cardOwner = await redis.hGet(gameCardsKey, String(userHeldCardId));
+                        if (cardOwner === strTelegramId) {
+                            await redis.hDel(gameCardsKey, String(userHeldCardId));
+                            await GameCard.findOneAndUpdate(
+                                { gameId: strGameId, cardId: Number(userHeldCardId) },
+                                { isTaken: false, takenBy: null }
+                            );
+                            io.to(strGameId).emit("cardReleased", { cardId: Number(userHeldCardId), telegramId: strTelegramId });
+                            console.log(`✅ Card ${userHeldCardId} released for ${strTelegramId} due to grace period expiry from game ${strGameId}.`);
                         }
                     }
-
-                    // Remove the user from ALL relevant unique player sets for this game (lobby and overall game players).
-                    const sessionKey = `gameSessions:${strGameId}`;
-                    await Promise.all([
-                        redis.sRem(sessionKey, strTelegramId),
-                        redis.sRem(`gamePlayers:${strGameId}`, strTelegramId), // Remove from overall game players
-                        redis.hDel("userSelectionsByTelegramId", strTelegramId), // Clean up overall persisted selection
-                    ]);
-                    console.log(`👤 ${strTelegramId} removed from lobby sets and overall selection cleaned up after grace period expiry for game ${strGameId}.`);
-
-                    // Recalculate and Broadcast the unique player count for the game (lobby count)
-                    const numberOfPlayersLobby = await redis.sCard(sessionKey) || 0;
-                    io.to(strGameId).emit("gameid", {
-                        gameId: strGameId,
-                        numberOfPlayers: numberOfPlayersLobby,
-                    });
-                    console.log(`📊 Broadcasted counts for game ${strGameId}: Lobby Players = ${numberOfPlayersLobby} after grace period cleanup.`);
-                   
-                    // Check for full game reset if game is now empty of all unique players
-                    const totalPlayersGamePlayers = await redis.sCard(`gamePlayers:${strGameId}`);
-                    if (numberOfPlayersLobby === 0 && totalPlayersGamePlayers === 0) {
-                        console.log(`🧹 Game ${strGameId} empty after lobby phase grace period. Triggering full game reset.`);
-                        await GameControl.findOneAndUpdate(
-                            { gameId: strGameId },
-                            { isActive: false, totalCards: 0, players: [], endedAt: new Date() }
-                        );
-                        await syncGameIsActive(strGameId, false);
-                        resetGame(strGameId, io, state, redis);
-                        console.log(`Game ${strGameId} has been fully reset.`);
-                    }
-                };
-
-            } 
-            
-            else if (disconnectingPhase === 'joinGame') {
-                console.log(`👀 Phase detection: disconnectedPhase = '${disconnectedPhase}', userPayload =`, userPayload);
-                gracePeriodDuration = JOIN_GAME_GRACE_PERIOD_MS;
-                cleanupFunction = async () => {
-                    console.log(`⏱️ JoinGame grace period expired for User: ${strTelegramId}, Game: ${strGameId}. Performing joinGame-specific cleanup.`);
-                    console.log("🎯🎯🎯🎯 this for the game page 🎯🎯🎯🎯")
-
-                    // For joinGame phase, primary removal is from gameRooms
-                    await redis.sRem(`gameRooms:${strGameId}`, strTelegramId);
-                   const gameControl = await GameControl.findOne({ gameId: strGameId });
-                    if (gameControl) {
-                    gameControl.players = gameControl.players.filter(id => id !== Number(strTelegramId));
-                    await gameControl.save();
-                    console.log("🕸️🕸️🏠 player is removed from gamecontrol", strGameId, strTelegramId);
-                    }
-
-                   
-                    console.log(`👤 ${strTelegramId} removed from gameRooms after joinGame grace period expiry for game ${strGameId}.`);
-
-                    const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
-                    io.to(strGameId).emit("playerCountUpdate", { gameId: strGameId, playerCount });
-                    console.log(`📊 Broadcasted counts for game ${strGameId}: Total Players = ${playerCount} after joinGame grace period cleanup.`);
-
-                    const userOverallSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
-                        if (userOverallSelectionRaw) {
-                            const { cardId: userHeldCardId, gameId: selectedGameId } = JSON.parse(userOverallSelectionRaw);
-                            if (String(selectedGameId) === strGameId && userHeldCardId) {
-                                const gameCardsKey = `gameCards:${strGameId}`;
-                                const cardOwner = await redis.hGet(gameCardsKey, String(userHeldCardId));
-                                if (cardOwner === strTelegramId) {
-                                    await redis.hDel(gameCardsKey, String(userHeldCardId));
-                                    await GameCard.findOneAndUpdate(
-                                        { gameId: strGameId, cardId: Number(userHeldCardId) },
-                                        { isTaken: false, takenBy: null }
-                                    );
-                                    io.to(strGameId).emit("cardReleased", {
-                                        cardId: Number(userHeldCardId),
-                                        telegramId: strTelegramId,
-                                    });
-                                    console.log(`✅ Card ${userHeldCardId} released for ${strTelegramId} (was in lobby, disconnected from joinGame).`);
-                                }
-                            }
-                        }
-                        await redis.hDel("userSelectionsByTelegramId", strTelegramId);
-
-                    await User.findOneAndUpdate(
-                        { telegramId: strTelegramId, reservedForGameId: strGameId },
-                        { $unset: { reservedForGameId: "" } }
-                    );
-
-
-                     if (playerCount === 0) {
-                        console.log(`✅ All players have left game room ${strGameId}. Calling resetRound.`);
-                        resetRound(strGameId, io, state, redis);
-                    }
-
-                    // Check if the game is completely empty across ALL player sets after this cleanup
-                    const totalPlayersGamePlayers = await redis.sCard(`gamePlayers:${strGameId}`);
-                    console.log("🚀🔥🚀🔥 total players", totalPlayersGamePlayers);
-                    const numberOfPlayersLobby = await redis.sCard(`gameSessions:${strGameId}`) || 0; // Check lobby too
-                    if (playerCount === 0 && numberOfPlayersLobby === 0 && totalPlayersGamePlayers === 0) {
-                        console.log(`🧹 Game ${strGameId} empty after joinGame phase grace period. Triggering full game reset.`);
-                        await GameControl.findOneAndUpdate(
-                            { gameId: strGameId },
-                            { isActive: false, totalCards: 0, players: [], endedAt: new Date() }
-                        );
-                        await syncGameIsActive(strGameId, false);
-                        resetGame(strGameId, io, state, redis);
-                        console.log(`Game ${strGameId} has been fully reset.`);
-                    }
-                };
-            }
-
-            if (remainingActiveSocketsCount === 0) {
-                // This was the user's last active socket for THIS GAME.
-                // Start a timer for the full cleanup.
-                const timeoutId = setTimeout(async () => {
-                    try {
-                        await cleanupFunction();
-                    } catch (e) {
-                        console.error(`❌ Error during grace period cleanup for ${timeoutKey}:`, e);
-                    } finally {
-                        pendingDisconnectTimeouts.delete(timeoutKey); // Clean up the timeout from the map
-                    }
-                }, gracePeriodDuration);
-
-                pendingDisconnectTimeouts.set(timeoutKey, timeoutId);
-                console.log(`🕒 User ${strTelegramId} has no remaining active sockets for game ${strGameId}. Starting ${gracePeriodDuration / 1000}-second grace period timer for '${disconnectingPhase}' phase.`);
-            } else {
-                // User still has other active sockets for this game. No full cleanup timer needed.
-                console.log(`ℹ️ ${strTelegramId} disconnected from '${disconnectingPhase}' phase via socket (${socket.id}) but still has ${remainingActiveSocketsCount} other active sockets in game ${strGameId}. No grace period timer started.`);
-
-                // Still broadcast updated player counts relevant to the specific phase for immediate UI updates
-                if (disconnectingPhase === 'lobby') {
-                    const sessionKey = `gameSessions:${strGameId}`;
-                    const numberOfPlayersLobby = await redis.sCard(sessionKey) || 0;
-                    io.to(strGameId).emit("gameid", {
-                        gameId: strGameId,
-                        numberOfPlayers: numberOfPlayersLobby,
-                    });
-                    console.log(`📊 Broadcasted counts for game ${strGameId}: Lobby Players = ${numberOfPlayersLobby} after partial disconnect.`);
-                } else if (disconnectingPhase === 'joinGame') {
-                    const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
-                    io.to(strGameId).emit("playerCountUpdate", { gameId: strGameId, playerCount });
-                    console.log(`📊 Broadcasted counts for game ${strGameId}: Total Players = ${playerCount} after partial disconnect.`);
                 }
 
-                // A partial disconnect *could* still lead to an empty game if, for instance,
-                // the remaining sockets are for a different user, or the last user just left a phase.
-                const totalPlayersGamePlayers = await redis.sCard(`gamePlayers:${strGameId}`);
-                const numberOfPlayersLobby = await redis.sCard(`gameSessions:${strGameId}`) || 0;
-                const playerCountGameRooms = await redis.sCard(`gameRooms:${strGameId}`) || 0;
+                // Remove the user from ALL relevant unique player sets for this game (lobby and overall game players).
+                const sessionKey = `gameSessions:${strGameId}`;
+                await Promise.all([
+                    redis.sRem(sessionKey, strTelegramId),
+                    redis.sRem(`gamePlayers:${strGameId}`, strTelegramId), // Remove from overall game players
+                    redis.hDel("userSelectionsByTelegramId", strTelegramId), // Clean up overall persisted selection
+                ]);
+                console.log(`👤 ${strTelegramId} removed from lobby sets and overall selection cleaned up after grace period expiry for game ${strGameId}.`);
 
-                if (totalPlayersGamePlayers === 0 && numberOfPlayersLobby === 0 && playerCountGameRooms === 0) {
-                    console.log(`🧹 No unique players left in game ${strGameId} across all phases after partial disconnect. Triggering full game reset.`);
+                // Recalculate and Broadcast the unique player count for the game (lobby count)
+                const numberOfPlayersLobby = await redis.sCard(sessionKey) || 0;
+                io.to(strGameId).emit("gameid", {
+                    gameId: strGameId,
+                    numberOfPlayers: numberOfPlayersLobby,
+                });
+                console.log(`📊 Broadcasted counts for game ${strGameId}: Lobby Players = ${numberOfPlayersLobby} after grace period cleanup.`);
+                
+                // Check for full game reset if game is now empty of all unique players
+                const totalPlayersGamePlayers = await redis.sCard(`gamePlayers:${strGameId}`);
+                if (numberOfPlayersLobby === 0 && totalPlayersGamePlayers === 0) {
+                    console.log(`🧹 Game ${strGameId} empty after lobby phase grace period. Triggering full game reset.`);
                     await GameControl.findOneAndUpdate(
                         { gameId: strGameId },
                         { isActive: false, totalCards: 0, players: [], endedAt: new Date() }
                     );
                     await syncGameIsActive(strGameId, false);
                     resetGame(strGameId, io, state, redis);
-                    console.log(`Game ${strGameId} has been fully reset after partial disconnect.`);
+                    console.log(`Game ${strGameId} has been fully reset.`);
                 }
-            }
-        };
+            };
 
-        // Call the helper function to manage grace period and cleanup
-        await determineGracePeriodAndCleanup(disconnectedPhase, remainingSocketsForThisGameCount);
-    });
+        } else if (disconnectingPhase === 'joinGame') {
+            gracePeriodDuration = JOIN_GAME_GRACE_PERIOD_MS;
+            cleanupFunction = async () => {
+                console.log(`⏱️ JoinGame grace period expired for User: ${strTelegramId}, Game: ${strGameId}. Performing joinGame-specific cleanup.`);
+                console.log("🎯🎯🎯🎯 this for the game page 🎯🎯🎯🎯")
+
+                // For joinGame phase, primary removal is from gameRooms
+                await redis.sRem(`gameRooms:${strGameId}`, strTelegramId);
+                const gameControl = await GameControl.findOne({ gameId: strGameId });
+                if (gameControl) {
+                    gameControl.players = gameControl.players.filter(id => id !== Number(strTelegramId));
+                    await gameControl.save();
+                    console.log("🕸️🕸️🏠 player is removed from gamecontrol", strGameId, strTelegramId);
+                }
+                
+                console.log(`👤 ${strTelegramId} removed from gameRooms after joinGame grace period expiry for game ${strGameId}.`);
+
+                const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
+                io.to(strGameId).emit("playerCountUpdate", { gameId: strGameId, playerCount });
+                console.log(`📊 Broadcasted counts for game ${strGameId}: Total Players = ${playerCount} after joinGame grace period cleanup.`);
+
+                // Release card if held and owned by this user (this block was also in lobby, but good to keep if a player holds a card from joinGame)
+                const userOverallSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
+                if (userOverallSelectionRaw) {
+                    const { cardId: userHeldCardId, gameId: selectedGameId } = JSON.parse(userOverallSelectionRaw);
+                    if (String(selectedGameId) === strGameId && userHeldCardId) {
+                        const gameCardsKey = `gameCards:${strGameId}`;
+                        const cardOwner = await redis.hGet(gameCardsKey, String(userHeldCardId));
+                        if (cardOwner === strTelegramId) {
+                            await redis.hDel(gameCardsKey, String(userHeldCardId));
+                            await GameCard.findOneAndUpdate(
+                                { gameId: strGameId, cardId: Number(userHeldCardId) },
+                                { isTaken: false, takenBy: null }
+                            );
+                            io.to(strGameId).emit("cardReleased", {
+                                cardId: Number(userHeldCardId),
+                                telegramId: strTelegramId,
+                            });
+                            console.log(`✅ Card ${userHeldCardId} released for ${strTelegramId} (disconnected from joinGame).`);
+                        }
+                    }
+                }
+                await redis.hDel("userSelectionsByTelegramId", strTelegramId); // Clean up overall persisted selection for this user
+
+                await User.findOneAndUpdate(
+                    { telegramId: strTelegramId, reservedForGameId: strGameId },
+                    { $unset: { reservedForGameId: "" } }
+                );
+
+                if (playerCount === 0) {
+                    console.log(`✅ All players have left game room ${strGameId}. Calling resetRound.`);
+                    resetRound(strGameId, io, state, redis);
+                }
+
+                // Check if the game is completely empty across ALL player sets after this cleanup
+                const totalPlayersGamePlayers = await redis.sCard(`gamePlayers:${strGameId}`);
+                console.log("🚀🔥🚀🔥 total players", totalPlayersGamePlayers);
+                const numberOfPlayersLobby = await redis.sCard(`gameSessions:${strGameId}`) || 0; // Check lobby too
+                if (playerCount === 0 && numberOfPlayersLobby === 0 && totalPlayersGamePlayers === 0) {
+                    console.log(`🧹 Game ${strGameId} empty after joinGame phase grace period. Triggering full game reset.`);
+                    await GameControl.findOneAndUpdate(
+                        { gameId: strGameId },
+                        { isActive: false, totalCards: 0, players: [], endedAt: new Date() }
+                    );
+                    await syncGameIsActive(strGameId, false);
+                    resetGame(strGameId, io, state, redis);
+                    console.log(`Game ${strGameId} has been fully reset.`);
+                }
+            };
+        }
+
+        if (remainingActiveSocketsCount === 0) {
+            // This was the user's last active socket for THIS GAME for the specific 'disconnectedPhase'.
+            // Start a timer for the full cleanup of THIS PHASE.
+            const timeoutId = setTimeout(async () => {
+                try {
+                    if (cleanupFunction) { // Ensure cleanupFunction is defined
+                        await cleanupFunction();
+                    } else {
+                        console.warn(`⚠️ No cleanup function defined for phase: ${disconnectingPhase} and user: ${strTelegramId}`);
+                    }
+                } catch (e) {
+                    console.error(`❌ Error during grace period cleanup for ${timeoutKeyForPhase}:`, e);
+                } finally {
+                    // Only delete the specific phase timeout after it has completed
+                    pendingDisconnectTimeouts.delete(timeoutKeyForPhase);
+                }
+            }, gracePeriodDuration);
+
+            pendingDisconnectTimeouts.set(timeoutKeyForPhase, timeoutId);
+            console.log(`🕒 User ${strTelegramId} has no remaining active sockets for game ${strGameId} in '${disconnectingPhase}' phase. Starting ${gracePeriodDuration / 1000}-second grace period timer for '${disconnectingPhase}' phase.`);
+        } else {
+            // User still has other active sockets for this game. No full cleanup timer needed for THIS PHASE.
+            console.log(`ℹ️ ${strTelegramId} disconnected from '${disconnectingPhase}' phase via socket (${socket.id}) but still has ${remainingActiveSocketsCount} other active sockets in game ${strGameId}. No grace period timer started for THIS PHASE.`);
+
+            // Still broadcast updated player counts relevant to the specific phase for immediate UI updates
+            if (disconnectingPhase === 'lobby') {
+                const sessionKey = `gameSessions:${strGameId}`;
+                const numberOfPlayersLobby = await redis.sCard(sessionKey) || 0;
+                io.to(strGameId).emit("gameid", {
+                    gameId: strGameId,
+                    numberOfPlayers: numberOfPlayersLobby,
+                });
+                console.log(`📊 Broadcasted counts for game ${strGameId}: Lobby Players = ${numberOfPlayersLobby} after partial disconnect.`);
+            } else if (disconnectingPhase === 'joinGame') {
+                const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
+                io.to(strGameId).emit("playerCountUpdate", { gameId: strGameId, playerCount });
+                console.log(`📊 Broadcasted counts for game ${strGameId}: Total Players = ${playerCount} after partial disconnect.`);
+            }
+
+            // A partial disconnect *could* still lead to an empty game if, for instance,
+            // the remaining sockets are for a different user, or the last user just left a phase.
+            // This check ensures a full game reset if all unique players are gone, regardless of individual socket counts.
+            const totalPlayersGamePlayers = await redis.sCard(`gamePlayers:${strGameId}`);
+            const numberOfPlayersLobby = await redis.sCard(`gameSessions:${strGameId}`) || 0;
+            const playerCountGameRooms = await redis.sCard(`gameRooms:${strGameId}`) || 0;
+
+            if (totalPlayersGamePlayers === 0 && numberOfPlayersLobby === 0 && playerCountGameRooms === 0) {
+                console.log(`🧹 No unique players left in game ${strGameId} across all phases after partial disconnect. Triggering full game reset.`);
+                await GameControl.findOneAndUpdate(
+                    { gameId: strGameId },
+                    { isActive: false, totalCards: 0, players: [], endedAt: new Date() }
+                );
+                await syncGameIsActive(strGameId, false);
+                resetGame(strGameId, io, state, redis);
+                console.log(`Game ${strGameId} has been fully reset after partial disconnect.`);
+            }
+        }
+    };
+
+    // Call the helper function to manage grace period and cleanup
+    // Pass the determined disconnectedPhase and the count of other sockets for this game
+    await determineGracePeriodAndCleanup(disconnectedPhase, remainingSocketsForThisGameCount);
+});
   });
 };
