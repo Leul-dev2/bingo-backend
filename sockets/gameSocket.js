@@ -441,256 +441,291 @@ const clearUserReservations = async (playerIds) => {
     }
 };
 
-socket.on("gameCount", async ({ gameId }) => {
-    const strGameId = String(gameId);
-    let finalPlayerList = []; // Array to store players who successfully paid their stake
+    socket.on("gameCount", async ({ gameId }) => {
+        const strGameId = String(gameId);
+        let finalPlayerList = []; // Array to store players who successfully paid their stake
 
-    // --- CRITICAL: Acquire Lock and Check State FIRST ---
-    if (state.activeDrawLocks[strGameId] || state.countdownIntervals[strGameId] || state.drawIntervals[strGameId] || state.drawStartTimeouts[strGameId]) {
-        console.log(`⚠️ Game ${strGameId} already has an active countdown or draw lock in memory. Ignoring gameCount event.`);
-        return;
-    }
+        // --- CRITICAL: Acquire Lock and Check State FIRST ---
+        // This part remains at the very top to prevent concurrent gameCounts
+        if (state.activeDrawLocks[strGameId] || state.countdownIntervals[strGameId] || state.drawIntervals[strGameId] || state.drawStartTimeouts[strGameId]) {
+            console.log(`⚠️ Game ${strGameId} already has an active countdown or draw lock in memory. Ignoring gameCount event.`);
+            return; // Return without clearing lock, as it wasn't acquired by THIS invocation
+        }
 
-    const [redisHasLock, redisIsActive] = await Promise.all([
-        redis.get(getActiveDrawLockKey(strGameId)),
-        redis.get(getGameActiveKey(strGameId))
-    ]);
-
-    if (redisHasLock === "true" || redisIsActive === "true") {
-        console.log(`⚠️ Game ${strGameId} is already active or locked in Redis. Ignoring gameCount event.`);
-        return;
-    }
-
-    state.activeDrawLocks[strGameId] = true;
-    await redis.set(getActiveDrawLockKey(strGameId), "true");
-
-    console.log(`🚀 Attempting to start countdown for game ${strGameId}`);
-
-    try {
-        // --- 1. CLEANUP essential Redis keys and intervals ---
-        await Promise.all([
-            redis.del(getGameActiveKey(strGameId)),
-            redis.del(getCountdownKey(strGameId)),
-            redis.del(getGameDrawStateKey(strGameId)),
-            redis.del(getGameDrawsKey(strGameId)),
+        const [redisHasLock, redisIsActive] = await Promise.all([
+            redis.get(getActiveDrawLockKey(strGameId)),
+            redis.get(getGameActiveKey(strGameId))
         ]);
 
-        if (state.countdownIntervals[strGameId]) {
-            clearInterval(state.countdownIntervals[strGameId]);
-            delete state.countdownIntervals[strGameId];
-        }
-        if (state.drawIntervals[strGameId]) {
-            clearInterval(state.drawIntervals[strGameId]);
-            delete state.drawIntervals[strGameId];
-        }
-        if (state.drawStartTimeouts[strGameId]) {
-            clearTimeout(state.drawStartTimeouts[strGameId]);
-            delete state.drawStartTimeouts[strGameId];
+        if (redisHasLock === "true" || redisIsActive === "true") {
+            console.log(`⚠️ Game ${strGameId} is already active or locked in Redis. Ignoring gameCount event.`);
+            return; // Return without clearing lock, as it wasn't acquired by THIS invocation
         }
 
-        // 2. Prepare shuffled numbers and save to Redis
-        const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
-        await redis.set(getGameDrawStateKey(strGameId), JSON.stringify({ numbers, index: 0 }));
+        // --- Acquire the Lock NOW ---
+        // This part must execute if the above checks pass
+        state.activeDrawLocks[strGameId] = true;
+        await redis.set(getActiveDrawLockKey(strGameId), "true");
 
-        // 3. Create or update GameControl in DB
-        let gameControlDoc = await GameControl.findOne({ gameId: strGameId });
-        const sessionId = uuidv4();
-        state.gameSessionIds[strGameId] = sessionId;
-        await redis.set(`gameSessionId:${strGameId}`, sessionId, 'EX', 3600 * 24);
+        console.log(`🚀 Attempting to start countdown for game ${strGameId}`);
 
-        const stakeAmount = Number(strGameId);
+        try {
+            // --- NEW CHECK: Player count from GameControl BEFORE any extensive setup ---
+            // Place it here, *after* you've acquired the lock.
+            // If this check fails, you MUST release the lock you just acquired.
+            const currentGameControl = await GameControl.findOne({ gameId: strGameId });
+            if (!currentGameControl || !Array.isArray(currentGameControl.players) || currentGameControl.players.length < 2) { // Assuming min 2 players to start
+                console.log(`🛑 Not enough players in GameControl to start game ${strGameId}. Found: ${currentGameControl?.players.length || 0}`);
+                
+                // --- Crucial: Release the lock if aborting early ---
+                delete state.activeDrawLocks[strGameId];
+                await redis.del(getActiveDrawLockKey(strGameId));
+                await syncGameIsActive(strGameId, false); // Mark game as inactive in Redis
 
-        if (!gameControlDoc) {
-            gameControlDoc = await GameControl.create({
-                sessionId,
-                gameId: strGameId,
-                stakeAmount,
-                totalCards: 0,
-                prizeAmount: 0,
-                isActive: false,
-                createdBy: "system",
-            });
-        } else {
-            gameControlDoc.sessionId = sessionId;
-            gameControlDoc.stakeAmount = stakeAmount;
-            gameControlDoc.totalCards = 0;
-            gameControlDoc.prizeAmount = 0;
-            gameControlDoc.isActive = false;
-            gameControlDoc.createdAt = new Date();
-            await gameControlDoc.save();
-        }
+                // Inform the client that the game is not starting
+                io.to(strGameId).emit("gameNotStarted", { gameId: strGameId, message: "Not enough players in GameControl to start the game." });
+                return; // Abort the gameCount process
+            }
+            console.log(`✅ GameControl has ${currentGameControl.players.length} players before full setup for ${strGameId}.`);
 
-        // 4. Countdown logic
-        let countdownValue = 15;
-        await redis.set(getCountdownKey(strGameId), countdownValue.toString());
+            // --- 1. CLEANUP essential Redis keys and intervals ---
+            // This part and everything after only executes if the initial player count is sufficient.
+            await Promise.all([
+                redis.del(getGameActiveKey(strGameId)),
+                redis.del(getCountdownKey(strGameId)),
+                redis.del(getGameDrawStateKey(strGameId)),
+                redis.del(getGameDrawsKey(strGameId)),
+            ]);
 
-        io.to(strGameId).emit("countdownTick", { countdown: countdownValue });
-
-        state.countdownIntervals[strGameId] = setInterval(async () => {
-            if (countdownValue > 0) {
-                countdownValue--;
-                io.to(strGameId).emit("countdownTick", { countdown: countdownValue });
-                await redis.set(getCountdownKey(strGameId), countdownValue.toString());
-            } else {
+            if (state.countdownIntervals[strGameId]) {
                 clearInterval(state.countdownIntervals[strGameId]);
                 delete state.countdownIntervals[strGameId];
-                await redis.del(getCountdownKey(strGameId));
-
-                const playersAtCountdownEnd = await redis.sMembers(getGameRoomsKey(strGameId));
-                let successfulDeductions = 0;
-                let prizeAmount = 0;
-                let successfullyDeductedPlayers = []; // New array to track players who need a refund if game aborts
-
-                for (const telegramId of playersAtCountdownEnd) {
-                    const debugUser = await User.findOne({ telegramId });
-                    if (debugUser) {
-                        console.log(`[DEBUG] Player ${telegramId} state: balance=${debugUser.balance}, reservedForGameId=${debugUser.reservedForGameId}, expectedGameId=${strGameId}`);
-                    } else {
-                        console.log(`[DEBUG] Player ${telegramId} not found in database.`);
-                    }
-
-                    try {
-                        const user = await User.findOneAndUpdate(
-                            { telegramId, reservedForGameId: strGameId, balance: { $gte: stakeAmount } },
-                            {
-                                $inc: { balance: -stakeAmount },
-                                $unset: { reservedForGameId: "" }
-                            },
-                            { new: true }
-                        );
-
-                        if (user) {
-                            successfulDeductions++;
-                            finalPlayerList.push(telegramId);
-                            successfullyDeductedPlayers.push(telegramId); // Add to the refund list
-                            console.log(`✅ Balance deducted for player ${telegramId}. Final balance: ${user.balance}.`);
-                            // 🟢 FIX: Update Redis cache after successful deduction
-                            await redis.set(`userBalance:${telegramId}`, user.balance.toString(), "EX", 60);
-                        } else {
-                            console.log(`⚠️ Failed to deduct balance for player ${telegramId}. Removing from game.`);
-                            const userAfterUnset = await User.updateOne(
-                                { telegramId },
-                                { $unset: { reservedForGameId: "" } } // 🟢 ADDED: Unset reservation even if deduction fails
-                            );
-                            // 🟢 FIX: Update Redis cache after a failed deduction to reflect the unchanged balance
-                            if (userAfterUnset) {
-                                const userDoc = await User.findOne({ telegramId });
-                                if (userDoc) {
-                                    await redis.set(`userBalance:${telegramId}`, userDoc.balance.toString(), "EX", 60);
-                                }
-                            }
-                            await redis.sRem(getGameRoomsKey(strGameId), telegramId);
-                            await GameControl.updateOne(
-                                { gameId: strGameId },
-                                { $pull: { players: telegramId } }
-                            );
-                        }
-                    } catch (error) {
-                        console.error(`❌ Error deducting balance for player ${telegramId}:`, error);
-                        await User.updateOne(
-                            { telegramId },
-                            { $unset: { reservedForGameId: "" } }
-                        );
-                        // 🟢 FIX: Update Redis cache after error to reflect the unchanged balance
-                        const userDoc = await User.findOne({ telegramId });
-                        if (userDoc) {
-                            await redis.set(`userBalance:${telegramId}`, userDoc.balance.toString(), "EX", 60);
-                        }
-                    }
-                }
-                
-                prizeAmount = stakeAmount * successfulDeductions;
-                console.log(`✅ Final prize amount calculated: ${prizeAmount} from ${successfulDeductions} players.`);
-
-                if (successfulDeductions < 2) {
-                    console.log("🛑 Not enough players to start the game after deductions. Refunding stakes.");
-                    
-                    // 🟢 FIX: Use findOneAndUpdate to ensure the refund is successful and visible
-                    for (const playerId of successfullyDeductedPlayers) {
-                        console.log(`💰 Refunding stake for player ${playerId}`);
-                        const refundedUser = await User.findOneAndUpdate(
-                            { telegramId: playerId },
-                            {
-                                $inc: { balance: stakeAmount },
-                                $unset: { reservedForGameId: "" }
-                            },
-                            { new: true } // Return the updated document
-                        );
-
-                        if (refundedUser) {
-                            console.log(`✅ Refund successful for player ${playerId}. New balance: ${refundedUser.balance}`);
-                            // 🟢 FIX: Update Redis cache after a successful refund
-                            await redis.set(`userBalance:${playerId}`, refundedUser.balance.toString(), "EX", 60);
-                        } else {
-                            console.error(`❌ FATAL: Refund failed for player ${playerId}. User document not found or update failed.`);
-                        }
-                    }
-
-                    io.to(strGameId).emit("gameNotStarted", {
-                        gameId: strGameId,
-                        message: "Not enough players in game room to start. Your stake has been refunded.",
-                    });
-
-                    delete state.activeDrawLocks[strGameId];
-                    await redis.del(getActiveDrawLockKey(strGameId));
-                    await syncGameIsActive(strGameId, false);
-                    await resetRound(strGameId, io, state, redis);
-                    return;
-                }
-
-                await GameControl.findOneAndUpdate(
-                    { gameId: strGameId },
-                    {
-                        $set: {
-                            isActive: true,
-                            totalCards: successfulDeductions,
-                            prizeAmount: prizeAmount,
-                            players: finalPlayerList,
-                            createdAt: new Date(),
-                        },
-                    }
-                );
-                await syncGameIsActive(strGameId, true);
-
-                console.log(`✅ Game ${strGameId} is now ACTIVE with ${successfulDeductions} players. Prize: ${prizeAmount}`);
-                
-                // 🟢 NEW: Clear the reservation lock for all participating players
-                await clearUserReservations(finalPlayerList);
-
-                await clearGameSessions(strGameId, redis, state, io);
-                await redis.set(getGameActiveKey(strGameId), "true");
-                state.gameIsActive[strGameId] = true;
-                state.gameReadyToStart[strGameId] = true;
-                
-                io.to(strGameId).emit("cardsReset", { gameId: strGameId });
-                io.to(strGameId).emit("gameStart", { gameId: strGameId });
-
-                if (!state.drawIntervals[strGameId]) {
-                    await startDrawing(strGameId, io, state, redis);
-                }
             }
-        }, 1000);
-    } catch (err) {
-        console.error(`❌ Error in gameCount setup for ${gameId}:`, err.message);
+            if (state.drawIntervals[strGameId]) {
+                clearInterval(state.drawIntervals[strGameId]);
+                delete state.drawIntervals[strGameId];
+            }
+            if (state.drawStartTimeouts[strGameId]) {
+                clearTimeout(state.drawStartTimeouts[strGameId]);
+                delete state.drawStartTimeouts[strGameId];
+            }
 
-        delete state.activeDrawLocks[strGameId];
-        await redis.del(getActiveDrawLockKey(strGameId));
-        await syncGameIsActive(strGameId, false);
+            // 2. Prepare shuffled numbers and save to Redis
+            const numbers = Array.from({ length: 75 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
+            await redis.set(getGameDrawStateKey(strGameId), JSON.stringify({ numbers, index: 0 }));
 
-        delete state.gameDraws[strGameId];
-        delete state.countdownIntervals[strGameId];
-        delete state.gameSessionIds[strGameId];
-        await redis.del(`gameSessionId:${strGameId}`);
+            // 3. Create or update GameControl in DB
+            let gameControlDoc = currentGameControl; // Use the already fetched doc
+            const sessionId = uuidv4();
+            state.gameSessionIds[strGameId] = sessionId;
+            await redis.set(`gameSessionId:${strGameId}`, sessionId, 'EX', 3600 * 24);
 
-        await Promise.all([
-            redis.del(getGameDrawsKey(strGameId)),
-            redis.del(getCountdownKey(strGameId)),
-            redis.del(getGameActiveKey(strGameId)),
-            redis.del(getGameDrawStateKey(strGameId)),
-        ]);
-        io.to(strGameId).emit("gameNotStarted", { gameId: strGameId, message: "Error during game setup. Please try again." });
-    }
-});
+            const stakeAmount = Number(strGameId);
+
+            // Update existing gameControlDoc properties
+            gameControlDoc.sessionId = sessionId;
+            gameControlDoc.stakeAmount = stakeAmount;
+            gameControlDoc.totalCards = 0; // Will be updated after deductions
+            gameControlDoc.prizeAmount = 0; // Will be updated after deductions
+            gameControlDoc.isActive = false; // Still false during countdown
+            gameControlDoc.createdAt = new Date();
+            await gameControlDoc.save();
+
+            // 4. Countdown logic
+            let countdownValue = 15;
+            await redis.set(getCountdownKey(strGameId), countdownValue.toString());
+
+            io.to(strGameId).emit("countdownTick", { countdown: countdownValue });
+
+            state.countdownIntervals[strGameId] = setInterval(async () => {
+                if (countdownValue > 0) {
+                    countdownValue--;
+                    io.to(strGameId).emit("countdownTick", { countdown: countdownValue });
+                    await redis.set(getCountdownKey(strGameId), countdownValue.toString());
+                } else {
+                    clearInterval(state.countdownIntervals[strGameId]);
+                    delete state.countdownIntervals[strGameId];
+                    await redis.del(getCountdownKey(strGameId));
+
+                    // Re-fetch players from GameControl.players for deduction phase
+                    const currentPlayersInGameControl = await GameControl.findOne({ gameId: strGameId }).select('players -_id');
+                    const playersForDeduction = currentPlayersInGameControl ? currentPlayersInGameControl.players.map(String) : [];
+
+                    // This check remains important as players might leave during the countdown
+                    if (playersForDeduction.length < 2) {
+                        console.log(`🛑 Not enough players (${playersForDeduction.length}) in GameControl to proceed with deductions for ${strGameId}. Aborting.`);
+                        io.to(strGameId).emit("gameNotStarted", { gameId: strGameId, message: "Not enough players to start the game." });
+                        // No need to refund here, as deductions haven't started.
+                        delete state.activeDrawLocks[strGameId];
+                        await redis.del(getActiveDrawLockKey(strGameId));
+                        await syncGameIsActive(strGameId, false);
+                        await resetRound(strGameId, io, state, redis); // Cleanup game state
+                        return;
+                    }
+                    console.log(`✅ Proceeding with deductions for ${playersForDeduction.length} players from GameControl.players.`);
+
+
+                    let successfulDeductions = 0;
+                    let prizeAmount = 0;
+                    let successfullyDeductedPlayers = []; 
+
+                    for (const telegramId of playersForDeduction) {
+                        const debugUser = await User.findOne({ telegramId });
+                        if (debugUser) {
+                            console.log(`[DEBUG] Player ${telegramId} state: balance=${debugUser.balance}, reservedForGameId=${debugUser.reservedForGameId}, expectedGameId=${strGameId}`);
+                        } else {
+                            console.log(`[DEBUG] Player ${telegramId} not found in database.`);
+                        }
+
+                        try {
+                            const user = await User.findOneAndUpdate(
+                                { telegramId, reservedForGameId: strGameId, balance: { $gte: stakeAmount } },
+                                {
+                                    $inc: { balance: -stakeAmount },
+                                    $unset: { reservedForGameId: "" }
+                                },
+                                { new: true }
+                            );
+
+                            if (user) {
+                                successfulDeductions++;
+                                finalPlayerList.push(telegramId);
+                                successfullyDeductedPlayers.push(telegramId); 
+                                console.log(`✅ Balance deducted for player ${telegramId}. Final balance: ${user.balance}.`);
+                                await redis.set(`userBalance:${telegramId}`, user.balance.toString(), "EX", 60);
+                            } else {
+                                console.log(`⚠️ Failed to deduct balance for player ${telegramId}. Removing from game.`);
+                                const userAfterUnset = await User.updateOne(
+                                    { telegramId },
+                                    { $unset: { reservedForGameId: "" } } 
+                                );
+                                if (userAfterUnset) {
+                                    const userDoc = await User.findOne({ telegramId });
+                                    if (userDoc) {
+                                        await redis.set(`userBalance:${telegramId}`, userDoc.balance.toString(), "EX", 60);
+                                    }
+                                }
+                                await redis.sRem(getGameRoomsKey(strGameId), telegramId);
+                                await GameControl.updateOne(
+                                    { gameId: strGameId },
+                                    { $pull: { players: telegramId } }
+                                );
+                            }
+                        } catch (error) {
+                            console.error(`❌ Error deducting balance for player ${telegramId}:`, error);
+                            await User.updateOne(
+                                { telegramId },
+                                { $unset: { reservedForGameId: "" } }
+                            );
+                            const userDoc = await User.findOne({ telegramId });
+                            if (userDoc) {
+                                await redis.set(`userBalance:${telegramId}`, userDoc.balance.toString(), "EX", 60);
+                            }
+                        }
+                    }
+                    
+                    prizeAmount = stakeAmount * successfulDeductions;
+                    console.log(`✅ Final prize amount calculated: ${prizeAmount} from ${successfulDeductions} players.`);
+
+                    if (successfulDeductions < 2) {
+                        console.log("🛑 Not enough players to start the game after deductions. Refunding stakes.");
+                        
+                        for (const playerId of successfullyDeductedPlayers) {
+                            console.log(`💰 Refunding stake for player ${playerId}`);
+                            const refundedUser = await User.findOneAndUpdate(
+                                { telegramId: playerId },
+                                {
+                                    $inc: { balance: stakeAmount },
+                                    $unset: { reservedForGameId: "" }
+                                },
+                                { new: true }
+                            );
+
+                            if (refundedUser) {
+                                console.log(`✅ Refund successful for player ${playerId}. New balance: ${refundedUser.balance}`);
+                                await redis.set(`userBalance:${playerId}`, refundedUser.balance.toString(), "EX", 60);
+                            } else {
+                                console.error(`❌ FATAL: Refund failed for player ${playerId}. User document not found or update failed.`);
+                            }
+                        }
+
+                        io.to(strGameId).emit("gameNotStarted", {
+                            gameId: strGameId,
+                            message: "Not enough players in game room to start. Your stake has been refunded.",
+                        });
+
+                        delete state.activeDrawLocks[strGameId];
+                        await redis.del(getActiveDrawLockKey(strGameId));
+                        await syncGameIsActive(strGameId, false);
+                        await resetRound(strGameId, io, state, redis);
+                        return;
+                    }
+
+                    await GameControl.findOneAndUpdate(
+                        { gameId: strGameId },
+                        {
+                            $set: {
+                                isActive: true,
+                                totalCards: successfulDeductions,
+                                prizeAmount: prizeAmount,
+                                players: finalPlayerList, 
+                                createdAt: new Date(),
+                            },
+                        }
+                    );
+                    await syncGameIsActive(strGameId, true);
+
+                    console.log(`✅ Game ${strGameId} is now ACTIVE with ${successfulDeductions} players. Prize: ${prizeAmount}`);
+                    
+                    await clearUserReservations(finalPlayerList);
+
+                    await clearGameSessions(strGameId, redis, state, io);
+                    await redis.set(getGameActiveKey(strGameId), "true");
+                    state.gameIsActive[strGameId] = true;
+                    state.gameReadyToStart[strGameId] = true;
+                    
+                    io.to(strGameId).emit("cardsReset", { gameId: strGameId });
+                    io.to(strGameId).emit("gameStart", { gameId: strGameId });
+
+                    if (!state.drawIntervals[strGameId]) {
+                        await startDrawing(strGameId, io, state, redis);
+                    }
+                }
+            }, 1000);
+        } catch (err) {
+            console.error(`❌ Error in gameCount setup for ${gameId}:`, err.message);
+
+            delete state.activeDrawLocks[strGameId];
+            await redis.del(getActiveDrawLockKey(strGameId));
+            await syncGameIsActive(strGameId, false);
+
+            if (state.countdownIntervals[strGameId]) {
+                clearInterval(state.countdownIntervals[strGameId]);
+                delete state.countdownIntervals[strGameId];
+            }
+            if (state.drawIntervals[strGameId]) {
+                clearInterval(state.drawIntervals[strGameId]);
+                delete state.drawIntervals[strGameId];
+            }
+            if (state.drawStartTimeouts[strGameId]) {
+                clearTimeout(state.drawStartTimeouts[strGameId]);
+                delete state.drawStartTimeouts[strGameId];
+            }
+
+            delete state.gameDraws[strGameId];
+            delete state.gameSessionIds[strGameId];
+            await redis.del(`gameSessionId:${strGameId}`);
+
+            await Promise.all([
+                redis.del(getGameDrawsKey(strGameId)),
+                redis.del(getCountdownKey(strGameId)),
+                redis.del(getGameActiveKey(strGameId)),
+                redis.del(getGameDrawStateKey(strGameId)),
+                redis.del(getActiveDrawLockKey(strGameId)), 
+            ]);
+            io.to(strGameId).emit("gameNotStarted", { gameId: strGameId, message: "Error during game setup. Please try again." });
+        }
+    });
 
 
 
