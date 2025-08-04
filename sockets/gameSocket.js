@@ -1274,7 +1274,11 @@ socket.on("gameCount", async ({ gameId }) => {
                         console.log(`Game ${strGameId} has been fully reset.`);
                     }
                 };
-            } else if (disconnectingPhase === 'joinGame') {
+
+            } 
+            
+            else if (disconnectingPhase === 'joinGame') {
+                console.log(`👀 Phase detection: disconnectedPhase = '${disconnectedPhase}', userPayload =`, userPayload);
                 gracePeriodDuration = JOIN_GAME_GRACE_PERIOD_MS;
                 cleanupFunction = async () => {
                     console.log(`⏱️ JoinGame grace period expired for User: ${strTelegramId}, Game: ${strGameId}. Performing joinGame-specific cleanup.`);
@@ -1282,6 +1286,8 @@ socket.on("gameCount", async ({ gameId }) => {
 
                     // For joinGame phase, primary removal is from gameRooms
                     await redis.sRem(`gameRooms:${strGameId}`, strTelegramId);
+                    game.players = game.players.filter(id => id !== strTelegramId);  // Remove from DB array
+                    await game.save();  // Save DB changes
                     console.log(`👤 ${strTelegramId} removed from gameRooms after joinGame grace period expiry for game ${strGameId}.`);
 
                     const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
