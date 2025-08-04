@@ -1290,8 +1290,9 @@ socket.on("gameCount", async ({ gameId }) => {
                     if (gameControl) {
                     gameControl.players = gameControl.players.filter(id => id !== strTelegramId);
                     await gameControl.save();
+                    console.log ("🕸️🕸️🏠 player is removed from gamecontrol", strGameId, strTelegramId);
                     }
-                    await game.save();  // Save DB changes
+                   
                     console.log(`👤 ${strTelegramId} removed from gameRooms after joinGame grace period expiry for game ${strGameId}.`);
 
                     const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
