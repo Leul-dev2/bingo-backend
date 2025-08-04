@@ -1121,7 +1121,6 @@ socket.on("gameCount", async ({ gameId }) => {
                 }
             }
         }
-    console.log(`[DISCONNECT DEBUG] Processing disconnect for User: ${strTelegramId}, Game: ${strGameId}, Socket: ${socket.id}, Final Deduced Phase: ${disconnectedPhase}`);
 
         if (!userPayload) {
             console.log("❌ No relevant user session info found for this disconnected socket ID. Skipping full disconnect cleanup.");
@@ -1133,6 +1132,7 @@ socket.on("gameCount", async ({ gameId }) => {
         const strTelegramId = String(telegramId);
 
         console.log(`[DISCONNECT DEBUG] Processing disconnect for User: ${strTelegramId}, Game: ${strGameId}, Socket: ${socket.id}, Phase: ${disconnectedPhase}`);
+         console.log(`[DISCONNECT DEBUG] Processing disconnect for User: ${strTelegramId}, Game: ${strGameId}, Socket: ${socket.id}, Final Deduced Phase: ${disconnectedPhase}`);
 
         // --- Initial cleanup for the specific disconnected socket based on its phase ---
         await Promise.all([
