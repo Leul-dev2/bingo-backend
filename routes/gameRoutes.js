@@ -4,6 +4,7 @@ const User = require("../models/user");
 const GameControl = require('../models/GameControl');
 const GameCard = require("../models/GameCard");
 const redis = require("../utils/redisClient"); // Your Redis client import
+const { v4: uuidv4 } = require('uuid'); // 🟢 Import UUID library
 
 // --- IMPORTANT: Define these default values before your router.post block ---
 // DEFAULT_GAME_STAKE_AMOUNT is removed as gameId will now provide the stake.
@@ -33,7 +34,13 @@ router.post("/start", async (req, res) => {
             // Prize is still initialized to 0, as it will be calculated later
             const newGamePrizeAmount = 0; 
 
+            // 🟢 Generate a unique UUID for the new game session
+            const newGameSessionId = uuidv4();
+            console.log(`Generated new GameSessionId: ${newGameSessionId}`);
+
+
             game = await GameControl.create({
+                GameSessionId: newGameSessionId, // 🟢 Include the UUID here
                 gameId: gameId,
                 isActive: DEFAULT_IS_ACTIVE,
                 createdBy: DEFAULT_CREATED_BY,
@@ -95,21 +102,22 @@ router.post("/start", async (req, res) => {
             });
         }
 
-        // Update players list in MongoDB
-        await GameControl.updateOne(
-            { gameId },
-            { $addToSet: { players: telegramId } }
-        );
+ // 🟢 Use the currentSessionId to find and update the specific game document
+        await GameControl.updateOne(
+            { GameSessionId: currentSessionId }, // 🟢 Changed from { gameId }
+            { $addToSet: { players: telegramId } }
+        );
 
-        // Add to Redis sets for real-time membership checks
-        await redis.sAdd(`gameRooms:${gameId}`, telegramId);
+        // Add to Redis sets for real-time membership checks (still using gameId for the room name)
+        await redis.sAdd(`gameRooms:${gameId}`, telegramId);
 
-        return res.status(200).json({
-            success: true,
-            gameId,
-            telegramId,
-            message: "Joined game successfully. Your stake has been reserved.",
-        });
+        return res.status(200).json({
+            success: true,
+            gameId,
+            telegramId,
+            message: "Joined game successfully. Your stake has been reserved.",
+            GameSessionId: currentSessionId, // 🟢 You can also return this to the client
+        });
 
     } catch (error) {
         console.error("🔥 Game Start Error:", error);

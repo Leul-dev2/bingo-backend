@@ -348,101 +348,111 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
 
     // --- UPDATED: socket.on("joinGame") ---
-   socket.on("joinGame", async ({ gameId, telegramId }) => {
-    console.log("joinGame is invoked 🔥🔥🔥")
-    try {
-        const strGameId = String(gameId);
-        const strTelegramId = String(telegramId);
+  socket.on("joinGame", async ({ gameId, GameSessionId, telegramId }) => { // 🟢 Accept GameSessionId
+    console.log("joinGame is invoked 🔥🔥🔥");
+    try {
+        const strGameId = String(gameId);
+        const strGameSessionId = String(GameSessionId); // 🟢 Capture as a string
+        const strTelegramId = String(telegramId);
 
-        // Validate user is registered in the game via MongoDB
-        const game = await GameControl.findOne({ gameId: strGameId });
-        if (!game || !game.players.includes(strTelegramId)) {
-            console.warn(`🚫 Blocked unpaid user ${strTelegramId} from joining game ${strGameId}`);
+        // Validate user is registered in the game via MongoDB
+        // 🟢 Use GameSessionId to find the specific game round
+        const game = await GameControl.findOne({ GameSessionId: strGameSessionId });
+        
+        if (!game || !game.players.includes(strTelegramId)) {
+            console.warn(`🚫 Blocked user ${strTelegramId} from joining game session ${strGameSessionId}`);
 
-            // 🧠 Check if the game already ended and has winner info
-            const winnerRaw = await redis.get(`winnerInfo:${strGameId}`);
-            if (winnerRaw) {
-                const winnerInfo = JSON.parse(winnerRaw);
-                console.log(`[Reconnected] Emitting winnerConfirmed to ${strTelegramId} for game ${strGameId}`);
-                socket.emit("winnerConfirmed", winnerInfo);
-                return;
-            }
+            // 🧠 Check if the game already ended and has winner info (using the GameSessionId)
+            const winnerRaw = await redis.get(`winnerInfo:${strGameSessionId}`); // 🟢 Use GameSessionId for Redis key
+            if (winnerRaw) {
+                const winnerInfo = JSON.parse(winnerRaw);
+                console.log(`[Reconnected] Emitting winnerConfirmed to ${strTelegramId} for session ${strGameSessionId}`);
+                socket.emit("winnerConfirmed", winnerInfo);
+                return;
+            }
 
-            // If no winner info, just send generic error
-            socket.emit("joinError", { message: "You are not registered in this game." });
-            return;
-        }
+            // If no winner info, just send generic error
+            socket.emit("joinError", { message: "You are not registered in this game." });
+            return;
+        }
 
-        // Store essential info for disconnect handling for *this* specific phase and socket
-        await redis.hSet(`joinGameSocketsInfo`, socket.id, JSON.stringify({
-            telegramId: strTelegramId,
-            gameId: strGameId,
-            phase: 'joinGame'
-        }));
-        await redis.set(`activeSocket:${strTelegramId}:${socket.id}`, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
-        console.log(`Backend: Socket ${socket.id} for ${strTelegramId} set up in 'joinGame' phase.`);
+        // Store essential info for disconnect handling for *this* specific phase and socket
+        await redis.hSet(`joinGameSocketsInfo`, socket.id, JSON.stringify({
+            telegramId: strTelegramId,
+            gameId: strGameId,
+            GameSessionId: strGameSessionId, // 🟢 Store GameSessionId in Redis
+            phase: 'joinGame'
+        }));
+        await redis.set(`activeSocket:${strTelegramId}:${socket.id}`, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
+        console.log(`Backend: Socket ${socket.id} for ${strTelegramId} set up in 'joinGame' phase.`);
 
 
-        // Add player to Redis set for gameRooms (represents overall game presence)
-        await redis.sAdd(`gameRooms:${strGameId}`, strTelegramId);
-        socket.join(strGameId); // Join the socket.io room
+        // Add player to Redis set for gameRooms (represents overall game presence)
+        // We can still use gameId for the main room since players of a specific GameId type
+        // will join that room regardless of the session.
+        await redis.sAdd(`gameRooms:${strGameId}`, strTelegramId);
+        socket.join(strGameId); // Join the socket.io room
 
-        const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
-        io.to(strGameId).emit("playerCountUpdate", {
-            gameId: strGameId,
-            playerCount,
-        });
-        console.log(`[joinGame] Player ${strTelegramId} joined game ${strGameId}, total players now: ${playerCount}`);
+        const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
+        io.to(strGameId).emit("playerCountUpdate", {
+            gameId: strGameId,
+            playerCount,
+        });
+        console.log(`[joinGame] Player ${strTelegramId} joined game ${strGameId}, total players now: ${playerCount}`);
 
-        // Confirm to the socket the gameId and telegramId
-        socket.emit("gameId", { gameId: strGameId, telegramId: strTelegramId });
-
-        // --- NEW LOGIC: Retrieve and send previously drawn numbers ---
-        const gameDrawsKey = getGameDrawsKey(strGameId); // Assuming getGameDrawsKey is available
-        const drawnNumbersRaw = await redis.lRange(gameDrawsKey, 0, -1); // Get all drawn numbers
-        const drawnNumbers = drawnNumbersRaw.map(Number); // Convert them back to numbers if stored as strings
-
-        // Format the drawn numbers with their letters if needed for client display
-        const formattedDrawnNumbers = drawnNumbers.map(number => {
-            const letterIndex = Math.floor((number - 1) / 15);
-            const letter = ["B", "I", "N", "G", "O"][letterIndex];
-            return { number, label: `${letter}-${number}` };
+        // Confirm to the socket the gameId and telegramId
+        socket.emit("gameId", { 
+            gameId: strGameId, 
+            GameSessionId: strGameSessionId, // 🟢 Emit the session ID back to the client
+            telegramId: strTelegramId 
         });
 
-        if (formattedDrawnNumbers.length > 0) {
-            socket.emit("drawnNumbersHistory", {
-                gameId: strGameId,
-                history: formattedDrawnNumbers
-            });
-            console.log(`[joinGame] Sent ${formattedDrawnNumbers.length} historical drawn numbers to ${strTelegramId} for game ${strGameId}.`);
-        }
-        // --- END NEW LOGIC ---
+        // --- NEW LOGIC: Retrieve and send previously drawn numbers ---
+        // 🟢 Use a key that includes the GameSessionId to be specific to this round
+        const gameDrawsKey = getGameDrawsKey(strGameSessionId); 
+        const drawnNumbersRaw = await redis.lRange(gameDrawsKey, 0, -1);
+        const drawnNumbers = drawnNumbersRaw.map(Number); 
 
-    } catch (err) {
-        console.error("❌ Redis error in joinGame:", err);
-        socket.emit("joinError", { message: "Failed to join game. Please refresh or retry." });
-    }
+        const formattedDrawnNumbers = drawnNumbers.map(number => {
+            const letterIndex = Math.floor((number - 1) / 15);  
+            const letter = ["B", "I", "N", "G", "O"][letterIndex];
+            return { number, label: `${letter}-${number}` };
+        });
+
+        if (formattedDrawnNumbers.length > 0) {
+            socket.emit("drawnNumbersHistory", {
+                gameId: strGameId,
+                GameSessionId: strGameSessionId, // 🟢 Also send the SessionId in the history
+                history: formattedDrawnNumbers
+            });
+            console.log(`[joinGame] Sent ${formattedDrawnNumbers.length} historical drawn numbers to ${strTelegramId} for session ${strGameSessionId}.`);
+        }
+    } catch (err) {
+        console.error("❌ Redis error in joinGame:", err);
+        socket.emit("joinError", { message: "Failed to join game. Please refresh or retry." });
+    }
 });
 
 
 
  
-const clearUserReservations = async (playerIds) => {
-    if (!playerIds || playerIds.length === 0) return;
+    const clearUserReservations = async (playerIds) => {
+        if (!playerIds || playerIds.length === 0) return;
 
-    try {
-        await User.updateMany(
-            { telegramId: { $in: playerIds } },
-            { $unset: { reservedForGameId: "" } }
-        );
-        console.log(`✅ Reservations cleared for ${playerIds.length} players.`);
-    } catch (error) {
-        console.error("❌ Error clearing user reservations:", error);
-    }
-};
+        try {
+            await User.updateMany(
+                { telegramId: { $in: playerIds } },
+                { $unset: { reservedForGameId: "" } }
+            );
+            console.log(`✅ Reservations cleared for ${playerIds.length} players.`);
+        } catch (error) {
+            console.error("❌ Error clearing user reservations:", error);
+        }
+    };
 
-    socket.on("gameCount", async ({ gameId }) => {
+    socket.on("gameCount", async ({ gameId, GameSessionId }) => {
         const strGameId = String(gameId);
+        const strGameSessionId = String(GameSessionId); // 🟢 Capture the GameSessionId
         let finalPlayerList = []; // Array to store players who successfully paid their stake
 
         // --- CRITICAL: Acquire Lock and Check State FIRST ---
@@ -473,7 +483,7 @@ const clearUserReservations = async (playerIds) => {
             // --- NEW CHECK: Player count from GameControl BEFORE any extensive setup ---
             // Place it here, *after* you've acquired the lock.
             // If this check fails, you MUST release the lock you just acquired.
-            const currentGameControl = await GameControl.findOne({ gameId: strGameId });
+             const currentGameControl = await GameControl.findOne({ GameSessionId: strGameSessionId });
             if (!currentGameControl || !Array.isArray(currentGameControl.players) || currentGameControl.players.length < 2) { // Assuming min 2 players to start
                 console.log(`🛑 Not enough players in GameControl to start game ${strGameId}. Found: ${currentGameControl?.players.length || 0}`);
                 
@@ -523,7 +533,7 @@ const clearUserReservations = async (playerIds) => {
             const stakeAmount = Number(strGameId);
 
             // Update existing gameControlDoc properties
-            gameControlDoc.sessionId = sessionId;
+            //gameControlDoc.sessionId = sessionId;
             gameControlDoc.stakeAmount = stakeAmount;
             gameControlDoc.totalCards = 0; // Will be updated after deductions
             gameControlDoc.prizeAmount = 0; // Will be updated after deductions
@@ -548,7 +558,7 @@ const clearUserReservations = async (playerIds) => {
                     await redis.del(getCountdownKey(strGameId));
 
                     // Re-fetch players from GameControl.players for deduction phase
-                    const currentPlayersInGameControl = await GameControl.findOne({ gameId: strGameId }).select('players -_id');
+                    const currentPlayersInGameControl = await GameControl.findOne({GameSessionId: strGameSessionId }).select('players -_id');
                     const playersForDeduction = currentPlayersInGameControl ? currentPlayersInGameControl.players.map(String) : [];
 
                     // This check remains important as players might leave during the countdown
@@ -608,6 +618,7 @@ const clearUserReservations = async (playerIds) => {
                                 await redis.sRem(getGameRoomsKey(strGameId), telegramId);
                                 await GameControl.updateOne(
                                     { gameId: strGameId },
+                                    { GameSessionId: strGameSessionId },
                                     { $pull: { players: telegramId } }
                                 );
                             }
@@ -663,6 +674,7 @@ const clearUserReservations = async (playerIds) => {
 
                     await GameControl.findOneAndUpdate(
                         { gameId: strGameId },
+                        { GameSessionId: strGameSessionId },
                         {
                             $set: {
                                 isActive: true,
@@ -712,7 +724,7 @@ const clearUserReservations = async (playerIds) => {
                 delete state.drawStartTimeouts[strGameId];
             }
 
-            delete state.gameDraws[strGameId];
+            delete state.gameDraws[strGameSessionId];
             delete state.gameSessionIds[strGameId];
             await redis.del(`gameSessionId:${strGameId}`);
 
@@ -730,10 +742,11 @@ const clearUserReservations = async (playerIds) => {
 
 
 
-  async function startDrawing(gameId, io, state, redis) { // Ensure state and redis are passed
-    const strGameId = String(gameId); // Ensure gameId is always a string for Redis keys
+  async function startDrawing(gameId, GameSessionId, io, state, redis) { // Ensure state and redis are passed
+    const strGameId = String(gameId);
+    const strGameSessionId = String(GameSessionId); // Ensure gameId is always a string for Redis keys
     const gameDrawStateKey = getGameDrawStateKey(strGameId);
-    const gameDrawsKey = getGameDrawsKey(strGameId);
+    const gameDrawsKey = getGameDrawsKey(strGameSessionId);
     const gameRoomsKey = getGameRoomsKey(strGameId);
     const activeGameKey = getGameActiveKey(strGameId);
 
@@ -823,7 +836,7 @@ const clearUserReservations = async (playerIds) => {
 
     //check winner
 
-    socket.on("checkWinner", async ({ telegramId, gameId, cartelaId, selectedNumbers}) => {
+    socket.on("checkWinner", async ({ telegramId, gameId, GameSessionId, cartelaId, selectedNumbers}) => {
       const selectedSet = new Set((selectedNumbers || []).map(Number));
 
 
@@ -867,7 +880,7 @@ const clearUserReservations = async (playerIds) => {
 
 
         // 4. If winner confirmed, call internal winner processing function
-        await processWinner({ telegramId, gameId, cartelaId, io, selectedSet, state, redis });
+        await processWinner({ telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis });
 
 
         //socket.emit("winnerConfirmed", { message: "Winner verified and processed!" });
@@ -883,14 +896,16 @@ const clearUserReservations = async (playerIds) => {
 
 
 
-    async function processWinner({ telegramId, gameId, cartelaId, io, selectedSet, state, redis }) {
+    async function processWinner({ telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis }) {
+    
+     const strGameSessionId = String(GameSessionId);
 
       console.log("process winner", cartelaId  );
       try {
         const sessionId = await redis.get(`gameSessionId:${gameId}`);
         if (!sessionId) throw new Error(`No session ID found for gameId ${gameId}`);
 
-        const gameData = await GameControl.findOne({ gameId: gameId.toString() });
+        const gameData = await GameControl.findOne({ GameSessionId: strGameSessionId });
         if (!gameData) throw new Error(`GameControl data not found for gameId ${gameId}`);
 
         const prizeAmount = gameData.prizeAmount;
@@ -913,7 +928,7 @@ const clearUserReservations = async (playerIds) => {
         const board = selectedCard?.card || [];
 
         // ✅ Add this block
-        const drawn = await redis.lRange(`gameDraws:${gameId}`, 0, -1);
+         const drawn = await redis.lRange(`gameDraws:${strGameSessionId}`, 0, -1);
         const drawnNumbers = new Set(drawn.map(Number));
 
         // ✅ Call pattern checker
@@ -930,10 +945,11 @@ const clearUserReservations = async (playerIds) => {
           winnerPattern,
           telegramId,
           gameId,
+           GameSessionId: strGameSessionId, // 🟢 Include the session ID in the emit
         });
 
         await GameHistory.create({
-          sessionId,
+          sessionId: strGameSessionId,
           gameId: gameId.toString(),
           username: winnerUser.username || "Unknown",
           telegramId,
@@ -952,7 +968,7 @@ const clearUserReservations = async (playerIds) => {
             if (!playerUser) continue;
 
             await GameHistory.create({
-              sessionId,
+              sessionId: strGameSessionId,
               gameId: gameId.toString(),
               username: playerUser.username || "Unknown",
               telegramId: playerTelegramId,
@@ -964,7 +980,7 @@ const clearUserReservations = async (playerIds) => {
           }
         }
 
-        await GameControl.findOneAndUpdate({ gameId: gameId.toString() }, { isActive: false });
+        await GameControl.findOneAndUpdate({ gameId: gameId.toString(), strGameSessionId }, { isActive: false });
         await syncGameIsActive(gameId, false);
 
 
@@ -991,7 +1007,7 @@ const clearUserReservations = async (playerIds) => {
         await Promise.all([
           redis.del(`gameRooms:${gameId}`),
           redis.del(`gameCards:${gameId}`),
-          redis.del(`gameDraws:${gameId}`),
+          redis.del(`gameDraws:${strGameSessionId}`),
           redis.del(`gameActive:${gameId}`),
           redis.del(`countdown:${gameId}`),
           redis.del(`activeDrawLock:${gameId}`),
@@ -1131,6 +1147,7 @@ const clearUserReservations = async (playerIds) => {
     let disconnectedPhase = null;
     let strTelegramId = null; // Declare here
     let strGameId = null;     // Declare here
+    let strGameSessionId = null; 
 
     // 1. Try to retrieve info from 'lobby' phase (userSelections)
     const userSelectionPayloadRaw = await redis.hGet("userSelections", socket.id);
@@ -1318,6 +1335,7 @@ const clearUserReservations = async (playerIds) => {
                     console.log(`🧹 Game ${strGameId} empty after lobby phase grace period. Triggering full game reset.`);
                     await GameControl.findOneAndUpdate(
                         { gameId: strGameId },
+                        { GameSessionId: strGameSessionId },
                         { isActive: false, totalCards: 0, players: [], endedAt: new Date() }
                     );
                     await syncGameIsActive(strGameId, false);
@@ -1334,7 +1352,7 @@ const clearUserReservations = async (playerIds) => {
 
                 // For joinGame phase, primary removal is from gameRooms
                 await redis.sRem(`gameRooms:${strGameId}`, strTelegramId);
-                const gameControl = await GameControl.findOne({ gameId: strGameId });
+                const gameControl = await GameControl.findOne({ gameId: strGameId, GameSessionId: strGameSessionId });
                 if (gameControl) {
                     gameControl.players = gameControl.players.filter(id => id !== Number(strTelegramId));
                     await gameControl.save();
@@ -1388,6 +1406,7 @@ const clearUserReservations = async (playerIds) => {
                     console.log(`🧹 Game ${strGameId} empty after joinGame phase grace period. Triggering full game reset.`);
                     await GameControl.findOneAndUpdate(
                         { gameId: strGameId },
+                        { GameSessionId: strGameSessionId },
                         { isActive: false, totalCards: 0, players: [], endedAt: new Date() }
                     );
                     await syncGameIsActive(strGameId, false);
@@ -1447,6 +1466,7 @@ const clearUserReservations = async (playerIds) => {
                 console.log(`🧹 No unique players left in game ${strGameId} across all phases after partial disconnect. Triggering full game reset.`);
                 await GameControl.findOneAndUpdate(
                     { gameId: strGameId },
+                    { GameSessionId: strGameSessionId },
                     { isActive: false, totalCards: 0, players: [], endedAt: new Date() }
                 );
                 await syncGameIsActive(strGameId, false);

@@ -1,7 +1,8 @@
 const mongoose = require('mongoose');
 
 const gameControlSchema = new mongoose.Schema({
-  gameId: { type: String, required: true },
+  GameSessionId: { type: String, required: true }, // unique ID per round
+  gameId: { type: String, required: true }, 
   isActive: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },
   createdBy: { type: String }, // adminId or telegramId
