@@ -7,41 +7,40 @@ const redis = require("../utils/redisClient"); // Your Redis client import
 const { v4: uuidv4 } = require('uuid'); // 🟢 Import UUID library
 
 // --- IMPORTANT: Define these default values before your router.post block ---
-// DEFAULT_GAME_STAKE_AMOUNT is removed as gameId will now provide the stake.
-const DEFAULT_GAME_TOTAL_CARDS = 1;   // A numeric default for cards (e.g., 75 cards)
-const FALLBACK_STAKE_AMOUNT = 10;      // A fallback stake if gameId is not a valid number, or <= 0
-const DEFAULT_CREATED_BY = 'System'; // Default creator if not specified
-const DEFAULT_IS_ACTIVE = false;  // Default status for a newly created game
+const DEFAULT_GAME_TOTAL_CARDS = 1;
+const FALLBACK_STAKE_AMOUNT = 10;
+const DEFAULT_CREATED_BY = 'System';
+const DEFAULT_IS_ACTIVE = false;
 
 router.post("/start", async (req, res) => {
-    // Frontend only sends gameId and telegramId, so destructure only those.
     const { gameId, telegramId, cardId } = req.body;
 
     let game; // Declare game variable outside try block for scope in catch
-    let newGameSessionId;
+    let currentSessionId; // 🟢 Use a single variable for the session ID
 
     try {
-        game = await GameControl.findOne({ gameId });
+        // 🟢 Find an existing game session that is not yet active (if you want to allow joining existing lobbies)
+        // If you always want to create a new session, you can remove the findOne and just create.
+        game = await GameControl.findOne({ gameId, isActive: false }); 
+        
         if (!game) {
-            // Create the game if it doesn't exist
-            console.log(`Game ${gameId} not found. Creating new game with default parameters.`);
+            // Create the game if it doesn't exist or no inactive game is found
+            console.log(`No inactive game session found for ${gameId}. Creating a new one.`);
             
             const parsedGameStake = Number(gameId);
             const newGameStake = (isNaN(parsedGameStake) || parsedGameStake <= 0)
-                                 ? FALLBACK_STAKE_AMOUNT
-                                 : parsedGameStake;
+                                    ? FALLBACK_STAKE_AMOUNT
+                                    : parsedGameStake;
 
             const newGameTotalCards = DEFAULT_GAME_TOTAL_CARDS;
-            // Prize is still initialized to 0, as it will be calculated later
             const newGamePrizeAmount = 0; 
 
-            // 🟢 Generate a unique UUID for the new game session
-            const newGameSessionId = uuidv4();
-            console.log(`Generated new GameSessionId: ${newGameSessionId}`);
-
+            // 🟢 Generate a unique UUID for the new game session and assign to currentSessionId
+            currentSessionId = uuidv4(); 
+            console.log(`Generated new GameSessionId: ${currentSessionId}`);
 
             game = await GameControl.create({
-                GameSessionId: newGameSessionId, // 🟢 Include the UUID here
+                GameSessionId: currentSessionId, // 🟢 Use the assigned currentSessionId
                 gameId: gameId,
                 isActive: DEFAULT_IS_ACTIVE,
                 createdBy: DEFAULT_CREATED_BY,
@@ -51,74 +50,77 @@ router.post("/start", async (req, res) => {
                 players: [],
                 createdAt: new Date(),
             });
-            console.log(`✅ Game ${gameId} created successfully with stake ${newGameStake} and ${newGameTotalCards} cards.`);
+            console.log(`✅ Game session ${currentSessionId} created successfully for game ${gameId}.`);
+        } else {
+            // 🟢 If an existing inactive game is found, use its GameSessionId
+            currentSessionId = game.GameSessionId;
+            console.log(`✅ Found existing inactive game session ${currentSessionId} for game ${gameId}.`);
         }
 
         // Check Redis and MongoDB membership to prevent duplicate joins
+        // Note: gameRooms and gameSessions are still keyed by gameId in your current Redis setup.
+        // If you want these to be session-specific, you'd need to change their keys to use currentSessionId.
         const isMemberRedis = await redis.sIsMember(`gameRooms:${gameId}`, telegramId);
         const isMemberDB = game.players.includes(telegramId);
 
         if (isMemberRedis && !isMemberDB) {
-          await Promise.all([
-            redis.sRem(`gameRooms:${gameId}`, telegramId),
-            redis.sRem(`gameSessions:${gameId}`, telegramId),
-          ]);
+            await Promise.all([
+                redis.sRem(`gameRooms:${gameId}`, telegramId),
+                redis.sRem(`gameSessions:${gameId}`, telegramId),
+            ]);
         } else if (isMemberRedis && isMemberDB) {
-          return res.status(400).json({ error: "You already joined this game." });
+            return res.status(400).json({ error: "You already joined this game." });
         }
 
         // Validate claimed card ownership
-        const card = await GameCard.findOne({ gameId, cardId });
+        // 🟢 If GameCard should also be session-specific, you'd add GameSessionId to its model and query here.
+        const card = await GameCard.findOne({ gameId, cardId }); 
 
         if (!card || !card.isTaken || card.takenBy !== telegramId) {
-          return res.status(400).json({
-            error: "Please try another card.",
-          });
+            return res.status(400).json({
+                error: "Please try another card.",
+            });
         }
 
         // --- KEY CHANGE: CHECK BALANCE and SET A LOCK, BUT DO NOT DEDUCT ---
         const user = await User.findOneAndUpdate(
             {
                 telegramId,
-                // Check for sufficient balance and that user is not reserved for another game
                 balance: { $gte: game.stakeAmount },
                 $or: [
-                  { reservedForGameId: { $exists: false } }, // Field does not exist
-                  { reservedForGameId: null },                // Field exists and is null
-                  { reservedForGameId: "" }                   // Field exists and is an empty string
-              ]
+                    { reservedForGameId: { $exists: false } },
+                    { reservedForGameId: null },
+                    { reservedForGameId: "" }
+                ]
             },
             {
-                // Lock the user's funds by setting a reservation flag with the current gameId
-                $set: { reservedForGameId: gameId },
-                // NO $inc: { balance: -game.stakeAmount } here! The deduction happens later.
+                $set: { reservedForGameId: gameId }, // Still using gameId for user reservation
             },
             { new: true }
         );
 
         if (!user) {
-            // This error now covers insufficient balance OR the user is already in another game
             return res.status(400).json({
                 error: "Insufficient balance or you are already in another game.",
             });
         }
 
- // 🟢 Use the newGameSessionId to find and update the specific game document
-        await GameControl.updateOne(
-            { GameSessionId: newGameSessionId }, // 🟢 Changed from { gameId }
-            { $addToSet: { players: telegramId } }
-        );
+        // 🟢 Use the currentSessionId to find and update the specific game document
+        await GameControl.updateOne(
+            { GameSessionId: currentSessionId }, // 🟢 Use the assigned currentSessionId
+            { $addToSet: { players: telegramId } }
+        );
 
-        // Add to Redis sets for real-time membership checks (still using gameId for the room name)
-        await redis.sAdd(`gameRooms:${gameId}`, telegramId);
+        // Add to Redis sets for real-time membership checks (still using gameId for the room name)
+        await redis.sAdd(`gameRooms:${gameId}`, telegramId);
 
-        return res.status(200).json({
-            success: true,
-            gameId,
-            telegramId,
-            message: "Joined game successfully. Your stake has been reserved.",
-            GameSessionId: newGameSessionId, // 🟢 You can also return this to the client
-        });
+        return res.status(200).json({
+            success: true,
+            gameId,
+            telegramId,
+            message: "Joined game successfully. Your stake has been reserved.",
+            GameSessionId: currentSessionId, // 🟢 Return the assigned currentSessionId
+        });
 
     } catch (error) {
         console.error("🔥 Game Start Error:", error);
@@ -132,7 +134,6 @@ router.post("/start", async (req, res) => {
         return res.status(500).json({ error: "Internal server error." });
     }
 });
-
 
 
 
