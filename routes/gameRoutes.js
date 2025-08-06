@@ -3,8 +3,8 @@ const router = express.Router();
 const User = require("../models/user");
 const GameControl = require('../models/GameControl');
 const GameCard = require("../models/GameCard");
-const redis = require("../utils/redisClient"); // Your Redis client import
-const { v4: uuidv4 } = require('uuid'); // 🟢 Import UUID library
+const redis = require("../utils/redisClient");
+const { v4: uuidv4 } = require('uuid');
 
 // --- IMPORTANT: Define these default values before your router.post block ---
 const DEFAULT_GAME_TOTAL_CARDS = 1;
@@ -15,93 +15,102 @@ const DEFAULT_IS_ACTIVE = false;
 router.post("/start", async (req, res) => {
     const { gameId, telegramId, cardId } = req.body;
 
-    let game;
-    let currentSessionId;
+    let game; 
+    let currentSessionId; 
 
     try {
-        // 🟢 ALWAYS create a new game session with a unique ID
-        console.log(`Creating a new game session for game ${gameId}.`);
+        // Step 1: Attempt to find an existing game session that is a lobby (not active, not ended).
+        // 🟢 This query is more precise than just checking 'isActive: false'
+        game = await GameControl.findOne({ gameId, isActive: false, endedAt: null });
         
-        const parsedGameStake = Number(gameId);
-        const newGameStake = (isNaN(parsedGameStake) || parsedGameStake <= 0)
-                                ? FALLBACK_STAKE_AMOUNT
-                                : parsedGameStake;
+        if (game) {
+            // Case 1: An inactive game session (lobby) already exists.
+            currentSessionId = game.GameSessionId;
+            console.log(`✅ Found existing inactive game session ${currentSessionId} for game ${gameId}. Player joining this lobby.`);
+        } else {
+            // Case 2: No inactive lobby was found. Check if an active game is running.
+            // 🟢 An active game is also one that has not yet ended.
+            const activeGame = await GameControl.findOne({ gameId, isActive: true, endedAt: null });
 
-        const newGameTotalCards = DEFAULT_GAME_TOTAL_CARDS;
-        const newGamePrizeAmount = 0; 
-
-        // 🟢 Generate a unique UUID for the new game session
-        currentSessionId = uuidv4(); 
-        console.log(`Generated new GameSessionId: ${currentSessionId}`);
-
-        game = await GameControl.create({
-            GameSessionId: currentSessionId, // Use the assigned currentSessionId
-            gameId: gameId,
-            isActive: DEFAULT_IS_ACTIVE,
-            createdBy: DEFAULT_CREATED_BY,
-            stakeAmount: newGameStake, 
-            totalCards: newGameTotalCards,
-            prizeAmount: newGamePrizeAmount,
-            players: [],
-            createdAt: new Date(),
-        });
-        console.log(`✅ Game session ${currentSessionId} created successfully for game ${gameId}.`);
+            if (activeGame) {
+                // Case 2a: A game is currently active. Block new players.
+                return res.status(400).json({ error: "A game is currently in progress. Please wait for the next round." });
+            } else {
+                // Case 2b: No active lobby or active game was found.
+                // This means all previous sessions for this gameId have ended.
+                // Safely create a new session (the new lobby).
+                console.log(`No active or inactive sessions found for game ${gameId}. Creating a new one.`);
+                
+                const parsedGameStake = Number(gameId);
+                const newGameStake = (isNaN(parsedGameStake) || parsedGameStake <= 0)
+                                        ? FALLBACK_STAKE_AMOUNT
+                                        : parsedGameStake;
+                
+                const newGameTotalCards = DEFAULT_GAME_TOTAL_CARDS;
+                const newGamePrizeAmount = 0; 
+                
+                // Generate a unique UUID for the new game session
+                currentSessionId = uuidv4();
+                game = await GameControl.create({
+                    GameSessionId: currentSessionId,
+                    gameId: gameId,
+                    isActive: DEFAULT_IS_ACTIVE, // Set to false as it's a new lobby
+                    createdBy: DEFAULT_CREATED_BY,
+                    stakeAmount: newGameStake,
+                    totalCards: newGameTotalCards,
+                    prizeAmount: newGamePrizeAmount,
+                    players: [],
+                    createdAt: new Date(),
+                    endedAt: null, // 🟢 Explicitly set to null for new sessions
+                });
+                console.log(`✅ New game session ${currentSessionId} created successfully for game ${gameId}.`);
+            }
+        }
         
-        // --- The rest of the logic remains the same as it now has the 'game' object and 'currentSessionId' ---
-
+        // --- All checks above ensure we have a valid 'game' document and 'currentSessionId' ---
+        
         // Check Redis and MongoDB membership to prevent duplicate joins
         const isMemberRedis = await redis.sIsMember(`gameRooms:${gameId}`, telegramId);
         const isMemberDB = game.players.includes(telegramId);
-
-        if (isMemberRedis && !isMemberDB) {
+        
+        if (isMemberRedis && isMemberDB) {
+            console.log(`User ${telegramId} already registered in session ${currentSessionId}. Proceeding with join.`);
+        } else if (isMemberRedis && !isMemberDB) {
             await Promise.all([
                 redis.sRem(`gameRooms:${gameId}`, telegramId),
                 redis.sRem(`gameSessions:${gameId}`, telegramId),
             ]);
-        } else if (isMemberRedis && isMemberDB) {
-            return res.status(400).json({ error: "You already joined this game." });
         }
+        
+        if (isMemberRedis && isMemberDB) {
+            // No action needed, user is already a member
+        } else {
+            // Validate claimed card ownership
+            const card = await GameCard.findOne({ gameId, cardId }); 
+            if (!card || !card.isTaken || card.takenBy !== telegramId) {
+                return res.status(400).json({ error: "Please try another card." });
+            }
 
-        // Validate claimed card ownership
-        const card = await GameCard.findOne({ gameId, cardId }); 
+            // Check balance and set a reservation lock
+            const user = await User.findOneAndUpdate(
+                { telegramId, balance: { $gte: game.stakeAmount }, $or: [{ reservedForGameId: { $exists: false } }, { reservedForGameId: null }, { reservedForGameId: "" }] },
+                { $set: { reservedForGameId: gameId } },
+                { new: true }
+            );
 
-        if (!card || !card.isTaken || card.takenBy !== telegramId) {
-            return res.status(400).json({
-                error: "Please try another card.",
-            });
+            if (!user) {
+                return res.status(400).json({ error: "Insufficient balance or you are already in another game." });
+            }
+
+            // Add the player to the correct game session
+            await GameControl.updateOne(
+                { GameSessionId: currentSessionId },
+                { $addToSet: { players: telegramId } }
+            );
+
+            // Add to Redis sets for real-time membership checks
+            await redis.sAdd(`gameRooms:${gameId}`, telegramId);
         }
-
-        // --- KEY CHANGE: CHECK BALANCE and SET A LOCK, BUT DO NOT DEDUCT ---
-        const user = await User.findOneAndUpdate(
-            {
-                telegramId,
-                balance: { $gte: game.stakeAmount },
-                $or: [
-                    { reservedForGameId: { $exists: false } },
-                    { reservedForGameId: null },
-                    { reservedForGameId: "" }
-                ]
-            },
-            {
-                $set: { reservedForGameId: gameId },
-            },
-            { new: true }
-        );
-
-        if (!user) {
-            return res.status(400).json({
-                error: "Insufficient balance or you are already in another game.",
-            });
-        }
-
-        // Use the currentSessionId to find and update the specific game document
-        await GameControl.updateOne(
-            { GameSessionId: currentSessionId },
-            { $addToSet: { players: telegramId } }
-        );
-
-        // Add to Redis sets for real-time membership checks
-        await redis.sAdd(`gameRooms:${gameId}`, telegramId);
 
         return res.status(200).json({
             success: true,
@@ -113,12 +122,10 @@ router.post("/start", async (req, res) => {
 
     } catch (error) {
         console.error("🔥 Game Start Error:", error);
-
         await User.updateOne(
             { telegramId },
             { $unset: { reservedForGameId: "" } }
         );
-
         return res.status(500).json({ error: "Internal server error." });
     }
 });

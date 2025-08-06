@@ -980,7 +980,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
           }
         }
 
-        await GameControl.findOneAndUpdate({ gameId: gameId.toString(), strGameSessionId }, { isActive: false });
+        await GameControl.findOneAndUpdate({ gameId: gameId.toString(), strGameSessionId }, { isActive: false }, {endedAt: new Date()});
         await syncGameIsActive(gameId, false);
 
 
