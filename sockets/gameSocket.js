@@ -700,7 +700,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
                     io.to(strGameId).emit("gameStart", { gameId: strGameId });
 
                     if (!state.drawIntervals[strGameId]) {
-                        await startDrawing(strGameId, io, state, redis);
+                        await startDrawing(strGameId, GameSessionId, io, state, redis);
                     }
                 }
             }, 1000);
@@ -1482,3 +1482,14 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 });
   });
 };
+
+
+
+
+
+
+
+
+
+
+
