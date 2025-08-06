@@ -18,6 +18,7 @@ router.post("/start", async (req, res) => {
     const { gameId, telegramId, cardId } = req.body;
 
     let game; // Declare game variable outside try block for scope in catch
+    let newGameSessionId;
 
     try {
         game = await GameControl.findOne({ gameId });
@@ -102,9 +103,9 @@ router.post("/start", async (req, res) => {
             });
         }
 
- // 🟢 Use the currentSessionId to find and update the specific game document
+ // 🟢 Use the newGameSessionId to find and update the specific game document
         await GameControl.updateOne(
-            { GameSessionId: currentSessionId }, // 🟢 Changed from { gameId }
+            { GameSessionId: newGameSessionId }, // 🟢 Changed from { gameId }
             { $addToSet: { players: telegramId } }
         );
 
@@ -116,7 +117,7 @@ router.post("/start", async (req, res) => {
             gameId,
             telegramId,
             message: "Joined game successfully. Your stake has been reserved.",
-            GameSessionId: currentSessionId, // 🟢 You can also return this to the client
+            GameSessionId: newGameSessionId, // 🟢 You can also return this to the client
         });
 
     } catch (error) {
