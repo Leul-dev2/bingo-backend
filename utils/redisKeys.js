@@ -16,8 +16,8 @@ function getGameDrawStateKey(gameId) {
     return `gameDrawState:${gameId}`;
 }
 
-function getGameDrawsKey(gameId) {
-    return `gameDraws:${gameId}`;
+function getGameDrawsKey(strGameSessionId) {
+    return `gameDraws:${strGameSessionId}`;
 }
 
 function getGameSessionsKey(gameId) {

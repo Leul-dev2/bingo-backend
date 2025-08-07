@@ -770,7 +770,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
                 clearInterval(state.drawIntervals[strGameId]);
                 delete state.drawIntervals[strGameId];
 
-                await resetRound(strGameId, io, state, redis); // This call now handles all necessary cleanup.
+                await resetRound(strGameId, GameSessionId, io, state, redis); // This call now handles all necessary cleanup.
 
                 io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "Game ended due to all players leaving the room." });
                 return;
@@ -793,7 +793,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
                 io.to(strGameId).emit("allNumbersDrawn", { gameId: strGameId });
                 console.log(`🎯 All numbers drawn for game ${strGameId}`);
 
-                await resetRound(strGameId, io, state, redis); // This call now handles all necessary cleanup.
+                await resetRound(strGameId, GameSessionId, io, state, redis); // This call now handles all necessary cleanup.
 
                 io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "All numbers drawn, game ended." });
                 return;
@@ -825,7 +825,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             // Potentially call resetRound or resetGame here on critical error,
             // depending on how severe the error is and if it makes the game unrecoverable.
             // A comprehensive reset (like resetRound) might be appropriate here too.
-            await resetRound(strGameId, io, state, redis); // Added for robust error handling
+            await resetRound(strGameId, GameSessionId, io, state, redis); // Added for robust error handling
             io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "Game ended due to drawing error." });
         }
     }, 3000); // Draw every 3 seconds
@@ -1017,7 +1017,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
         await GameCard.updateMany({ gameId }, { isTaken: false, takenBy: null });
 
-        await resetRound(String(gameId), io, state, redis);
+        await resetRound(String(gameId), GameSessionId, io, state, redis);
         io.to(gameId).emit("gameEnded");
 
       } catch (error) {
@@ -1396,7 +1396,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
                 if (playerCount === 0) {
                     console.log(`✅ All players have left game room ${strGameId}. Calling resetRound.`);
-                    resetRound(strGameId, io, state, redis);
+                    resetRound(strGameId,GameSessionId, io, state, redis);
                 }
 
                 // Check if the game is completely empty across ALL player sets after this cleanup
