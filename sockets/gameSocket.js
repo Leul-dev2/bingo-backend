@@ -390,11 +390,11 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         // Add player to Redis set for gameRooms (represents overall game presence)
         // We can still use gameId for the main room since players of a specific GameId type
         // will join that room regardless of the session.
-        await redis.sAdd(`gameRooms:${strGameSessionId}`, strTelegramId);
-               console.log("➕➕➕ players added to gameRooms", `gameRooms:${strGameId}`)
+        await redis.sAdd(`gameRooms:${strGameId}`, strTelegramId);
+               console.log("➕➕➕players added to gameRooms", `gameRooms:${strGameId}`)
         socket.join(strGameId); // Join the socket.io room
 
-        const playerCount = await redis.sCard(`gameRooms:${strGameSessionId}`);
+        const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
         io.to(strGameId).emit("playerCountUpdate", {
             gameId: strGameId,
             playerCount,
@@ -832,7 +832,7 @@ async function fullGameCleanup(gameId, redis, state) {
         });
 
         // --- Log Losers ---
-        const players = await redis.sMembers(`gameRooms:${strGameSessionId}`) || [];
+        const players = await redis.sMembers(`gameRooms:${strGameId}`) || [];
         for (const playerTelegramId of players) {
             if (playerTelegramId !== telegramId) {
                 const playerUser = await User.findOne({ telegramId: playerTelegramId });
@@ -870,7 +870,7 @@ async function fullGameCleanup(gameId, redis, state) {
         
         // --- Final Cleanup using Promise.all ---
         await Promise.all([
-            redis.del(`gameRooms:${strGameSessionId}`),
+            redis.del(`gameRooms:${strGameId}`),
             redis.del(`gameCards:${strGameId}`),
             redis.del(`gameDraws:${strGameSessionId}`),
             redis.del(`gameActive:${strGameId}`),
@@ -895,7 +895,6 @@ async function fullGameCleanup(gameId, redis, state) {
     socket.on("playerLeave", async ({ gameId, GameSessionId, telegramId }, callback) => {
     const strTelegramId = String(telegramId);
     const strGameId = String(gameId);
-    const strGameSessionId = String(GameSessionId);
     console.log("outside if inside playerLeave");
 
     try {
@@ -919,7 +918,7 @@ async function fullGameCleanup(gameId, redis, state) {
         // Remove from Redis sets
         await Promise.all([
             redis.sRem(`gameSessions:${gameId}`, telegramId),
-            redis.sRem(`gameRooms:${strGameSessionId}`, telegramId),
+            redis.sRem(`gameRooms:${gameId}`, telegramId),
         ]);
 
         console.log(`Looking for userSelections with socket.id=${socket.id} or telegramId=${strTelegramId}`);
@@ -982,7 +981,7 @@ async function fullGameCleanup(gameId, redis, state) {
         ]);
 
         // Emit updated player count
-        const playerCount = await redis.sCard(`gameRooms:${strGameSessionId}`) || 0;
+        const playerCount = await redis.sCard(`gameRooms:${gameId}`) || 0;
         io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
 
         const numberOfPlayers = await redis.sCard(`gameSessions:${gameId}`) || 0;
@@ -1203,7 +1202,7 @@ const cleanupJoinGamePhase = async (strTelegramId, strGameId, strGameSessionId, 
     console.log("🎯🎯🎯🎯 this for the game page 🎯🎯🎯🎯");
 
     // Remove player from gameRooms set and MongoDB
-    await redis.sRem(`gameRooms:${strGameSessionId}`, strTelegramId);
+    await redis.sRem(`gameRooms:${strGameId}`, strTelegramId);
     const gameControl = await GameControl.findOne({ gameId: strGameId, GameSessionId: strGameSessionId });
     if (gameControl) {
         gameControl.players = gameControl.players.filter(id => id !== Number(strTelegramId));
@@ -1213,7 +1212,7 @@ const cleanupJoinGamePhase = async (strTelegramId, strGameId, strGameSessionId, 
     console.log(`👤 ${strTelegramId} removed from gameRooms after joinGame grace period expiry for game ${strGameId}.`);
 
     // Broadcast updated player counts
-    const playerCount = await redis.sCard(`gameRooms:${strGameSessionId}`);
+    const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
     io.to(strGameId).emit("playerCountUpdate", { gameId: strGameId, playerCount });
     console.log(`📊 Broadcasted counts for game ${strGameId}: Total Players = ${playerCount} after joinGame grace period cleanup.`);
 
