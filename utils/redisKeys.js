@@ -28,8 +28,8 @@ function getGamePlayersKey(gameId) {
     return `gamePlayers:${gameId}`; // Overall players for the game instance
 }
 
-function getGameRoomsKey(gameId) {
-    return `gameRooms:${gameId}`; // Players currently in the active game room
+function getGameRoomsKey(strGameSessionId) {
+    return `gameRooms:${strGameSessionId}`; // Players currently in the active game room
 }
 
 function getCardsKey(strGameId) {
