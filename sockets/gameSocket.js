@@ -614,7 +614,7 @@ async function fullGameCleanup(gameId, redis, state) {
   async function startDrawing(gameId, GameSessionId, io, state, redis) { // Ensure state and redis are passed
     const strGameId = String(gameId);
     const strGameSessionId = String(GameSessionId); // Ensure gameId is always a string for Redis keys
-    const gameDrawStateKey = getGameDrawStateKey(strGameId);
+    const gameDrawStateKey = getGameDrawStateKey(strGameSessionId);
     const gameDrawsKey = getGameDrawsKey(strGameSessionId);
     const gameRoomsKey = getGameRoomsKey(strGameId);
     const activeGameKey = getGameActiveKey(strGameId);
