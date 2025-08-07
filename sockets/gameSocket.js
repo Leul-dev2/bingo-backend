@@ -851,7 +851,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         }
 
         // 1. Get drawn numbers as list from Redis
-        const drawnNumbersRaw = await redis.lRange(`gameDraws:${gameId}`, 0, -1);
+        const drawnNumbersRaw = await redis.lRange(`gameDraws:${GameSessionId}`, 0, -1);
         if (!drawnNumbersRaw || drawnNumbersRaw.length === 0) {
           socket.emit("winnerError", { message: "No numbers have been drawn yet." });
           return;
