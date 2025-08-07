@@ -986,7 +986,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
          // Save winner info in Redis for reconnecting players
               await redis.set(
-                `winnerInfo:${gameId}`,
+                `winnerInfo:${GameSessionId}`,
                 JSON.stringify({
                   winnerName: winnerUser.username || "Unknown",
                   prizeAmount,
@@ -1170,6 +1170,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             try {
                 userPayload = JSON.parse(joinGamePayloadRaw);
                 disconnectedPhase = userPayload.phase || 'joinGame'; // Default to 'joinGame'
+                strGameSessionId = userPayload.GameSessionId;
                 console.log(`DEBUG: Socket ${socket.id} found in joinGameSocketsInfo. Payload: ${joinGamePayloadRaw}, Deduced Phase: ${disconnectedPhase}`);
             } catch (e) {
                 console.error(`❌ Error parsing joinGameSocketsInfo payload for ${socket.id}: ${e.message}. Cleaning up.`);
