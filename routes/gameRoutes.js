@@ -18,51 +18,44 @@ router.post("/start", async (req, res) => {
     let game;
     
     // --- Step 1: ACQUIRE LOCK ---
-    // Create a unique lock key for this specific player and game.
     const lockKey = `startLock:${telegramId}:${gameId}`;
-    
-    // Set a lock with a short expiration time (e.g., 5 seconds) to prevent deadlocks.
-    // The 'NX' option ensures the lock is only set if it doesn't already exist.
     const lockAcquired = await redis.set(lockKey, 'locked', 'EX', 5, 'NX');
 
-    // If we couldn't acquire the lock, another request is already in progress.
     if (!lockAcquired) {
         return res.status(429).json({ error: "A game start request is already being processed. Please wait a moment." });
     }
 
     try {
-        // --- Game Logic from your previous code starts here ---
-        // Step 1: Check for an ACTIVE game session.
+        // Step 2: Check for an ACTIVE game session. This is the ONLY condition to block a player.
         const activeGame = await GameControl.findOne({ gameId, isActive: true, endedAt: null });
         if (activeGame) {
+            // A game is in progress, so block the request.
             return res.status(400).json({ error: "A game is currently in progress. Please wait for the next round." });
         }
 
-        // Step 2: Check for an INACTIVE game session (a lobby) that is still open.
-        const existingLobby = await GameControl.findOne({ gameId, isActive: false, endedAt: null });
-        if (existingLobby) {
-            currentSessionId = existingLobby.GameSessionId;
-            game = existingLobby;
-        } else {
-            // Step 3: No active game or existing lobby. CREATE a new one.
-            currentSessionId = uuidv4();
-            const newGameStake = Number(gameId) > 0 ? Number(gameId) : 10;
+        // Step 3: No active game found. ALWAYS CREATE A NEW GAME SESSION.
+        console.log(`No active game found for game ${gameId}. Creating a new session.`);
 
-            game = await GameControl.create({
-                GameSessionId: currentSessionId,
-                gameId: gameId,
-                isActive: false,
-                createdBy: 'System',
-                stakeAmount: newGameStake,
-                totalCards: 1,
-                prizeAmount: 0,
-                players: [],
-                createdAt: new Date(),
-                endedAt: null,
-            });
-        }
+        const newGameStake = Number(gameId) > 0 ? Number(gameId) : FALLBACK_STAKE_AMOUNT;
 
-        // --- Enrollment Logic ---
+        currentSessionId = uuidv4();
+        game = await GameControl.create({
+            GameSessionId: currentSessionId,
+            gameId: gameId,
+            isActive: DEFAULT_IS_ACTIVE,
+            createdBy: DEFAULT_CREATED_BY,
+            stakeAmount: newGameStake,
+            totalCards: DEFAULT_GAME_TOTAL_CARDS,
+            prizeAmount: 0,
+            players: [],
+            createdAt: new Date(),
+            endedAt: null,
+        });
+
+        // --- Enrollment Logic (remains the same) ---
+        // The rest of the enrollment logic, including card validation and balance check,
+        // can proceed here, as we have a fresh 'game' document to work with.
+
         const isMemberDB = game.players.includes(telegramId);
         if (isMemberDB) {
             return res.status(200).json({
@@ -94,7 +87,7 @@ router.post("/start", async (req, res) => {
             { $addToSet: { players: telegramId } }
         );
 
-        await redis.sAdd(`gameRooms:${gameId}`, telegramId);
+        await redis.sAdd(`gameRooms:${currentSessionId}`, telegramId);
 
         return res.status(200).json({
             success: true,
@@ -112,8 +105,7 @@ router.post("/start", async (req, res) => {
         );
         return res.status(500).json({ error: "Internal server error." });
     } finally {
-        // --- Step 2: RELEASE LOCK ---
-        // Ensure the lock is always released, even if an error occurs.
+        // --- Step 4: RELEASE LOCK ---
         await redis.del(lockKey);
     }
 });
