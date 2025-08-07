@@ -4,7 +4,7 @@ const GameControl = require("../models/GameControl");
 const resetRound = require("./resetRound");
 const { getGameRoomsKey, getGamePlayersKey } = require("./redisKeys"); // <-- ADD THIS LINE
 
-async function checkAndResetIfEmpty(gameId, io, redis, state) {
+async function checkAndResetIfEmpty(gameId,GameSessionId, io, redis, state) {
     const strGameId = String(gameId); // Ensure gameId is always a string for Redis keys
 
     // Use the helper functions for Redis keys
@@ -23,7 +23,7 @@ async function checkAndResetIfEmpty(gameId, io, redis, state) {
     // Scenario 1: No players currently in the active game room (round ended due to abandonment)
     if (currentPlayersInRoom === 0) {
         console.log(`🛑 All players left game room ${strGameId}. Triggering round reset.`);
-        await resetRound(strGameId, io, state, redis);
+        await resetRound(strGameId, GameSessionId, io, state, redis);
     }
 
     // Scenario 2: No players left in the entire game instance (full game abandonment)

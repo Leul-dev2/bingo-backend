@@ -1029,7 +1029,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
 
     // ✅ Handle playerLeave event
-    socket.on("playerLeave", async ({ gameId, telegramId }, callback) => {
+    socket.on("playerLeave", async ({ gameId, GameSessionId, telegramId }, callback) => {
     const strTelegramId = String(telegramId);
     const strGameId = String(gameId);
     console.log("outside if inside playerLeave");
@@ -1124,7 +1124,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         const numberOfPlayers = await redis.sCard(`gameSessions:${gameId}`) || 0;
         io.to(gameId).emit("gameid", { gameId, numberOfPlayers });
 
-        await checkAndResetIfEmpty(gameId, io, redis, state);
+        await checkAndResetIfEmpty(gameId, GameSessionId, io, redis, state);
 
         if (callback) callback();
     } catch (error) {
