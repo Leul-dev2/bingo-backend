@@ -391,6 +391,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         // We can still use gameId for the main room since players of a specific GameId type
         // will join that room regardless of the session.
         await redis.sAdd(`gameRooms:${strGameId}`, strTelegramId);
+               console.log("➕➕➕ players added to gameRooms", `gameRooms:${strGameId}`)
         socket.join(strGameId); // Join the socket.io room
 
         const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
