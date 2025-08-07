@@ -3,7 +3,7 @@ const GameControl = require("../models/GameControl");
 const GameCard = require("../models/GameCard");
 const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLockKey, getGameActiveKey } = require("./redisKeys"); // Assume redisKeys.js is updated with all helper functions
 
-async function resetRound(gameId, io, state, redis) {
+async function resetRound(gameId, GameSessionId, io, state, redis) {
     const strGameId = String(gameId);
     console.log(`🔄 Resetting round for game: ${strGameId}`);
 
@@ -29,7 +29,7 @@ async function resetRound(gameId, io, state, redis) {
     // Clear Redis keys specific to the current round
     await Promise.all([
         redis.set(`gameIsActive:${gameId}`, "false"),
-        redis.del(getGameDrawsKey(strGameId)),      // Clear drawn numbers for this round
+        redis.del(getGameDrawsKey(GameSessionId)),      // Clear drawn numbers for this round
         redis.del(getGameDrawStateKey(strGameId)),    // Clear drawing state
         redis.del(getActiveDrawLockKey(strGameId)),   // Clear draw lock
         redis.del(getGameRoomsKey(strGameId)),
