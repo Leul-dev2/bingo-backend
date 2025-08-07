@@ -765,135 +765,128 @@ async function fullGameCleanup(gameId, redis, state) {
 
 
 
-    async function processWinner({ telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis }) {
+   async function processWinner({ telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis }) {
+    const strGameId = String(gameId);
+    const strGameSessionId = String(GameSessionId);
+
+    console.log("Processing winner for game session:", strGameSessionId);
+
+    // Use the GameSessionId directly. No need for a Redis lookup.
+    // The previous code block that looked up the sessionId is removed.
     
-     const strGameSessionId = String(GameSessionId);
-
-      console.log("process winner", cartelaId  );
-      try {
-        const sessionId = await redis.get(`gameSessionId:${gameId}`);
-        if (!sessionId) throw new Error(`No session ID found for gameId ${gameId}`);
-
+    try {
         const gameData = await GameControl.findOne({ GameSessionId: strGameSessionId });
-        if (!gameData) throw new Error(`GameControl data not found for gameId ${gameId}`);
+        if (!gameData) {
+            throw new Error(`GameControl data not found for GameSessionId ${strGameSessionId}`);
+        }
 
         const prizeAmount = gameData.prizeAmount;
         const stakeAmount = gameData.stakeAmount;
         const playerCount = gameData.totalCards;
 
         if (typeof prizeAmount !== "number" || isNaN(prizeAmount)) {
-          throw new Error(`Invalid or missing prizeAmount (${prizeAmount}) for gameId: ${gameId}`);
+            throw new Error(`Invalid or missing prizeAmount (${prizeAmount}) for gameId: ${strGameId}`);
         }
 
         const winnerUser = await User.findOne({ telegramId });
-        if (!winnerUser) throw new Error(`User with telegramId ${telegramId} not found`);
+        if (!winnerUser) {
+            throw new Error(`User with telegramId ${telegramId} not found`);
+        }
 
+        // --- Winner Payout ---
         winnerUser.balance = Number(winnerUser.balance || 0) + prizeAmount;
         await winnerUser.save();
-
         await redis.set(`userBalance:${telegramId}`, winnerUser.balance.toString());
 
-        const selectedCard = await GameCard.findOne({ gameId, cardId: cartelaId });
+        // --- Card Validation and Pattern Check ---
+        const selectedCard = await GameCard.findOne({ gameId: strGameId, cardId: cartelaId });
         const board = selectedCard?.card || [];
-
-        // ✅ Add this block
-         const drawn = await redis.lRange(`gameDraws:${strGameSessionId}`, 0, -1);
+        
+        const drawn = await redis.lRange(`gameDraws:${strGameSessionId}`, 0, -1);
         const drawnNumbers = new Set(drawn.map(Number));
-
-        // ✅ Call pattern checker
         const winnerPattern = checkBingoPattern(board, drawnNumbers, selectedSet);
-
-
-
-        io.to(gameId.toString()).emit("winnerConfirmed", {
-          winnerName: winnerUser.username || "Unknown",
-          prizeAmount,
-          playerCount,
-          boardNumber: cartelaId,
-          board, // ✅ Include board here
-          winnerPattern,
-          telegramId,
-          gameId,
-           GameSessionId: strGameSessionId, // 🟢 Include the session ID in the emit
+        
+        // --- Broadcast Winner & Log History ---
+        io.to(strGameId).emit("winnerConfirmed", {
+            winnerName: winnerUser.username || "Unknown",
+            prizeAmount,
+            playerCount,
+            boardNumber: cartelaId,
+            board,
+            winnerPattern,
+            telegramId,
+            gameId: strGameId,
+            GameSessionId: strGameSessionId,
         });
 
         await GameHistory.create({
-          sessionId: strGameSessionId,
-          gameId: gameId.toString(),
-          username: winnerUser.username || "Unknown",
-          telegramId,
-          eventType: "win",
-          winAmount: prizeAmount,
-          stake: stakeAmount,
-          createdAt: new Date(),
+            sessionId: strGameSessionId,
+            gameId: strGameId,
+            username: winnerUser.username || "Unknown",
+            telegramId,
+            eventType: "win",
+            winAmount: prizeAmount,
+            stake: stakeAmount,
+            createdAt: new Date(),
         });
 
-
-        // Log loses for otherss
-        const players = await redis.sMembers(`gameRooms:${gameId}`) || [];
+        // --- Log Losers ---
+        const players = await redis.sMembers(`gameRooms:${strGameId}`) || [];
         for (const playerTelegramId of players) {
-          if (playerTelegramId !== telegramId) {
-            const playerUser = await User.findOne({ telegramId: playerTelegramId });
-            if (!playerUser) continue;
-
-            await GameHistory.create({
-              sessionId: strGameSessionId,
-              gameId: gameId.toString(),
-              username: playerUser.username || "Unknown",
-              telegramId: playerTelegramId,
-              eventType: "lose",
-              winAmount: 0,
-              stake: stakeAmount,
-              createdAt: new Date(),
-            });
-          }
+            if (playerTelegramId !== telegramId) {
+                const playerUser = await User.findOne({ telegramId: playerTelegramId });
+                if (!playerUser) continue;
+                await GameHistory.create({
+                    sessionId: strGameSessionId,
+                    gameId: strGameId,
+                    username: playerUser.username || "Unknown",
+                    telegramId: playerTelegramId,
+                    eventType: "lose",
+                    winAmount: 0,
+                    stake: stakeAmount,
+                    createdAt: new Date(),
+                });
+            }
         }
+        
+        // --- Final Cleanup & State Update ---
+        await GameControl.findOneAndUpdate(
+            { GameSessionId: strGameSessionId },
+            { isActive: false, endedAt: new Date() }
+        );
+        await syncGameIsActive(strGameId, false);
 
-        await GameControl.findOneAndUpdate({ gameId: gameId.toString(), strGameSessionId }, { isActive: false }, {endedAt: new Date()});
-        await syncGameIsActive(gameId, false);
-
-
-         // Save winner info in Redis for reconnecting players
-              await redis.set(
-                `winnerInfo:${GameSessionId}`,
-                JSON.stringify({
-                  winnerName: winnerUser.username || "Unknown",
-                  prizeAmount,
-                  playerCount,
-                  boardNumber: cartelaId,
-                  board,
-                  winnerPattern,
-                  telegramId,
-                  gameId
-                }),
-                {
-                  EX: 60 * 5, // expire in 5 minutes
-                }
-              );
-
-
-
+        await redis.set(`winnerInfo:${strGameSessionId}`, JSON.stringify({
+            winnerName: winnerUser.username || "Unknown",
+            prizeAmount,
+            playerCount,
+            boardNumber: cartelaId,
+            board,
+            winnerPattern,
+            telegramId,
+            gameId: strGameId
+        }), { EX: 60 * 5 });
+        
+        // --- Final Cleanup using Promise.all ---
         await Promise.all([
-          redis.del(`gameRooms:${gameId}`),
-          redis.del(`gameCards:${gameId}`),
-          redis.del(`gameDraws:${strGameSessionId}`),
-          redis.del(`gameActive:${gameId}`),
-          redis.del(`countdown:${gameId}`),
-          redis.del(`activeDrawLock:${gameId}`),
-          redis.del(`gameDrawState:${gameId}`),
-          redis.del(`gameSessionId:${gameId}`),
+            redis.del(`gameRooms:${strGameId}`),
+            redis.del(`gameCards:${strGameId}`),
+            redis.del(`gameDraws:${strGameSessionId}`),
+            redis.del(`gameActive:${strGameId}`),
+            redis.del(`countdown:${strGameId}`),
+            redis.del(`activeDrawLock:${strGameId}`),
+            redis.del(`gameDrawState:${strGameSessionId}`),
         ]);
+        
+        await GameCard.updateMany({ gameId: strGameId }, { isTaken: false, takenBy: null });
 
-        await GameCard.updateMany({ gameId }, { isTaken: false, takenBy: null });
+        await resetRound(strGameId, strGameSessionId, io, state, redis);
+        io.to(strGameId).emit("gameEnded");
 
-        await resetRound(String(gameId), GameSessionId, io, state, redis);
-        io.to(gameId).emit("gameEnded");
-
-      } catch (error) {
+    } catch (error) {
         console.error("🔥 Error processing winner:", error);
-        // You can emit an error to the user if you want here
-      }
     }
+}
 
 
 
