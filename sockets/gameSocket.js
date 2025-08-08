@@ -538,12 +538,12 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
 }
 
 // The core logic for player deductions and game start
- async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, redis, state) {
-    // 🟢 Corrected: Robustly retrieve an array of valid telegramIds.
-    // We map to get the telegramId from each player object and filter out any invalid entries.
+async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, redis, state) {
     const playersForDeduction = (await GameControl.findOne({GameSessionId: strGameSessionId }).select('players -_id'))?.players.map(player => player?.telegramId).filter(Boolean) || [];
     let successfulDeductions = 0;
     let finalPlayerList = [];
+    // 🟢 Corrected: A new array to hold the full player objects for the GameControl update
+    let finalPlayerObjects = [];
     let successfullyDeductedPlayers = [];
     const stakeAmount = Number(strGameId);
     
@@ -555,7 +555,6 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
     }
 
     // --- Stake Deduction Loop ---
-    // The loop now iterates directly over the cleaned list of valid telegramIds.
     for (const playerTelegramId of playersForDeduction) {
         try {
             const user = await User.findOneAndUpdate(
@@ -565,24 +564,22 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
             );
             if (user) {
                 successfulDeductions++;
-                finalPlayerList.push(playerTelegramId); 
+                // 🟢 Corrected: Push the telegramId for other logic (like redis)
                 successfullyDeductedPlayers.push(playerTelegramId);
+                // 🟢 Corrected: Push the full object into the new array for the GameControl update
+                finalPlayerObjects.push({ telegramId: playerTelegramId, status: 'connected' });
                 await redis.set(`userBalance:${playerTelegramId}`, user.balance.toString(), "EX", 60);
             } else {
-                // If the deduction fails for a player (e.g., insufficient balance),
-                // we clean up their state and remove them from the game.
                 await User.updateOne({ telegramId: playerTelegramId }, { $unset: { reservedForGameId: "" } });
                 await redis.sRem(getGameRoomsKey(strGameId), playerTelegramId);
                 await GameControl.updateOne({ GameSessionId: strGameSessionId }, { $pull: { players: { telegramId: playerTelegramId } } });
             }
         } catch (error) {
             console.error(`❌ Error deducting balance for player ${playerTelegramId}:`, error);
-            // In case of any error during deduction, ensure the reservation is cleared.
             await User.updateOne({ telegramId: playerTelegramId }, { $unset: { reservedForGameId: "" } });
         }
     }
     
-     console.log(`Deductions complete. Successful deductions: ${successfulDeductions}`);
     // --- Final Validation & Game Start/Refund ---
     if (successfulDeductions < MIN_PLAYERS_TO_START) {
         console.log("🛑 Not enough players after deductions. Refunding stakes.");
@@ -594,8 +591,11 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
 
     // Game is a go!
     const prizeAmount = stakeAmount * successfulDeductions;
-    await GameControl.findOneAndUpdate({ GameSessionId: strGameSessionId }, { $set: { isActive: true, totalCards: successfulDeductions, prizeAmount: prizeAmount, players: finalPlayerList } });
-    console.log("🚀🚀🚀 game is set ");
+    // 🟢 Corrected: Use the new array of player objects to update the players field
+    await GameControl.findOneAndUpdate(
+      { GameSessionId: strGameSessionId }, 
+      { $set: { isActive: true, totalCards: successfulDeductions, prizeAmount: prizeAmount, players: finalPlayerObjects } }
+    );
     await syncGameIsActive(strGameId, true);
     
     // Release the lock now that the game is officially active
