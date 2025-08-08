@@ -552,27 +552,34 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
         return;
     }
 
-    // --- Stake Deduction Loop ---
-    for (const telegramId of playersForDeduction) {
+     // The loop now iterates over an array of player objects.
+    for (const player of playersForDeduction) {
+        // 🟢 Corrected: Access the telegramId from the player object.
+        const playerTelegramId = player.telegramId;
         try {
             const user = await User.findOneAndUpdate(
-                { telegramId, reservedForGameId: strGameId, balance: { $gte: stakeAmount } },
+                  // 🟢 Corrected: Use the extracted playerTelegramId
+                { telegramId: playerTelegramId, reservedForGameId: strGameId, balance: { $gte: stakeAmount } },
                 { $inc: { balance: -stakeAmount }, $unset: { reservedForGameId: "" } },
                 { new: true }
             );
             if (user) {
                 successfulDeductions++;
-                finalPlayerList.push(telegramId);
-                successfullyDeductedPlayers.push(telegramId);
-                await redis.set(`userBalance:${telegramId}`, user.balance.toString(), "EX", 60);
+                // 🟢 Corrected: Push the telegramId, not the full player object
+                finalPlayerList.push(playerTelegramId); 
+                successfullyDeductedPlayers.push(playerTelegramId);
+                await redis.set(`userBalance:${playerTelegramId}`, user.balance.toString(), "EX", 60);
             } else {
-                await User.updateOne({ telegramId }, { $unset: { reservedForGameId: "" } });
-                await redis.sRem(getGameRoomsKey(strGameId), telegramId);
-                await GameControl.updateOne({ GameSessionId: strGameSessionId }, { $pull: { players: telegramId } });
+                // If the deduction fails for a player (e.g., insufficient balance),
+                // we clean up their state and remove them from the game.
+                await User.updateOne({ telegramId: playerTelegramId }, { $unset: { reservedForGameId: "" } });
+                await redis.sRem(getGameRoomsKey(strGameId), playerTelegramId);
+                await GameControl.updateOne({ GameSessionId: strGameSessionId }, { $pull: { players: { telegramId: playerTelegramId } } });
             }
         } catch (error) {
-            console.error(`❌ Error deducting balance for player ${telegramId}:`, error);
-            await User.updateOne({ telegramId }, { $unset: { reservedForGameId: "" } });
+            console.error(`❌ Error deducting balance for player ${playerTelegramId}:`, error);
+            // In case of any error during deduction, ensure the reservation is cleared.
+            await User.updateOne({ telegramId: playerTelegramId }, { $unset: { reservedForGameId: "" } });
         }
     }
     
