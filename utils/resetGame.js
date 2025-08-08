@@ -16,21 +16,21 @@ async function resetGame(gameId, io, state, redis) {
     console.log(`🧹 Starting full reset for game ${gameId}`);
 
     // 🛠 1. Update GameControl in MongoDB
-    try {
-        await GameControl.findOneAndUpdate(
-            { gameId: gameId.toString() },
-            {
-                isActive: false,
-                totalCards: 0,
-                prizeAmount: 0,
-                players: [],
-                endedAt: new Date(),
-            }
-        );
-        console.log(`✅ GameControl for game ${gameId} has been reset in DB.`);
-    } catch (err) {
-        console.error(`❌ Failed to reset GameControl for ${gameId}:`, err);
-    }
+    // try {
+    //     await GameControl.findOneAndUpdate(
+    //         { gameId: gameId.toString() },
+    //         {
+    //             isActive: false,
+    //             totalCards: 0,
+    //             prizeAmount: 0,
+    //             players: [],
+    //             endedAt: new Date(),
+    //         }
+    //     );
+    //     console.log(`✅ GameControl for game ${gameId} has been reset in DB.`);
+    // } catch (err) {
+    //     console.error(`❌ Failed to reset GameControl for ${gameId}:`, err);
+    // }
 
     // 📢 2. Notify clients
     io?.to(gameId).emit("gameEnded");
