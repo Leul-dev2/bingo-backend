@@ -43,12 +43,16 @@ router.post("/start", async (req, res) => {
             game = existingLobby;
         } else {
             // Step 3: No active game or existing lobby. CREATE a new one.
-            currentSessionId = uuidv4();
-            const newGameStake = Number(gameId) > 0 ? Number(gameId) : 10;
+          let createSuccess = false;
+          let attempts = 0;
 
-            game = await GameControl.create({
+          while (!createSuccess && attempts < 3) {
+            try {
+              currentSessionId = uuidv4(); // generate a new one each attempt
+
+              game = await GameControl.create({
                 GameSessionId: currentSessionId,
-                gameId: gameId,
+                gameId,
                 isActive: false,
                 createdBy: 'System',
                 stakeAmount: newGameStake,
@@ -57,7 +61,24 @@ router.post("/start", async (req, res) => {
                 players: [],
                 createdAt: new Date(),
                 endedAt: null,
-            });
+              });
+
+              createSuccess = true;
+            } catch (err) {
+              if (err.code === 11000 && err.message.includes("GameSessionId")) {
+                // Duplicate GameSessionId – regenerate and retry
+                console.warn("⚠️ Duplicate GameSessionId. Retrying...");
+                attempts++;
+              } else {
+                throw err; // Something else went wrong
+              }
+            }
+          }
+
+          if (!createSuccess) {
+            return res.status(500).json({ error: "Failed to create game session. Please try again." });
+          }
+
         }
 
         // --- Enrollment Logic ---
@@ -114,7 +135,6 @@ router.post("/start", async (req, res) => {
         await redis.del(lockKey);
     }
 });
-
 
 
 
