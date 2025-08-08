@@ -18,20 +18,17 @@ router.post("/start", async (req, res) => {
     let game;
     
     // --- Step 1: ACQUIRE LOCK ---
-    // Create a unique lock key for this specific player and game.
-    const lockKey = `startLock:${telegramId}:${gameId}`;
+    // A single, global lock for the gameId to prevent race conditions from all users.
+    const lockKey = `startLock:${gameId}`; 
     
-    // Set a lock with a short expiration time (e.g., 5 seconds) to prevent deadlocks.
-    // The 'NX' option ensures the lock is only set if it doesn't already exist.
     const lockAcquired = await redis.set(lockKey, 'locked', 'EX', 5, 'NX');
 
-    // If we couldn't acquire the lock, another request is already in progress.
     if (!lockAcquired) {
         return res.status(429).json({ error: "A game start request is already being processed. Please wait a moment." });
     }
 
     try {
-        // --- Game Logic from your previous code starts here ---
+        // --- Game Logic starts here ---
         // Step 1: Check for an ACTIVE game session.
         const activeGame = await GameControl.findOne({ gameId, isActive: true, endedAt: null });
         if (activeGame) {
@@ -39,6 +36,7 @@ router.post("/start", async (req, res) => {
         }
 
         // Step 2: Check for an INACTIVE game session (a lobby) that is still open.
+        // This check is now protected by the game-specific lock.
         const existingLobby = await GameControl.findOne({ gameId, isActive: false, endedAt: null });
         if (existingLobby) {
             currentSessionId = existingLobby.GameSessionId;
@@ -113,10 +111,10 @@ router.post("/start", async (req, res) => {
         return res.status(500).json({ error: "Internal server error." });
     } finally {
         // --- Step 2: RELEASE LOCK ---
-        // Ensure the lock is always released, even if an error occurs.
         await redis.del(lockKey);
     }
 });
+
 
 
 
