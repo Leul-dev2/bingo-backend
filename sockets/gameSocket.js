@@ -538,8 +538,10 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
 }
 
 // The core logic for player deductions and game start
-async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, redis, state) {
-    const playersForDeduction = (await GameControl.findOne({GameSessionId: strGameSessionId }).select('players -_id'))?.players.map(String) || [];
+ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, redis, state) {
+    // 🟢 Corrected: Robustly retrieve an array of valid telegramIds.
+    // We map to get the telegramId from each player object and filter out any invalid entries.
+    const playersForDeduction = (await GameControl.findOne({GameSessionId: strGameSessionId }).select('players -_id'))?.players.map(player => player?.telegramId).filter(Boolean) || [];
     let successfulDeductions = 0;
     let finalPlayerList = [];
     let successfullyDeductedPlayers = [];
@@ -552,20 +554,17 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
         return;
     }
 
-     // The loop now iterates over an array of player objects.
-    for (const player of playersForDeduction) {
-        // 🟢 Corrected: Access the telegramId from the player object.
-        const playerTelegramId = player.telegramId;
+    // --- Stake Deduction Loop ---
+    // The loop now iterates directly over the cleaned list of valid telegramIds.
+    for (const playerTelegramId of playersForDeduction) {
         try {
             const user = await User.findOneAndUpdate(
-                  // 🟢 Corrected: Use the extracted playerTelegramId
                 { telegramId: playerTelegramId, reservedForGameId: strGameId, balance: { $gte: stakeAmount } },
                 { $inc: { balance: -stakeAmount }, $unset: { reservedForGameId: "" } },
                 { new: true }
             );
             if (user) {
                 successfulDeductions++;
-                // 🟢 Corrected: Push the telegramId, not the full player object
                 finalPlayerList.push(playerTelegramId); 
                 successfullyDeductedPlayers.push(playerTelegramId);
                 await redis.set(`userBalance:${playerTelegramId}`, user.balance.toString(), "EX", 60);
