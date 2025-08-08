@@ -11,7 +11,11 @@ const gameControlSchema = new mongoose.Schema({
   totalCards: { type: Number, required: true },
   prizeAmount: { type: Number, required: true },
 
-  players: { type: [Number], default: [] },
+  // 🟢 This is the key change: players is now an array of objects
+  players: [{
+      telegramId: { type: Number, required: true },
+      status: { type: String, enum: ['connected', 'disconnected'], default: 'connected' }
+  }],
   endedAt: { type: Date },
 });
 
