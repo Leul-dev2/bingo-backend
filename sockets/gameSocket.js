@@ -471,7 +471,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         }
     };
 
- const MIN_PLAYERS_TO_START = 2; // Your minimum player count
+ const MIN_PLAYERS_TO_START = 2; // Your minimum player counts
 
 socket.on("gameCount", async ({ gameId, GameSessionId }) => {
     const strGameId = String(gameId);
