@@ -348,113 +348,111 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
 
     // --- UPDATED: socket.on("joinGame") ---
- socket.on("joinGame", async ({ gameId, GameSessionId, telegramId }) => {
-    console.log("joinGame is invoked 🔥🔥🔥");
-    try {
-        const strGameId = String(gameId);
-        const strGameSessionId = String(GameSessionId);
-        const strTelegramId = String(telegramId);
-        const timeoutKey = `${strTelegramId}:${strGameId}:joinGame`;
+    socket.on("joinGame", async ({ gameId, GameSessionId, telegramId }) => {
+        console.log("joinGame is invoked 🔥🔥🔥");
+        try {
+            const strGameId = String(gameId);
+            const strGameSessionId = String(GameSessionId);
+            const strTelegramId = String(telegramId);
+            const timeoutKey = `${strTelegramId}:${strGameId}:joinGame`;
 
-        // CRITICAL: Check for and cancel any pending cleanup for this user.
-        if (pendingDisconnectTimeouts.has(timeoutKey)) {
-            clearTimeout(pendingDisconnectTimeouts.get(timeoutKey));
-            pendingDisconnectTimeouts.delete(timeoutKey);
-            console.log(`🕒 Player ${strTelegramId} reconnected within the grace period. Cancelling cleanup.`);
-        }
-
-        // MODIFIED: Find the game and the specific player object within it.
-        const game = await GameControl.findOne({ GameSessionId: strGameSessionId, 'players.telegramId': Number(strTelegramId) });
-
-        // --- NEW LOGIC: Check if the player was in the game, but the game is now over. ---
-        if (game?.endedAt) {
-            console.log(`🔄 Player ${strTelegramId} tried to join a game that has ended.`);
-            const winnerRaw = await redis.get(`winnerInfo:${strGameSessionId}`);
-            if (winnerRaw) {
-                const winnerInfo = JSON.parse(winnerRaw);
-                // Redirect to winner page
-                socket.emit("winnerConfirmed", winnerInfo);
-                console.log(`✅ Redirecting player ${strTelegramId} to winner page.`);
-            } else {
-                // Redirect to home page
-                socket.emit("gameEnded", { message: "The game has ended." });
-                console.log(`✅ Redirecting player ${strTelegramId} to home page.`);
+            // CRITICAL: Check for and cancel any pending cleanup for this user.
+            if (pendingDisconnectTimeouts.has(timeoutKey)) {
+                clearTimeout(pendingDisconnectTimeouts.get(timeoutKey));
+                pendingDisconnectTimeouts.delete(timeoutKey);
+                console.log(`🕒 Player ${strTelegramId} reconnected within the grace period. Cancelling cleanup.`);
             }
-            return;
-        }
 
-        // If no record is found, the user was never in this game session.
-        if (!game) {
-             console.warn(`🚫 Blocked user ${strTelegramId} from joining game session ${strGameSessionId} because no player record was found.`);
-             const winnerRaw = await redis.get(`winnerInfo:${strGameSessionId}`);
-             if (winnerRaw) {
-                 const winnerInfo = JSON.parse(winnerRaw);
-                 socket.emit("winnerConfirmed", winnerInfo);
-                 return;
-             }
-             socket.emit("joinError", { message: "You are not registered in this game." });
-             return;
-        }
+            // MODIFIED: Find the game and the specific player object within it.
+            const game = await GameControl.findOne({ GameSessionId: strGameSessionId, 'players.telegramId': Number(strTelegramId) });
 
-        // NEW: Update the player's status to 'connected' and save the document.
-        await GameControl.findOneAndUpdate(
-            { GameSessionId: strGameSessionId, 'players.telegramId': Number(strTelegramId) },
-            { $set: { 'players.$.status': 'connected' } },
-            { new: true } // Return the updated document
-        );
-        console.log(`👤 Player ${strTelegramId} status updated to 'connected' for game ${strGameId}.`);
+            // --- NEW LOGIC: Check if the player was in the game, but the game is now over. ---
+            if (game?.endedAt) {
+                console.log(`🔄 Player ${strTelegramId} tried to join a game that has ended.`);
+                const winnerRaw = await redis.get(`winnerInfo:${strGameSessionId}`);
+                if (winnerRaw) {
+                    const winnerInfo = JSON.parse(winnerRaw);
+                    // Redirect to winner page
+                    socket.emit("winnerConfirmed", winnerInfo);
+                    console.log(`✅ Redirecting player ${strTelegramId} to winner page.`);
+                } else {
+                    // Redirect to home page
+                    socket.emit("gameEnd", { message: "The game has ended." });
+                    console.log(`✅ Redirecting player ${strTelegramId} to home page.`);
+                }
+                return;
+            }
 
-        // The rest of the logic remains largely the same.
-        await redis.hSet(`joinGameSocketsInfo`, socket.id, JSON.stringify({
-            telegramId: strTelegramId,
-            gameId: strGameId,
-            GameSessionId: strGameSessionId,
-            phase: 'joinGame'
-        }));
-        await redis.set(`activeSocket:${strTelegramId}:${socket.id}`, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
-        console.log(`Backend: Socket ${socket.id} for ${strTelegramId} set up in 'joinGame' phase.`);
+            // If no record is found, the user was never in this game session.
+            if (!game) {
+                console.warn(`🚫 Blocked user ${strTelegramId} from joining game session ${strGameSessionId} because no player record was found.`);
+                const winnerRaw = await redis.get(`winnerInfo:${strGameSessionId}`);
+                if (winnerRaw) {
+                    const winnerInfo = JSON.parse(winnerRaw);
+                    socket.emit("winnerConfirmed", winnerInfo);
+                    return;
+                }
+                socket.emit("joinError", { message: "You are not registered in this game." });
+                return;
+            }
 
-        await redis.sAdd(`gameRooms:${strGameId}`, strTelegramId);
-        console.log("➕➕➕players added to gameRooms", `gameRooms:${strGameId}`);
-        socket.join(strGameId);
+            // NEW: Update the player's status to 'connected' and save the document.
+            await GameControl.findOneAndUpdate(
+                { GameSessionId: strGameSessionId, 'players.telegramId': Number(strTelegramId) },
+                { $set: { 'players.$.status': 'connected' } },
+                { new: true } // Return the updated document
+            );
+            console.log(`👤 Player ${strTelegramId} status updated to 'connected' for game ${strGameId}.`);
 
-        const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
-        io.to(strGameId).emit("playerCountUpdate", {
-            gameId: strGameId,
-            playerCount,
-        });
-        console.log(`[joinGame] Player ${strTelegramId} joined game ${strGameId}, total players now: ${playerCount}`);
-
-        socket.emit("gameId", {
-            gameId: strGameId,
-            GameSessionId: strGameSessionId,
-            telegramId: strTelegramId
-        });
-
-        const gameDrawsKey = getGameDrawsKey(strGameSessionId);
-        const drawnNumbersRaw = await redis.lRange(gameDrawsKey, 0, -1);
-        const drawnNumbers = drawnNumbersRaw.map(Number);
-        const formattedDrawnNumbers = drawnNumbers.map(number => {
-            const letterIndex = Math.floor((number - 1) / 15);
-            const letter = ["B", "I", "N", "G", "O"][letterIndex];
-            return { number, label: `${letter}-${number}` };
-        });
-
-        if (formattedDrawnNumbers.length > 0) {
-            socket.emit("drawnNumbersHistory", {
+            // The rest of the logic remains largely the same.
+            await redis.hSet(`joinGameSocketsInfo`, socket.id, JSON.stringify({
+                telegramId: strTelegramId,
                 gameId: strGameId,
                 GameSessionId: strGameSessionId,
-                history: formattedDrawnNumbers
+                phase: 'joinGame'
+            }));
+            await redis.set(`activeSocket:${strTelegramId}:${socket.id}`, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
+            console.log(`Backend: Socket ${socket.id} for ${strTelegramId} set up in 'joinGame' phase.`);
+
+            await redis.sAdd(`gameRooms:${strGameId}`, strTelegramId);
+            console.log("➕➕➕players added to gameRooms", `gameRooms:${strGameId}`);
+            socket.join(strGameId);
+
+            const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
+            io.to(strGameId).emit("playerCountUpdate", {
+                gameId: strGameId,
+                playerCount,
             });
-            console.log(`[joinGame] Sent ${formattedDrawnNumbers.length} historical drawn numbers to ${strTelegramId} for session ${strGameSessionId}.`);
+            console.log(`[joinGame] Player ${strTelegramId} joined game ${strGameId}, total players now: ${playerCount}`);
+
+            socket.emit("gameId", {
+                gameId: strGameId,
+                GameSessionId: strGameSessionId,
+                telegramId: strTelegramId
+            });
+
+            const gameDrawsKey = getGameDrawsKey(strGameSessionId);
+            const drawnNumbersRaw = await redis.lRange(gameDrawsKey, 0, -1);
+            const drawnNumbers = drawnNumbersRaw.map(Number);
+            const formattedDrawnNumbers = drawnNumbers.map(number => {
+                const letterIndex = Math.floor((number - 1) / 15);
+                const letter = ["B", "I", "N", "G", "O"][letterIndex];
+                return { number, label: `${letter}-${number}` };
+            });
+
+            if (formattedDrawnNumbers.length > 0) {
+                socket.emit("drawnNumbersHistory", {
+                    gameId: strGameId,
+                    GameSessionId: strGameSessionId,
+                    history: formattedDrawnNumbers
+                });
+                console.log(`[joinGame] Sent ${formattedDrawnNumbers.length} historical drawn numbers to ${strTelegramId} for session ${strGameSessionId}.`);
+            }
+        } catch (err) {
+            console.error("❌ Redis error in joinGame:", err);
+            socket.emit("joinError", { message: "Failed to join game. Please refresh or retry." });
         }
-    } catch (err) {
-        console.error("❌ Redis error in joinGame:", err);
-        socket.emit("joinError", { message: "Failed to join game. Please refresh or retry." });
-    }
-});
-
-
+    });
 
  
     const clearUserReservations = async (playerIds) => {
