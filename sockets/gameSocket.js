@@ -1218,7 +1218,7 @@ const cleanupJoinGamePhase = async (strTelegramId, strGameId, strGameSessionId, 
         try {
             console.log(`⏱️ JoinGame grace period expired for User: ${strTelegramId}, Game: ${strGameId}. Performing joinGame-specific cleanup.`);
 
-            // 🟢 MODIFIED: We are now finding the player record and setting their status to 'disconnected'
+            // 🟢 MODIFIED: We are now finding the player record and setting their status to 'disconnected'.
             const gameControl = await GameControl.findOneAndUpdate(
                 { GameSessionId: strGameSessionId, 'players.telegramId': Number(strTelegramId) },
                 { $set: { 'players.$.status': 'disconnected' } },
