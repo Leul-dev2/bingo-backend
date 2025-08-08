@@ -49,6 +49,7 @@ router.post("/start", async (req, res) => {
           while (!createSuccess && attempts < 3) {
             try {
               currentSessionId = uuidv4(); // generate a new one each attempt
+              const newGameStake = Number(gameId) > 0 ? Number(gameId) : 10;
 
               game = await GameControl.create({
                 GameSessionId: currentSessionId,
