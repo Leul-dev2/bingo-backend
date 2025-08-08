@@ -1,10 +1,9 @@
 // File: ../utils/resetRound.js
 const GameControl = require("../models/GameControl");
 const GameCard = require("../models/GameCard");
-const socket = require("../socket");
 const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLockKey, getGameActiveKey } = require("./redisKeys"); // Assume redisKeys.js is updated with all helper functions
 
-async function resetRound(gameId, GameSessionId, io, state, redis) {
+async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
     const strGameId = String(gameId);
     console.log(`🔄 Resetting round for game: ${strGameId}`);
 

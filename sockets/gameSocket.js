@@ -22,6 +22,7 @@ const { // <-- Add this line
     getCardsKey,
     // Add any other specific key getters you defined in redisKeys.js
 } = require("../utils/redisKeys"); // <-- Make sure the path is correct
+const { Socket } = require("socket.io");
 const pendingDisconnectTimeouts = new Map(); // Key: `${telegramId}:${gameId}`, Value: setTimeout ID
 const ACTIVE_DISCONNECT_GRACE_PERIOD_MS = 2 * 1000; // For card selection lobby (10 seconds)
 const JOIN_GAME_GRACE_PERIOD_MS = 2 * 1000; // For initial join/live game phase (5 seconds)
@@ -667,7 +668,7 @@ async function fullGameCleanup(gameId, redis, state) {
                 clearInterval(state.drawIntervals[strGameId]);
                 delete state.drawIntervals[strGameId];
 
-                await resetRound(strGameId, GameSessionId, io, state, redis); // This call now handles all necessary cleanup.
+                await resetRound(strGameId, GameSessionId, socket, io, state, redis); // This call now handles all necessary cleanup.
 
                 io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "Game ended due to all players leaving the room." });
                 return;
@@ -690,7 +691,7 @@ async function fullGameCleanup(gameId, redis, state) {
                 io.to(strGameId).emit("allNumbersDrawn", { gameId: strGameId });
                 console.log(`🎯 All numbers drawn for game ${strGameId}`);
 
-                await resetRound(strGameId, GameSessionId, io, state, redis); // This call now handles all necessary cleanup.
+                await resetRound(strGameId, GameSessionId, socket, io, state, redis); // This call now handles all necessary cleanup.
 
                 io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "All numbers drawn, game ended." });
                 return;
@@ -722,7 +723,7 @@ async function fullGameCleanup(gameId, redis, state) {
             // Potentially call resetRound or resetGame here on critical error,
             // depending on how severe the error is and if it makes the game unrecoverable.
             // A comprehensive reset (like resetRound) might be appropriate here too.
-            await resetRound(strGameId, GameSessionId, io, state, redis); // Added for robust error handling
+            await resetRound(strGameId, GameSessionId, socket, io, state, redis); // Added for robust error handling
             io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "Game ended due to drawing error." });
         }
     }, 3000); // Draw every 3 seconds
@@ -908,7 +909,7 @@ async function fullGameCleanup(gameId, redis, state) {
         
         await GameCard.updateMany({ gameId: strGameId }, { isTaken: false, takenBy: null });
 
-        await resetRound(strGameId, strGameSessionId, io, state, redis);
+        await resetRound(strGameId, strGameSessionId, socket, io, state, redis);
         io.to(strGameId).emit("gameEnded");
 
     } catch (error) {
@@ -1263,7 +1264,7 @@ const cleanupJoinGamePhase = async (strTelegramId, strGameId, strGameSessionId, 
 
     if (playerCount === 0) {
         console.log(`✅ All players have left game room ${strGameId}. Calling resetRound.`);
-        resetRound(strGameId, strGameSessionId, io, state, redis);
+        resetRound(strGameId, strGameSessionId, socket, io, state, redis);
     }
 
     const totalPlayersGamePlayers = await redis.sCard(`gamePlayers:${strGameId}`);
