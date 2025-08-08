@@ -584,7 +584,7 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
                 await redis.set(`userBalance:${playerTelegramId}`, user.balance.toString(), "EX", 60);
             } else {
                 await User.updateOne({ telegramId: playerTelegramId }, { $unset: { reservedForGameId: "" } });
-                await redis.sRem(getGameRoomsKey(strGameId), playerTelegramId);
+               await redis.sRem(getGameRoomsKey(strGameId), playerTelegramId.toString());
                 await GameControl.updateOne({ GameSessionId: strGameSessionId }, { $pull: { players: { telegramId: playerTelegramId } } });
             }
         } catch (error) {
