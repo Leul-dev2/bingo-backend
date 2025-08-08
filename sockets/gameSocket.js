@@ -582,6 +582,7 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
         }
     }
     
+     console.log(`Deductions complete. Successful deductions: ${successfulDeductions}`);
     // --- Final Validation & Game Start/Refund ---
     if (successfulDeductions < MIN_PLAYERS_TO_START) {
         console.log("🛑 Not enough players after deductions. Refunding stakes.");
@@ -594,6 +595,7 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
     // Game is a go!
     const prizeAmount = stakeAmount * successfulDeductions;
     await GameControl.findOneAndUpdate({ GameSessionId: strGameSessionId }, { $set: { isActive: true, totalCards: successfulDeductions, prizeAmount: prizeAmount, players: finalPlayerList } });
+    console.log("🚀🚀🚀 game is set ");
     await syncGameIsActive(strGameId, true);
     
     // Release the lock now that the game is officially active
