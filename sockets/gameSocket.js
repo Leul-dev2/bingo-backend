@@ -1247,7 +1247,17 @@ const cleanupJoinGamePhase = async (strTelegramId, strGameId, strGameSessionId, 
     const numberOfPlayersLobby = await redis.sCard(`gameSessions:${strGameId}`) || 0;
     if (playerCount === 0 && numberOfPlayersLobby === 0 && totalPlayersGamePlayers === 0) {
         console.log(`🧹 Game ${strGameId} empty after joinGame phase grace period. Triggering full game reset.`);
-        await GameControl.findOneAndUpdate({ gameId: strGameId }, { GameSessionId: strGameSessionId }, { isActive: false, totalCards: 0, players: [], endedAt: new Date() });
+            await GameControl.findOneAndUpdate(
+            { gameId: strGameId, GameSessionId: strGameSessionId },
+            {
+                $set: {
+                isActive: false,
+                totalCards: 0,
+                players: [],
+                endedAt: new Date(),
+                }
+            }
+            );
         await syncGameIsActive(strGameId, false);
         resetGame(strGameId, io, state, redis);
         console.log(`Game ${strGameId} has been fully reset.`);
