@@ -1192,6 +1192,7 @@ const cleanupLobbyPhase = async (strTelegramId, strGameId, _, io, redis) => {
 
     // Check for full game reset
     const totalPlayersGamePlayers = await redis.sCard(`gamePlayers:${strGameId}`);
+    console.log("🚀🚀🚀 totalPlayer", totalPlayersGamePlayers);
     if (numberOfPlayersLobby === 0 && totalPlayersGamePlayers === 0) {
         console.log(`🧹 Game ${strGameId} empty after lobby phase grace period. Triggering full game reset.`);
         await GameControl.findOneAndUpdate({ gameId: strGameId }, { isActive: false, totalCards: 0, players: [], endedAt: new Date() });
