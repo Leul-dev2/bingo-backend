@@ -922,7 +922,7 @@ async function fullGameCleanup(gameId, redis, state) {
  socket.on("playerLeave", async ({ gameId, GameSessionId, telegramId }, callback) => {
     const strTelegramId = String(telegramId);
     const strGameId = String(gameId);
-    console.log(`🚪 Player ${telegramId} is leaving game ${gameId}`);
+    console.log(`🚪 Player ${telegramId} is leaving game ${gameId} ${GameSessionId}`);
 
     try {
         // --- Release the player's balance reservation lock in the database ---
