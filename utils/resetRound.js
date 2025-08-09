@@ -47,6 +47,7 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
     await GameCard.updateMany({ gameId: strGameId }, { isTaken: false, takenBy: null });
     console.log(`✅ GameCards for ${strGameId} reset.`);
     // this should emit to frontend that card is reset....
+    console.log("Searching for GameControl with GameSessionId:", strGameSessionId);
    const updatedGame = await GameControl.findOneAndUpdate(
     { GameSessionId: strGameSessionId },
     { $set: { isActive: false, endedAt: new Date() } },
