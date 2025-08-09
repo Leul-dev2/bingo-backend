@@ -23,6 +23,13 @@ async function checkAndResetIfEmpty(gameId, GameSessionId, socket, io, redis, st
     // Scenario 1: No players currently in the active game room (round ended due to abandonment)
    if (currentPlayersInRoom === 0) {
     console.log(`🛑 All players left game room ${strGameId}. Triggering round reset.`);
+
+
+    if (!state || !state[gameId]) {
+    console.error(`resetRound: No state found for gameId ${gameId} ⏳🎯⏳`);
+        return;
+    }
+
     
     // Add a check to ensure the state object is valid before passing it
     if (state && typeof state.countdownIntervals !== 'undefined') {
