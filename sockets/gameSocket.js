@@ -47,17 +47,16 @@ const joiningUsers = new Set();
 const { v4: uuidv4 } = require("uuid");
 
 
-  const state = {
-  countdownIntervals,
-  drawIntervals,
-  drawStartTimeouts,
-  activeDrawLocks,
-  gameDraws,
-  gameSessionIds,
-  gameIsActive,
+ const state = {
+  countdownIntervals: {},
+  drawIntervals: {},
+  drawStartTimeouts: {},
+  activeDrawLocks: {},
+  gameDraws: {},
+  gameSessionIds: {},
+  gameIsActive: {},
   gameReadyToStart: {},
 };
-
   io.on("connection", (socket) => {
       console.log("🟢 New client connected");
       console.log("Client connected with socket ID:", socket.id);
