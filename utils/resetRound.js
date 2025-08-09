@@ -5,7 +5,7 @@ const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLock
 
 async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
     const strGameId = String(gameId);
-    const strGameSessionId = String(gameId);
+    const strGameSessionId = String(GameSessionId);
     console.log(`🔄 Resetting round for game: ${strGameId}`);
 
     // Clear intervals and timeouts for this round
