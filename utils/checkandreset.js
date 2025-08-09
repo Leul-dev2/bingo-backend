@@ -2,9 +2,9 @@
 const resetGame = require("./resetGame");
 const GameControl = require("../models/GameControl");
 const resetRound = require("./resetRound");
-const { getGameRoomsKey, getGamePlayersKey} = require("./redisKeys"); // <-- ADD THIS LINE
+const { getGameRoomsKey, getGamePlayersKey } = require("./redisKeys"); // <-- ADD THIS LINE
 
-async function checkAndResetIfEmpty(gameId, GameSessionId, socket, io, redis, state) {
+async function checkAndResetIfEmpty(gameId,GameSessionId, io, redis, state) {
     const strGameId = String(gameId); // Ensure gameId is always a string for Redis keys
 
     // Use the helper functions for Redis keys
@@ -21,32 +21,10 @@ async function checkAndResetIfEmpty(gameId, GameSessionId, socket, io, redis, st
     console.log(`[RESET CHECK] Game ${strGameId}: Players in current round: ${currentPlayersInRoom}, Total players in game instance: ${totalPlayersOverall}`);
 
     // Scenario 1: No players currently in the active game room (round ended due to abandonment)
-   if (currentPlayersInRoom === 0) {
-    console.log(`🛑 All players left game room ${strGameId}. Triggering round reset.`);
-
-
-    if (!state || !state[gameId]) {
-    console.error(`resetRound: No state found for gameId ${gameId} ⏳🎯⏳`);
-        return;
+    if (currentPlayersInRoom === 0) {
+        console.log(`🛑 All players left game room ${strGameId}. Triggering round reset.`);
+        await resetRound(strGameId, GameSessionId, socket, io, state, redis);
     }
-
-    
-    // Add a check to ensure the state object is valid before passing it
-    if (state && typeof state.countdownIntervals !== 'undefined') {
-        // Also ensure all other necessary properties are present
-        if (state.drawIntervals && state.drawStartTimeouts) {
-            // Call resetRound, but be careful with the number of arguments
-            // The signature of resetRound is `(gameId, GameSessionId, socket, io, state, redis)`
-            // If you don't have a `socket` object, you'll need to pass `null` or `undefined`
-            // and update resetRound to handle this.
-            await resetRound(gameId, GameSessionId, socket, io, redis, state);
-        } else {
-            console.error('❌ Error: State object is incomplete. Missing drawIntervals or drawStartTimeouts.');
-        }
-    } else {
-        console.error('❌ Error: State object is invalid or missing.');
-    }
-}
 
     // Scenario 2: No players left in the entire game instance (full game abandonment)
     if (totalPlayersOverall === 0) {

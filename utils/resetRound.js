@@ -8,21 +8,23 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
     console.log(`🔄 Resetting round for game: ${strGameId}`);
 
     // Clear intervals and timeouts for this round
-    if (state.countdownIntervals[strGameId]) {
+    // ✅ Always check sub-objects exist before accessing
+    if (state?.countdownIntervals?.[strGameId]) {
         clearInterval(state.countdownIntervals[strGameId]);
         delete state.countdownIntervals[strGameId];
     }
-    if (state.drawIntervals[strGameId]) {
+
+    if (state?.drawIntervals?.[strGameId]) {
         clearInterval(state.drawIntervals[strGameId]);
         delete state.drawIntervals[strGameId];
     }
-    if (state.drawStartTimeouts[strGameId]) {
+
+    if (state?.drawStartTimeouts?.[strGameId]) {
         clearTimeout(state.drawStartTimeouts[strGameId]);
         delete state.drawStartTimeouts[strGameId];
     }
 
-    // Clear active draw lock
-    if (state.activeDrawLocks[strGameId]) {
+    if (state?.activeDrawLocks?.[strGameId]) {
         delete state.activeDrawLocks[strGameId];
     }
 
