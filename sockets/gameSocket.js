@@ -992,7 +992,12 @@ async function fullGameCleanup(gameId, redis, state) {
         const playerCount = await redis.sCard(`gameRooms:${gameId}`) || 0;
         io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
 
-        await checkAndResetIfEmpty(gameId, GameSessionId, socket, io, redis, state);
+       if (state[gameId]) {
+            await checkAndResetIfEmpty(gameId, GameSessionId, socket, io, redis, state);
+        } else {
+            console.warn(`playerLeave: Game ${gameId} has already been reset, skipping check`);
+        }
+
 
         if (callback) callback();
     } catch (error) {
