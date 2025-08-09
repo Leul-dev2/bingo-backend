@@ -356,6 +356,8 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             const strTelegramId = String(telegramId);
             const timeoutKey = `${strTelegramId}:${strGameId}:joinGame`;
 
+            console.log("gameSessionID inside joingame", GameSessionId );
+
             // CRITICAL: Check for and cancel any pending cleanup for this user.
             if (pendingDisconnectTimeouts.has(timeoutKey)) {
                 clearTimeout(pendingDisconnectTimeouts.get(timeoutKey));
