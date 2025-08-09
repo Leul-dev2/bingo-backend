@@ -1,10 +1,11 @@
 // File: ../utils/resetRound.js
 const GameControl = require("../models/GameControl");
 const GameCard = require("../models/GameCard");
-const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLockKey, getGameActiveKey } = require("./redisKeys"); // Assume redisKeys.js is updated with all helper functions
+const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLockKey, getGameActiveKey, getGameSessionsKey, getGamePlayersKey } = require("./redisKeys"); // Assume redisKeys.js is updated with all helper functions
 
 async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
     const strGameId = String(gameId);
+    const strGameSessionId = String(gameId);
     console.log(`🔄 Resetting round for game: ${strGameId}`);
 
     // Clear intervals and timeouts for this round
@@ -32,8 +33,11 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
     await Promise.all([
         redis.set(`gameIsActive:${gameId}`, "false"),
         redis.del(getGameDrawsKey(GameSessionId)),      // Clear drawn numbers for this round
-        redis.del(getGameDrawStateKey(strGameId)),    // Clear drawing state
-        redis.del(getActiveDrawLockKey(strGameId)),   // Clear draw lock
+        redis.del(getGameDrawStateKey(strGameId)), 
+        redis.del(getGameDrawsKey(strGameSessionId)),   // Clear drawing state
+        redis.del(getActiveDrawLockKey(strGameId)), // Clear draw lock
+        redis.del(getGameSessionsKey(strGameId)), 
+        redis.del(getGamePlayersKey(strGameId)),  
         redis.del(getGameRoomsKey(strGameId)),
         redis.del(getGameActiveKey(strGameId)),       // Clear active players in the game room
         redis.del(`gameSessionId:${strGameId}`),
@@ -44,8 +48,8 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
     console.log(`✅ GameCards for ${strGameId} reset.`);
     // this should emit to frontend that card is reset....
     await GameControl.findOneAndUpdate(
-                   { gameId: strGameId },
-                   { $set: { isActive: false, totalCards: 0, prizeAmount: 0, players: [], endedAt: new Date() } }
+                   { gameId: strGameId, GameSessionId: strGameSessionId },
+                   { $set: { isActive: false, endedAt: new Date() } }
      );
     console.log(`✅ Game is ready for game play `);
 
