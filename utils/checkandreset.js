@@ -21,15 +21,25 @@ async function checkAndResetIfEmpty(gameId, GameSessionId, socket, io, redis, st
     console.log(`[RESET CHECK] Game ${strGameId}: Players in current round: ${currentPlayersInRoom}, Total players in game instance: ${totalPlayersOverall}`);
 
     // Scenario 1: No players currently in the active game room (round ended due to abandonment)
-    if (currentPlayersInRoom === 0) {
-        console.log(`🛑 All players left game room ${strGameId}. Triggering round reset.`);
-        if (state && state.countdownIntervals && state.drawIntervals && state.drawStartTimeouts) {
+   if (currentPlayersInRoom === 0) {
+    console.log(`🛑 All players left game room ${strGameId}. Triggering round reset.`);
+    
+    // Add a check to ensure the state object is valid before passing it
+    if (state && typeof state.countdownIntervals !== 'undefined') {
+        // Also ensure all other necessary properties are present
+        if (state.drawIntervals && state.drawStartTimeouts) {
+            // Call resetRound, but be careful with the number of arguments
+            // The signature of resetRound is `(gameId, GameSessionId, socket, io, state, redis)`
+            // If you don't have a `socket` object, you'll need to pass `null` or `undefined`
+            // and update resetRound to handle this.
             await resetRound(gameId, GameSessionId, socket, io, redis, state);
         } else {
-            console.error('❌ Error: Incomplete state object passed to resetRound.');
-            // Handle the error gracefully, maybe by skipping the reset
+            console.error('❌ Error: State object is incomplete. Missing drawIntervals or drawStartTimeouts.');
         }
+    } else {
+        console.error('❌ Error: State object is invalid or missing.');
     }
+}
 
     // Scenario 2: No players left in the entire game instance (full game abandonment)
     if (totalPlayersOverall === 0) {
