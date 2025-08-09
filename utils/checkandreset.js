@@ -23,7 +23,12 @@ async function checkAndResetIfEmpty(gameId,GameSessionId, io, redis, state) {
     // Scenario 1: No players currently in the active game room (round ended due to abandonment)
     if (currentPlayersInRoom === 0) {
         console.log(`🛑 All players left game room ${strGameId}. Triggering round reset.`);
-        await resetRound(strGameId, GameSessionId, io, state, redis);
+        if (state && state.countdownIntervals && state.drawIntervals && state.drawStartTimeouts) {
+            await resetRound(gameId, GameSessionId, io, redis, state);
+        } else {
+            console.error('❌ Error: Incomplete state object passed to resetRound.');
+            // Handle the error gracefully, maybe by skipping the reset
+        }
     }
 
     // Scenario 2: No players left in the entire game instance (full game abandonment)
