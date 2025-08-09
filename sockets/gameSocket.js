@@ -478,6 +478,8 @@ socket.on("gameCount", async ({ gameId, GameSessionId }) => {
     const strGameId = String(gameId);
     const strGameSessionId = String(GameSessionId);
 
+    console.log("gameCount gamesessionId", GameSessionId);
+
     try {
         // --- 1. PRE-VALIDATION & LOCK ACQUISITION ---
         if (await isGameLockedOrActive(strGameId, redis, state)) {
