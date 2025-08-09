@@ -37,7 +37,7 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
         redis.del(getGameDrawsKey(strGameSessionId)),   // Clear drawing state
         redis.del(getActiveDrawLockKey(strGameId)), // Clear draw lock
         redis.del(getGameSessionsKey(strGameId)), 
-        redis.del(getGamePlayersKey(strGameId)),  
+       // redis.del(getGamePlayersKey(strGameId)),  
         redis.del(getGameRoomsKey(strGameId)),
         redis.del(getGameActiveKey(strGameId)),       // Clear active players in the game room
         redis.del(`gameSessionId:${strGameId}`),

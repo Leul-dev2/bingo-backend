@@ -21,9 +21,6 @@ async function resetGame(gameId, io, state, redis) {
             { gameId: gameId.toString() },
             {
                 isActive: false,
-                totalCards: 0,
-                prizeAmount: 0,
-                players: [],
                 endedAt: new Date(),
             }
         );
