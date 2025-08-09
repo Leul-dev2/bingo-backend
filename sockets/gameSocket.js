@@ -993,7 +993,7 @@ async function fullGameCleanup(gameId, redis, state) {
         const playerCount = await redis.sCard(`gameRooms:${gameId}`) || 0;
         io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
 
-        await checkAndResetIfEmpty(gameId, GameSessionId, io, redis, state);
+        await checkAndResetIfEmpty(gameId, GameSessionId, socket, io, redis, state);
 
         if (callback) callback();
     } catch (error) {

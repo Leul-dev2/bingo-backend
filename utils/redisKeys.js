@@ -4,6 +4,10 @@ function getGameActiveKey(gameId) {
     return `gameActive:${gameId}`;
 }
 
+function getGameActiveKeys(gameId) {
+    return `gameIsActive:${gameId}`;
+}
+
 function getCountdownKey(gameId) {
     return `countdown:${gameId}`;
 }
@@ -48,6 +52,7 @@ function getActiveSocketKey(telegramId, socketId) {
 
 module.exports = {
     getGameActiveKey,
+    getGameActiveKeys,
     getCountdownKey,
     getActiveDrawLockKey,
     getGameDrawStateKey,

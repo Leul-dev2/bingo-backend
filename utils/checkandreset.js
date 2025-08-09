@@ -2,9 +2,9 @@
 const resetGame = require("./resetGame");
 const GameControl = require("../models/GameControl");
 const resetRound = require("./resetRound");
-const { getGameRoomsKey, getGamePlayersKey } = require("./redisKeys"); // <-- ADD THIS LINE
+const { getGameRoomsKey, getGamePlayersKey} = require("./redisKeys"); // <-- ADD THIS LINE
 
-async function checkAndResetIfEmpty(gameId, GameSessionId, io, redis, state) {
+async function checkAndResetIfEmpty(gameId, GameSessionId, socket, io, redis, state) {
     const strGameId = String(gameId); // Ensure gameId is always a string for Redis keys
 
     // Use the helper functions for Redis keys
@@ -24,7 +24,7 @@ async function checkAndResetIfEmpty(gameId, GameSessionId, io, redis, state) {
     if (currentPlayersInRoom === 0) {
         console.log(`🛑 All players left game room ${strGameId}. Triggering round reset.`);
         if (state && state.countdownIntervals && state.drawIntervals && state.drawStartTimeouts) {
-            await resetRound(gameId, GameSessionId, io, redis, state);
+            await resetRound(gameId, GameSessionId, socket, io, redis, state);
         } else {
             console.error('❌ Error: Incomplete state object passed to resetRound.');
             // Handle the error gracefully, maybe by skipping the reset
