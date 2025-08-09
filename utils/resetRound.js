@@ -48,9 +48,10 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
     console.log(`✅ GameCards for ${strGameId} reset.`);
     // this should emit to frontend that card is reset....
     await GameControl.findOneAndUpdate(
-                   { gameId: strGameId, GameSessionId: strGameSessionId },
-                   { $set: { isActive: false, endedAt: new Date() } }
-     );
+        { GameSessionId: strGameSessionId }, // Querying only by the unique identifier
+        { $set: { isActive: false, endedAt: new Date() } },
+        { new: true, upsert: false } // Add optional parameters for explicit behavior
+    );
     console.log(`✅ Game is ready for game play `);
 
     // --- NEW: Clear user selections for the specific gameId ---
