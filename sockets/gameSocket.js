@@ -618,6 +618,15 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
     delete state.activeDrawLocks[strGameId];
     await redis.del(getActiveDrawLockKey(strGameId));
 
+      // --- EMIT GAME DETAILS BEFORE STARTING DRAWING ---
+    const totalDrawingLength = 75; // Total numbers to be drawn
+    io.to(strGameSessionId).emit("gameDetails", { 
+        winAmount: prizeAmount,
+        playersCount: successfulDeductions,
+        stakeAmount: stakeAmount,
+        totalDrawingLength: totalDrawingLength,
+    });
+
     io.to(strGameId).emit("gameStart", { gameId: strGameId });
     await startDrawing(strGameId, strGameSessionId, io, state, redis);
 }
@@ -710,6 +719,8 @@ async function fullGameCleanup(gameId, redis, state) {
             // Add the drawn number to the Redis list
             await redis.rPush(gameDrawsKey, number.toString());
 
+            const callNumberLength = await redis.rPush(gameDrawsKey, number.toString());
+
             // Format the number label (e.g. "B-12")
             const letterIndex = Math.floor((number - 1) / 15);
             const letter = ["B", "I", "N", "G", "O"][letterIndex];
@@ -717,7 +728,7 @@ async function fullGameCleanup(gameId, redis, state) {
 
             console.log(`🔢 Drawing number: ${label}, Index: ${gameData.index - 1}`);
 
-            io.to(strGameId).emit("numberDrawn", { number, label, gameId: strGameId });
+            io.to(strGameId).emit("numberDrawn", { number, label, gameId: strGameId, callNumberLength: callNumberLength });
 
         } catch (error) {
             console.error(`❌ Error during drawing interval for game ${strGameId}:`, error);
