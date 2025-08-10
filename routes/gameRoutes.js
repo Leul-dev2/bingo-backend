@@ -2,113 +2,126 @@ const express = require('express');
 const router = express.Router();
 const User = require("../models/user");
 const GameControl = require('../models/GameControl');
-const redis = require("../utils/redisClient"); // Your Redis client import
+const GameCard = require("../models/GameCard");
+const redis = require("../utils/redisClient");
+const { v4: uuidv4 } = require('uuid');
+
+// --- IMPORTANT: Define these default values before your router.post block ---
+const DEFAULT_GAME_TOTAL_CARDS = 1;
+const FALLBACK_STAKE_AMOUNT = 10;
+const DEFAULT_CREATED_BY = 'System';
+const DEFAULT_IS_ACTIVE = false;
 
 router.post("/start", async (req, res) => {
-  const { gameId, telegramId } = req.body;
-
-  let game;
-
-  try {
-    game = await GameControl.findOne({ gameId });
-    if (!game) {
-      return res.status(404).json({ error: "Game not found." });
-    }
-
-    // Check Redis membership
-    const isMemberRedis = await redis.sIsMember(`gameRooms:${gameId}`, telegramId);
-
-    // Check MongoDB membership
-    const isMemberDB = game.players.includes(telegramId);
-
-    // If Redis says joined but DB says not, clean Redis to fix inconsistency
-    if (isMemberRedis && !isMemberDB) {
-      await Promise.all([
-        redis.sRem(`gameRooms:${gameId}`, telegramId),
-        redis.sRem(`gameSessions:${gameId}`, telegramId),
-      ]);
-    } else if (isMemberRedis && isMemberDB) {
-      // Both say joined => block join
-      return res.status(400).json({ error: "You already joined this game." });
-    }
-
+    const { gameId, telegramId, cardId } = req.body;
+    let currentSessionId;
+    let game;
     
+    // --- Step 1: ACQUIRE A DISTRIBUTED LOCK ---
+    const lockKey = `startLock:${gameId}`; 
+    const lockAcquired = await redis.set(lockKey, 'locked', 'EX', 5, 'NX');
 
-    const keys = await redis.keys("game*");
-    if (keys.length > 0) {
-      await redis.del(...keys);
-      console.log("✅ Cleared all game-related Redis keys.");
+    if (!lockAcquired) {
+        return res.status(429).json({ error: "A game start request is already being processed. Please wait a moment." });
     }
 
-
-    // Proceed with join: lock user, deduct balance
-    const user = await User.findOneAndUpdate(
-      {
-        telegramId,
-        transferInProgress: null,
-        balance: { $gte: game.stakeAmount },
-      },
-      {
-        $set: { transferInProgress: { type: "gameStart", at: Date.now() } },
-        $inc: { balance: -game.stakeAmount },
-      },
-      { new: true }
-    );
-
-    if (!user) {
-      return res.status(400).json({
-        error: "Insufficient balance or transaction already in progress.",
-      });
-    }
-
-    // Sync updated balance to Redis cache immediately
-    await redis.set(`userBalance:${telegramId}`, user.balance.toString(), "EX", 60);
-
-    // Update players list in MongoDB
-    await GameControl.updateOne(
-      { gameId },
-      { $addToSet: { players: telegramId } }
-    );
-
-    // Add to Redis sets for real-time membership checks
-    await redis.sAdd(`gameRooms:${gameId}`, telegramId);
-
-    // Release lock on user
-    await User.updateOne(
-      { telegramId },
-      { $set: { transferInProgress: null } }
-    );
-
-    return res.status(200).json({
-      success: true,
-      gameId,
-      telegramId,
-      message: "Joined game successfully.",
-    });
-
-  } catch (error) {
-    console.error("🔥 Game Start Error:", error);
-
-    if (game) {
-      // Rollback balance & release lock on error
-      await User.updateOne(
-        { telegramId },
-        {
-          $inc: { balance: game.stakeAmount || 0 },
-          $set: { transferInProgress: null },
+    try {
+        // --- Game Logic starts here, protected by the lock ---
+        // Step 2: Check for an ACTIVE game session.
+        const activeGame = await GameControl.findOne({ gameId, isActive: true, endedAt: null });
+        if (activeGame) {
+            return res.status(400).json({ error: "A game is currently in progress. Please wait for the next round." });
         }
-      );
-    } else {
-      await User.updateOne(
-        { telegramId },
-        { $set: { transferInProgress: null } }
-      );
+
+        // Step 3: Check for an INACTIVE game session (a lobby) that is still open.
+        const existingLobby = await GameControl.findOne({ gameId, isActive: false, endedAt: null });
+        if (existingLobby) {
+            currentSessionId = existingLobby.GameSessionId;
+            game = existingLobby;
+        } else {
+            // Step 4: No active game or existing lobby. CREATE a new one.
+            try {
+                currentSessionId = uuidv4();
+                const newGameStake = Number(gameId) > 0 ? Number(gameId) : 10;
+
+                game = await GameControl.create({
+                    GameSessionId: currentSessionId,
+                    gameId,
+                    isActive: false,
+                    createdBy: 'System',
+                    stakeAmount: newGameStake,
+                    totalCards: 1,
+                    prizeAmount: 0,
+                    players: [],
+                    createdAt: new Date(),
+                    endedAt: null,
+                });
+            } catch (err) {
+                console.error("⚠️ Error creating new game session:", err);
+                return res.status(500).json({ error: "Failed to create game session. Please try again." });
+            }
+        }
+
+        // --- Enrollment Logic ---
+        // 🟢 CORRECTED: Use .some() to check for an object with a matching telegramId
+        const isMemberDB = game.players.some(player => player.telegramId === telegramId);
+        if (isMemberDB) {
+            return res.status(200).json({
+                success: true,
+                gameId,
+                telegramId,
+                message: "You are already in the game.",
+                GameSessionId: currentSessionId,
+            });
+        }
+        
+        // Step 6: Validate the card.
+        const card = await GameCard.findOne({ gameId, cardId });
+        if (!card || !card.isTaken || card.takenBy !== telegramId) {
+            return res.status(400).json({ error: "Please try another card." });
+        }
+
+        // Step 7: Reserve the user's stake and prevent them from joining other games.
+        const user = await User.findOneAndUpdate(
+            { telegramId, balance: { $gte: game.stakeAmount }, $or: [{ reservedForGameId: { $exists: false } }, { reservedForGameId: null }, { reservedForGameId: "" }] },
+            { $set: { reservedForGameId: gameId } },
+            { new: true }
+        );
+
+        if (!user) {
+            return res.status(400).json({ error: "Insufficient balance or you are already in another game." });
+        }
+
+        // 🟢 CORRECTED: Provide a full player object, not just the telegramId
+        await GameControl.updateOne(
+            { GameSessionId: currentSessionId },
+            { $addToSet: { players: { telegramId, status: 'connected' } } }
+        );
+
+        // Step 9: Add the user to the Redis set for real-time tracking.
+        await redis.sAdd(`gameRooms:${gameId}`, telegramId);
+
+        return res.status(200).json({
+            success: true,
+            gameId,
+            telegramId,
+            message: "Joined game successfully. Your stake has been reserved.",
+            GameSessionId: currentSessionId,
+        });
+
+    } catch (error) {
+        // --- Error Handling and Cleanup ---
+        console.error("🔥 Game Start Error:", error);
+        await User.updateOne(
+            { telegramId },
+            { $unset: { reservedForGameId: "" } }
+        );
+        return res.status(500).json({ error: "Internal server error." });
+    } finally {
+        // --- Step 10: RELEASE THE LOCK ---
+        await redis.del(lockKey);
     }
-
-    return res.status(500).json({ error: "Internal server error." });
-  }
 });
-
 
 
 

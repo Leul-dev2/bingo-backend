@@ -1,19 +1,25 @@
 const mongoose = require('mongoose');
 
 const gameControlSchema = new mongoose.Schema({
-  gameId: { type: String, required: true },
+  GameSessionId: { type: String, required: true }, // unique ID per round
+  gameId: { type: String, required: true }, 
   isActive: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },
-  createdBy: { type: String }, // adminId or telegramId
+  createdBy: { type: String },
 
-  stakeAmount: { type: Number, required: true },  // per player
-  totalCards: { type: Number, required: true },   // players at game start
-  prizeAmount: { type: Number, required: true },  // stake * totalCards
+  stakeAmount: { type: Number, required: true },
+  totalCards: { type: Number, required: true },
+  prizeAmount: { type: Number, required: true },
 
-  players: { type: [Number], default: [] }, // 🟢 Add this line to track telegramId list
-
-  endedAt: { type: Date }, // optional: to mark when game finishes
+  // 🟢 This is the key change: players is now an array of objects
+  players: [{
+      telegramId: { type: Number, required: true },
+      status: { type: String, enum: ['connected', 'disconnected'], default: 'connected' }
+  }],
+  endedAt: { type: Date },
 });
 
+// 🔐 Ensure GameSessionId is unique
+gameControlSchema.index({ GameSessionId: 1 }, { unique: true });
 
 module.exports = mongoose.model("GameControl", gameControlSchema);
