@@ -727,8 +727,6 @@ async function fullGameCleanup(gameId, redis, state) {
             await redis.set(gameDrawStateKey, JSON.stringify(gameData));
 
             // Add the drawn number to the Redis list
-            await redis.rPush(gameDrawsKey, number.toString());
-
             const callNumberLength = await redis.rPush(gameDrawsKey, number.toString());
 
             // Format the number label (e.g. "B-12")
@@ -737,7 +735,7 @@ async function fullGameCleanup(gameId, redis, state) {
             const label = `${letter}-${number}`;
 
             console.log(`🔢 Drawing number: ${label}, Index: ${gameData.index - 1}`);
-             console.log(` ⭐⭐ Server is emitting 'numberDrawn' for number: ${number}. Current call length: ${callNumberLength}`);
+             //console.log(` ⭐⭐ Server is emitting 'numberDrawn' for number: ${number}. Current call length: ${callNumberLength}`);
 
             io.to(strGameId).emit("numberDrawn", { number, label, gameId: strGameId, callNumberLength: callNumberLength });
 
