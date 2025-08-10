@@ -749,7 +749,7 @@ async function fullGameCleanup(gameId, redis, state) {
             await resetRound(strGameId, GameSessionId, socket, io, state, redis); // Added for robust error handling
             io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "Game ended due to drawing error." });
         }
-    }, 3000); // Draw every 3 seconds
+    }, 2000); // Draw every 3 seconds
 }
 
 
