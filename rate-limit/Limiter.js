@@ -3,7 +3,7 @@ const { RateLimiterMemory } = require("rate-limiter-flexible");
 
 const userRateLimiter = new RateLimiterMemory({
   keyPrefix: "hist_user",
-  points: 5,          // 1 request
+  points: 1,          // 1 request
   duration: 1        // every 2 seconds
 });
 
