@@ -36,9 +36,6 @@ router.get("/userinfo", async (req, res) => {
 });
 
 
-
-
-
 router.get("/balance", async (req, res) => {
   const { telegramId } = req.query;
 
@@ -146,8 +143,6 @@ router.post("/request-withdrawal", async (req, res) => {
 });
 
 
-
-
 router.get("/verify/:ref", async (req, res) => {
   const { ref } = req.params;
 
@@ -176,7 +171,6 @@ router.get("/verify/:ref", async (req, res) => {
   }
 });
 
-
 router.post("/accept-payment", async (req, res) => {
   const {
     amount,
@@ -187,24 +181,33 @@ router.post("/accept-payment", async (req, res) => {
     tx_ref,
     telegramId, // ✅ Extract from frontend
   } = req.body;
-  
-  const user = await User.findOne({ telegramId });
-  if (!user) {
-    return res.status(404).json({ message: "User not found in DB" });
-  }
-  console.log("🔐 Incoming Payment Request started:", req.body);
 
-  if (!telegramId) {
-    return res.status(400).json({ message: "Missing telegramId" });
+  // Validate all required fields present
+  if (!amount || !currency || !first_name || !last_name || !phone_number || !tx_ref || !telegramId) {
+    return res.status(400).json({ message: "Missing required fields" });
   }
 
   try {
-    // ✅ Save payment with telegramId BEFORE calling Chapa
+    // Verify user exists
+    const user = await User.findOne({ telegramId });
+    if (!user) {
+      return res.status(404).json({ message: "User not found in DB" });
+    }
+
+    // Check if transaction with tx_ref already exists and is successful
+    const existing = await Payment.findOne({ tx_ref });
+    if (existing && existing.status === "success") {
+      return res.status(409).json({ message: "Transaction already processed" });
+    }
+
+    console.log("🔐 Incoming Payment Request started:", req.body);
+
+    // Save or update payment record with status pending before calling Chapa
     await Payment.findOneAndUpdate(
       { tx_ref },
       {
         tx_ref,
-        telegramId, // ✅ store it
+        telegramId,
         amount,
         currency,
         first_name,
@@ -216,6 +219,7 @@ router.post("/accept-payment", async (req, res) => {
       { upsert: true, new: true }
     );
 
+    // Initialize payment with Chapa
     const chapaRes = await axios.post(
       "https://api.chapa.co/v1/transaction/initialize",
       {
@@ -294,3 +298,24 @@ router.get("/check-payment/:tx_ref", async (req, res) => {
 });
 
 module.exports = router;
+
+
+/*
+
+Add webhook security: Verify webhook requests by checking a secret token header (e.g., x-webhook-token).
+
+Use structured logging: Replace console.log with a logger like winston or pino.
+
+Add strong input validation: Use libraries like Joi or express-validator for validating all inputs.
+
+Implement rate limiting: Protect sensitive routes (payment, withdrawal) from abuse or brute force.
+
+Unify error response format: Standardize error JSON responses for easier frontend handling.
+
+Add phone number format validation: Enforce valid phone number patterns.
+
+Handle edge cases: Add retry limits or fallback for webhook or payment status checks.
+
+
+
+*/
