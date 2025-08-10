@@ -21,7 +21,8 @@ router.get('/:telegramId', async (req, res) => {
   } catch (rateLimitError) {
     return res.status(429).json({
       success: false,
-      error: "Too many requests. Please wait before trying again."
+      error: "Too many requests. Please wait before trying again.",
+      retryAfter: 5
     });
   }
   try {

@@ -33,7 +33,7 @@ router.get('/', async (req, res) => {
   } catch (rateLimitError) {
     return res.status(429).json({
       error: "Too many requests. Please wait before trying again.",
-      retryAfter: 2
+      retryAfter: 5
     });
   }
 
