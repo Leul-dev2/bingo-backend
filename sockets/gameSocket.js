@@ -620,6 +620,14 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
 
       // --- EMIT GAME DETAILS BEFORE STARTING DRAWING ---
     const totalDrawingLength = 75; // Total numbers to be drawn
+      
+    console.log(`✅ Emitting gameDetails for game ${strGameId}:`, {
+        winAmount: prizeAmount,
+        playersCount: successfulDeductions,
+        stakeAmount: stakeAmount,
+        totalDrawingLength: 75,
+     });
+
     io.to(strGameSessionId).emit("gameDetails", { 
         winAmount: prizeAmount,
         playersCount: successfulDeductions,
