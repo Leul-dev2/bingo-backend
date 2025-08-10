@@ -628,7 +628,7 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
         totalDrawingLength: 75,
      });
 
-    io.to(strGameSessionId).emit("gameDetails", { 
+    socket.emit("gameDetails", { 
         winAmount: prizeAmount,
         playersCount: successfulDeductions,
         stakeAmount: stakeAmount,
