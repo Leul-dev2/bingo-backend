@@ -627,6 +627,8 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
         totalDrawingLength: totalDrawingLength,
     });
 
+    console.log("⭐⭐ gameDetails emited");
+
     io.to(strGameId).emit("gameStart", { gameId: strGameId });
     await startDrawing(strGameId, strGameSessionId, io, state, redis);
 }
