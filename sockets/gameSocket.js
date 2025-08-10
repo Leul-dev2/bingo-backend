@@ -737,6 +737,7 @@ async function fullGameCleanup(gameId, redis, state) {
             const label = `${letter}-${number}`;
 
             console.log(`🔢 Drawing number: ${label}, Index: ${gameData.index - 1}`);
+             console.log(` ⭐⭐ Server is emitting 'numberDrawn' for number: ${number}. Current call length: ${callNumberLength}`);
 
             io.to(strGameId).emit("numberDrawn", { number, label, gameId: strGameId, callNumberLength: callNumberLength });
 
