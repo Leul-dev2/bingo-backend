@@ -25,7 +25,7 @@ const gameControlSchema = new mongoose.Schema({
 // and `isActive: false` (i.e., one lobby).
 gameControlSchema.index(
     { gameId: 1, isActive: 1 },
-    { unique: true, partialFilterExpression: { isActive: false } }
+    { unique: true, partialFilterExpression: { isActive: false, endedAt: null } }
 );
 
 module.exports = mongoose.model("GameControl", gameControlSchema);
