@@ -56,6 +56,27 @@ registerGameSocket(io);
 // 🌍 MongoDB Connection
 connectDB();
 
+// ⭐ CRITICAL UPDATE: Ensure indexes are created after connection is established ⭐
+mongoose.connection.on('connected', () => {
+    console.log('✅ Mongoose connection successful, applying indexes...');
+
+    // Force Mongoose to create all indexes from your schema.
+    // This is idempotent, so it is safe to run on every startup.
+    GameControl.createIndexes()
+        .then(() => console.log('✅ GameControl indexes created successfully.'))
+        .catch(err => console.error('❌ Index creation failed:', err));
+
+    // 🚀 Start server
+    const PORT = process.env.PORT || 5002;
+    server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+});
+
+// If there's an error connecting to the database, the app shouldn't start.
+mongoose.connection.on('error', (err) => {
+    console.error('❌ Mongoose connection error:', err);
+});
+
+
 // 🚀 Start server
 const PORT = process.env.PORT || 5002;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
