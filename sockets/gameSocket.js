@@ -611,7 +611,7 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
     // --- Final Validation & Game Start/Refund ---
     if (successfulDeductions < MIN_PLAYERS_TO_START) {
         console.log("🛑 Not enough players after deductions. Refunding stakes.");
-        await refundStakes(successfullyDeductedPlayers, stakeAmount, redis);
+        await refundStakes(successfullyDeductedPlayers, strGameSessionId, stakeAmount, redis);
         io.to(strGameId).emit("gameNotStarted", { message: "Not enough players. Your stake has been refunded." });
         await fullGameCleanup(strGameId, redis, state);
         return;
@@ -665,11 +665,18 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
 }
 
 // Helper to refund all players who were successfully deducted
-async function refundStakes(playerIds, stakeAmount, redis) {
+async function refundStakes(playerIds,strGameSessionId, stakeAmount, redis) {
     for (const playerId of playerIds) {
         const refundedUser = await User.findOneAndUpdate({ telegramId: playerId }, { $inc: { balance: stakeAmount }, $unset: { reservedForGameId: "" } }, { new: true });
         if (refundedUser) {
             await redis.set(`userBalance:${playerId}`, refundedUser.balance.toString(), "EX", 60);
+             await Ledger.create({
+                gameSessionId: strGameSessionId,
+                amount: stakeAmount, // The amount is positive for a refund
+                transactionType: 'stake_refund',
+                telegramId: playerId,
+                description: `Stake refund for game session ${strGameSessionId}`
+            });
         }
     }
 }
