@@ -53,6 +53,7 @@ router.post("/start", async (req, res) => {
                     totalCards: 1,
                     prizeAmount: 0,
                     players: [],
+                    houseProfit: 0, // ⭐
                     createdAt: new Date(),
                     endedAt: null,
                 });
