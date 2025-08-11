@@ -15,7 +15,6 @@ const DEFAULT_IS_ACTIVE = false;
 
 router.post("/start", async (req, res) => {
     const { gameId, telegramId, cardId } = req.body;
-    let currentSessionId;
 
     // --- Step 1: ACQUIRE A DISTRIBUTED LOCK ---
     const lockKey = `startLock:${gameId}`;
@@ -27,48 +26,35 @@ router.post("/start", async (req, res) => {
 
     // ⭐ Step 2: START A MONGOOSE SESSION AND TRANSACTION
     const session = await mongoose.startSession();
+    let responseSent = false;
     try {
         await session.withTransaction(async () => {
-            // All database operations below are now protected by the transaction.
-            // If any of them fail, all changes will be rolled back.
-
-            // Step 3: Check for an ACTIVE game session.
-            const activeGame = await GameControl.findOne({ gameId, isActive: true, endedAt: null }).session(session);
-            if (activeGame) {
-                await session.abortTransaction(); // Manually abort if we are returning early
-                return res.status(400).json({ error: "A game is currently in progress. Please wait for the next round." });
-            }
-
-            // Step 4: Check for an INACTIVE game session (a lobby).
-            let game = await GameControl.findOne({ gameId, isActive: false, endedAt: null }).session(session);
-            if (game) {
-                currentSessionId = game.GameSessionId;
-            } else {
-                // Step 5: No active game or existing lobby. CREATE a new one.
-                currentSessionId = uuidv4();
-                const newGameStake = Number(gameId) > 0 ? Number(gameId) : 10;
-                
-                // ⭐ Mongoose `create` inside a transaction requires an array.
-                const gameArray = await GameControl.create([{
-                    GameSessionId: currentSessionId,
+            // ⭐ This is the atomic operation to find or create the lobby.
+            const lobbyDoc = await GameControl.findOneAndUpdate(
+                { gameId, isActive: false, endedAt: null },
+                { $setOnInsert: {
+                    GameSessionId: uuidv4(),
                     gameId,
                     isActive: false,
                     createdBy: 'System',
-                    stakeAmount: newGameStake,
+                    stakeAmount: Number(gameId) > 0 ? Number(gameId) : 10,
                     totalCards: 1,
                     prizeAmount: 0,
                     players: [],
                     houseProfit: 0,
                     createdAt: new Date(),
                     endedAt: null,
-                }], { session }); 
-                game = gameArray[0];
-            }
+                }},
+                { new: true, upsert: true, session, runValidators: true }
+            );
 
+            const currentSessionId = lobbyDoc.GameSessionId;
+            
             // --- Enrollment Logic ---
-            const isMemberDB = game.players.some(player => player.telegramId === telegramId);
+            const isMemberDB = lobbyDoc.players.some(player => player.telegramId === telegramId);
             if (isMemberDB) {
-                await session.abortTransaction(); // Manually abort if we are returning early
+                await session.abortTransaction();
+                responseSent = true;
                 return res.status(200).json({
                     success: true,
                     gameId,
@@ -81,19 +67,21 @@ router.post("/start", async (req, res) => {
             // Step 6: Validate the card.
             const card = await GameCard.findOne({ gameId, cardId }).session(session);
             if (!card || !card.isTaken || card.takenBy !== telegramId) {
-                await session.abortTransaction(); // Manually abort if we are returning early
+                await session.abortTransaction();
+                responseSent = true;
                 return res.status(400).json({ error: "Please try another card." });
             }
 
             // Step 7: Reserve the user's stake and prevent them from joining other games.
             const user = await User.findOneAndUpdate(
-                { telegramId, balance: { $gte: game.stakeAmount }, $or: [{ reservedForGameId: { $exists: false } }, { reservedForGameId: null }, { reservedForGameId: "" }] },
+                { telegramId, balance: { $gte: lobbyDoc.stakeAmount }, $or: [{ reservedForGameId: { $exists: false } }, { reservedForGameId: null }, { reservedForGameId: "" }] },
                 { $set: { reservedForGameId: gameId } },
-                { new: true, session } // ⭐ Pass the session
+                { new: true, session }
             );
 
             if (!user) {
-                await session.abortTransaction(); // Manually abort if we are returning early
+                await session.abortTransaction();
+                responseSent = true;
                 return res.status(400).json({ error: "Insufficient balance or you are already in another game." });
             }
 
@@ -101,13 +89,13 @@ router.post("/start", async (req, res) => {
             await GameControl.updateOne(
                 { GameSessionId: currentSessionId },
                 { $addToSet: { players: { telegramId, status: 'connected' } } },
-                { session } // ⭐ Pass the session
+                { session }
             );
 
             // Step 9: Add the user to the Redis set for real-time tracking.
             await redis.sAdd(`gameRooms:${gameId}`, telegramId);
             
-            // ⭐ If the transaction reaches this point, it's successful and will be committed.
+            responseSent = true;
             return res.status(200).json({
                 success: true,
                 gameId,
@@ -116,16 +104,19 @@ router.post("/start", async (req, res) => {
                 GameSessionId: currentSessionId,
             });
         });
-
     } catch (error) {
-        // --- Error Handling and Cleanup ---
         console.error("🔥 Game Start Error:", error);
-        // The transaction is automatically aborted on any unhandled error inside `withTransaction`.
-        return res.status(500).json({ error: "Internal server error." });
+        if (!responseSent) {
+            // Check if it's a duplicate key error from the unique index
+            if (error.name === 'MongoError' && error.code === 11000) {
+                 return res.status(409).json({ error: "A game lobby is being created. Please try again in a moment." });
+            }
+            return res.status(500).json({ error: "Internal server error." });
+        }
     } finally {
         // --- Step 10: RELEASE THE LOCK AND END THE SESSION ---
         await redis.del(lockKey);
-        await session.endSession(); // ⭐ Always end the session
+        await session.endSession();
     }
 });
 
