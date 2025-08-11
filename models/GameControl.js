@@ -11,6 +11,11 @@ const gameControlSchema = new mongoose.Schema({
   totalCards: { type: Number, required: true },
   prizeAmount: { type: Number, required: true },
 
+  houseProfit: {
+    type: Number,
+    required: true, 
+  },
+
   // 🟢 This is the key change: players is now an array of objects
   players: [{
       telegramId: { type: Number, required: true },

@@ -472,6 +472,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         }
     };
 
+ const HOUSE_CUT_PERCENTAGE = 0.20;
  const MIN_PLAYERS_TO_START = 2; // Your minimum player counts
 
 socket.on("gameCount", async ({ gameId, GameSessionId }) => {
@@ -606,13 +607,24 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
     }
 
     // Game is a go!
-    const prizeAmount = stakeAmount * successfulDeductions;
-    // 🟢 Corrected: Use the new array of player objects to update the players field
-    await GameControl.findOneAndUpdate(
-      { GameSessionId: strGameSessionId }, 
-      { $set: { isActive: true, totalCards: successfulDeductions, prizeAmount: prizeAmount, players: finalPlayerObjects } }
-    );
-    await syncGameIsActive(strGameId, true);
+   // ⭐ New logic to calculate the prize with the house cut
+        const totalPot = stakeAmount * successfulDeductions;
+        const houseProfit = totalPot * HOUSE_CUT_PERCENTAGE;
+        const prizeAmount = totalPot - houseProfit; // This is the new, reduced prize amount
+
+        // 🟢 Now, update the GameControl document with the correct prizeAmount and the new houseProfit field
+        await GameControl.findOneAndUpdate(
+        { GameSessionId: strGameSessionId },
+        { $set: { 
+            isActive: true, 
+            totalCards: successfulDeductions, 
+            prizeAmount: prizeAmount, 
+            houseProfit: houseProfit, // ⭐ This line saves the profit to the database
+            players: finalPlayerObjects 
+        } }
+        );
+
+     await syncGameIsActive(strGameId, true);
     
     // Release the lock now that the game is officially active
     delete state.activeDrawLocks[strGameId];
