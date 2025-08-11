@@ -1,6 +1,7 @@
 const User = require("../models/user");
 const GameControl = require("../models/GameControl");
 const GameHistory = require("../models/GameHistory")
+const Ledger = require("../models/ledgerSchema");
 const resetGame = require("../utils/resetGame");
 const checkAndResetIfEmpty = require("../utils/checkandreset");
 const redis = require("../utils/redisClient");
@@ -586,6 +587,16 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
                 // 🟢 Corrected: Push the full object into the new array for the GameControl update
                 finalPlayerObjects.push({ telegramId: playerTelegramId, status: 'connected' });
                 await redis.set(`userBalance:${playerTelegramId}`, user.balance.toString(), "EX", 60);
+
+                 // ⭐ Log the stake deduction to the ledger
+                await Ledger.create({
+                    gameSessionId: strGameSessionId,
+                    amount: -stakeAmount,
+                    transactionType: 'stake_deduction',
+                    telegramId: playerTelegramId,
+                    description: `Stake deduction for game session ${strGameSessionId}`
+                });
+
             } else {
                 await User.updateOne({ telegramId: playerTelegramId }, { $unset: { reservedForGameId: "" } });
                await redis.sRem(getGameRoomsKey(strGameId), playerTelegramId.toString());
@@ -870,6 +881,25 @@ async function fullGameCleanup(gameId, redis, state) {
         const drawnNumbers = new Set(drawn.map(Number));
         const winnerPattern = checkBingoPattern(board, drawnNumbers, selectedSet);
         
+
+        // ⭐ Record the winner's payout in the ledger
+        await Ledger.create({
+            gameSessionId: strGameSessionId,
+            amount: prizeAmount,
+            transactionType: 'player_winnings',
+            telegramId: telegramId,
+            description: `Winnings for game session ${strGameSessionId}`
+        });
+
+        // ⭐ Record the house profit in the ledger
+        await Ledger.create({
+            gameSessionId: strGameSessionId,
+            amount: houseProfit,
+            transactionType: 'house_profit',
+            description: `House profit from game session ${strGameSessionId}`
+        });
+
+
         // --- Broadcast Winner & Log History ---
         io.to(strGameId).emit("winnerConfirmed", {
             winnerName: winnerUser.username || "Unknown",
