@@ -856,6 +856,7 @@ async function fullGameCleanup(gameId, redis, state) {
         }
 
         const prizeAmount = gameData.prizeAmount;
+        const houseProfit = gameData.houseProfit;
         const stakeAmount = gameData.stakeAmount;
         const playerCount = gameData.totalCards;
 
