@@ -788,58 +788,82 @@ async function fullGameCleanup(gameId, redis, state) {
     //check winner
 
     socket.on("checkWinner", async ({ telegramId, gameId, GameSessionId, cartelaId, selectedNumbers}) => {
-      const selectedSet = new Set((selectedNumbers || []).map(Number));
+        const selectedSet = new Set((selectedNumbers || []).map(Number));
+
+        try {
+
+            // Validate cartelaId
+            const numericCardId = Number(cartelaId);
+            if (isNaN(numericCardId)) {
+                socket.emit("winnerError", { message: "Invalid or missing card ID." });
+                console.error("❌ checkWinner: cartelaId is NaN or invalid:", cartelaId);
+                return;
+            }
+
+            // 1. Get drawn numbers as list from Redis and get the last number
+            const drawnNumbersRaw = await redis.lRange(`gameDraws:${GameSessionId}`, 0, -1);
+            if (!drawnNumbersRaw || drawnNumbersRaw.length === 0) {
+                socket.emit("winnerError", { message: "No numbers have been drawn yet." });
+                return;
+            }
+            
+            // Corrected logic: get the last number from the raw array before creating the Set
+            const drawnNumbersArray = drawnNumbersRaw.map(Number);
+            const lastDrawnNumber = drawnNumbersArray[drawnNumbersArray.length - 1];
+            const drawnNumbers = new Set(drawnNumbersArray);
+
+            // 2. Fetch the official card from DB
+            const cardData = await GameCard.findOne({ gameId, cardId: Number(cartelaId) });
+            if (!cardData) {
+                socket.emit("winnerError", { message: "Card not found." });
+                return;
+            }
+
+            console.log("✅ drawnNumbers:", drawnNumbers);
+            console.log("✅ selectedNumbers (marked):", selectedSet);
+            console.log("✅ cardData.card:", cardData.card);
+
+            // 3. Backend pattern check function
+            const pattern = checkBingoPattern(cardData.card, drawnNumbers, selectedSet);
+            const isWinner = pattern.some(Boolean); // ✅ Check if any cell is true
+
+            if (!isWinner) {
+                socket.emit("winnerError", { message: "No winning pattern found." });
+                return;
+            }
+
+            // ✨ NEW VALIDATION STEP ✨
+            // Flatten the 2D card array for easy iteration
+            const flatCard = cardData.card.flat();
+            let isLastNumberInPattern = false;
+
+            // Loop through the winning pattern to find if the last drawn number is in it
+            for (let i = 0; i < flatCard.length; i++) {
+                // If the cell is part of the winning pattern AND the number at that cell matches the last drawn number
+                if (pattern[i] && flatCard[i] === lastDrawnNumber) {
+                    isLastNumberInPattern = true;
+                    break; 
+                }
+            }
+
+            if (!isLastNumberInPattern) {
+                console.log("❌ Winner not confirmed: Winning pattern not completed by last drawn number.");
+                socket.emit("winnerError", {
+                    message: "Your winning pattern was not completed by the last drawn number. 😢"
+                });
+                return;
+            }
+
+            // 4. If winner confirmed, call internal winner processing function
+            await processWinner({ telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis });
 
 
-      try {
+            //socket.emit("winnerConfirmed", { message: "Winner verified and processed!" });
 
-        // Validate cartelaId
-        const numericCardId = Number(cartelaId);
-        if (isNaN(numericCardId)) {
-          socket.emit("winnerError", { message: "Invalid or missing card ID." });
-          console.error("❌ checkWinner: cartelaId is NaN or invalid:", cartelaId);
-          return;
+        } catch (error) {
+            console.error("Error in checkWinner:", error);
+            socket.emit("winnerError", { message: "Internal error verifying winner." });
         }
-
-        // 1. Get drawn numbers as list from Redis
-        const drawnNumbersRaw = await redis.lRange(`gameDraws:${GameSessionId}`, 0, -1);
-        if (!drawnNumbersRaw || drawnNumbersRaw.length === 0) {
-          socket.emit("winnerError", { message: "No numbers have been drawn yet." });
-          return;
-        }
-        const drawnNumbers = new Set(drawnNumbersRaw.map(Number));
-
-        // 2. Fetch the official card from DB
-        const cardData = await GameCard.findOne({ gameId, cardId: Number(cartelaId) });
-        if (!cardData) {
-          socket.emit("winnerError", { message: "Card not found." });
-          return;
-        }
-
-        console.log("✅ drawnNumbers:", drawnNumbers);
-        console.log("✅ selectedNumbers (marked):", selectedSet);
-        console.log("✅ cardData.card:", cardData.card);
-
-        // 3. Backend pattern check function - implement this based on your rules
-      const pattern = checkBingoPattern(cardData.card, drawnNumbers, selectedSet);
-      const isWinner = pattern.some(Boolean); // ✅ Check if any cell is true
-
-    if (!isWinner) {
-      socket.emit("winnerError", { message: "No winning pattern found." });
-      return;
-    }
-
-
-        // 4. If winner confirmed, call internal winner processing function
-        await processWinner({ telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis });
-
-
-        //socket.emit("winnerConfirmed", { message: "Winner verified and processed!" });
-
-      } catch (error) {
-        console.error("Error in checkWinner:", error);
-        socket.emit("winnerError", { message: "Internal error verifying winner." });
-      }
     });
 
 
