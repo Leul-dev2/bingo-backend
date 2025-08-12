@@ -854,8 +854,10 @@ async function fullGameCleanup(gameId, redis, state) {
                 const winnerLockKey = `winnerLock:${GameSessionId}`;
 
                 // Try to set the lock. 'NX' means 'Not eXists'.
-                const lockAcquired = await redis.set(winnerLockKey, telegramId, 'EX', 30, 'NX');
-
+              const lockAcquired = await redis.set(winnerLockKey, telegramId, {
+                                            EX: 30,
+                                            NX: true
+                                        });
                 if (!lockAcquired) {
                     // This player passed all checks but was not the first to set the lock.
                     socket.emit("winnerError", { message: "Another valid winner was processed first." });
