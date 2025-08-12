@@ -779,7 +779,7 @@ async function fullGameCleanup(gameId, redis, state) {
             await resetRound(strGameId, GameSessionId, socket, io, state, redis); // Added for robust error handling
             io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "Game ended due to drawing error." });
         }
-    }, 2000); // Draw every 3 seconds
+    }, 3000); // Draw every 3 seconds
 }
 
 
@@ -809,9 +809,8 @@ async function fullGameCleanup(gameId, redis, state) {
             
             // Corrected logic: get the last number from the raw array before creating the Set
             const drawnNumbersArray = drawnNumbersRaw.map(Number);
-            const lastDrawnNumber = drawnNumbersArray[drawnNumbersArray.length - 1];
+            const lastTwoDrawnNumbers = drawnNumbersArray.slice(-2);
             const drawnNumbers = new Set(drawnNumbersArray);
-
             // 2. Fetch the official card from DB
             const cardData = await GameCard.findOne({ gameId, cardId: Number(cartelaId) });
             if (!cardData) {
@@ -831,28 +830,26 @@ async function fullGameCleanup(gameId, redis, state) {
                 socket.emit("winnerError", { message: "No winning pattern found." });
                 return;
             }
+                // ✨ NEW VALIDATION STEP (UPDATED) ✨
+                const flatCard = cardData.card.flat();
+                let isRecentNumberInPattern = false;
 
-            // ✨ NEW VALIDATION STEP ✨
-            // Flatten the 2D card array for easy iteration
-            const flatCard = cardData.card.flat();
-            let isLastNumberInPattern = false;
-
-            // Loop through the winning pattern to find if the last drawn number is in it
-            for (let i = 0; i < flatCard.length; i++) {
-                // If the cell is part of the winning pattern AND the number at that cell matches the last drawn number
-                if (pattern[i] && flatCard[i] === lastDrawnNumber) {
-                    isLastNumberInPattern = true;
-                    break; 
+                // Check if any of the last two drawn numbers are in the winning pattern
+                for (const recentNumber of lastTwoDrawnNumbers) {
+                    // Check if the current recent number is in the winning pattern
+                    if (flatCard.some((number, index) => pattern[index] && number === recentNumber)) {
+                        isRecentNumberInPattern = true;
+                        break; // Found a match, no need to check other numbers
+                    }
                 }
-            }
 
-            if (!isLastNumberInPattern) {
-                console.log("❌ Winner not confirmed: Winning pattern not completed by last drawn number.");
-                socket.emit("winnerError", {
-                    message: "Your winning pattern was not completed by the last drawn number. 😢"
-                });
-                return;
-            }
+                if (!isRecentNumberInPattern) {
+                    console.log("❌ Winner not confirmed: Winning pattern not completed by a recent drawn number.");
+                    socket.emit("winnerError", {
+                        message: "Your winning pattern was not completed by the last two drawn numbers. 😢"
+                    });
+                    return;
+                }
 
             // 4. If winner confirmed, call internal winner processing function
             await processWinner({ telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis });
