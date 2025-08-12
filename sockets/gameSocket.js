@@ -855,12 +855,12 @@ async function fullGameCleanup(gameId, redis, state) {
 
                 // Try to set the lock. 'NX' means 'Not eXists'.
               const lockAcquired = await redis.set(winnerLockKey, telegramId, {
-                                            EX: 30,
+                                            EX: 20,
                                             NX: true
                                         });
                 if (!lockAcquired) {
                     // This player passed all checks but was not the first to set the lock.
-                    socket.emit("winnerError", { message: "Another valid winner was processed first." });
+                   // socket.emit("winnerError", { message: "Another valid winner was processed first." });
                     return;
                 }
 
