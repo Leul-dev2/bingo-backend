@@ -6,7 +6,7 @@ const GameCardSchema = new mongoose.Schema({
     required: true,
   },
   card: {
-    type: [[Number]], // 5x5 grid
+    type: [[Number]], // 5x5 grid (ideally validate structure in logic)
     required: true,
   },
   gameId: {
@@ -21,12 +21,6 @@ const GameCardSchema = new mongoose.Schema({
   takenBy: {
     type: String,
     default: null, // Telegram ID or other identifier
-  },
-  // ✨ NEW FIELD: GameSessionId ✨
-  GameSessionId: {
-    type: String,
-    default: null,
-    index: true, // Index for efficient lookups
   },
 }, {
   timestamps: true,
