@@ -708,7 +708,7 @@ async function fullGameCleanup(gameId, redis, state) {
     console.log(`🎯 Starting the drawing process for gameId: ${strGameId}`);
     await GameCard.updateMany({ gameId: strGameId }, { isTaken: false, takenBy: null });
     await redis.hDel(`gameCards:${gameId}`);
-    io.to(gameId).emit("cardsReset", { gameId });
+    io.to(gameId).emit("cardsReset", { strGameId });
 
     // Clear any existing draws list at start (redundant if `gameCount` already cleared `gameDrawsKey`)
     await redis.del(gameDrawsKey);
