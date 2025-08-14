@@ -171,30 +171,43 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 });
 
 
-     socket.on("cardSelected", async (data) => {
-  const { telegramId, cardId, card, gameId, requestId } = data; // 👈 requestId comes from client
+ socket.on("cardSelected", async (data) => {
+  const { telegramId, cardId, card, gameId, requestId } = data;
 
   const strTelegramId = String(telegramId);
   const strCardId = String(cardId);
   const strGameId = String(gameId);
+  const cleanCard = card.map(row => row.map(c => (c === "FREE" ? 0 : Number(c))));
 
   const gameCardsKey = `gameCards:${strGameId}`;
   const userSelectionsKey = `userSelections`;
   const lockKey = `lock:card:${strGameId}:${strCardId}`;
 
-  const cleanCard = card.map(row => row.map(c => (c === "FREE" ? 0 : Number(c))));
-
   try {
-    // 1️⃣ Redis Lock
+    // 🔹 Remove previously selected card by this user BEFORE claiming new card
+    const previousSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
+    if (previousSelectionRaw) {
+      const prev = JSON.parse(previousSelectionRaw);
+      if (prev.cardId && prev.cardId !== strCardId) {
+        await redis.hDel(gameCardsKey, prev.cardId);
+        await GameCard.findOneAndUpdate(
+          { gameId: strGameId, cardId: Number(prev.cardId) },
+          { isTaken: false, takenBy: null }
+        );
+        socket.to(strGameId).emit("cardReleased", { cardId: prev.cardId, telegramId: strTelegramId });
+      }
+    }
+
+    // 1️⃣ Redis Lock to prevent race conditions
     const lock = await redis.set(lockKey, strTelegramId, "NX", "EX", 30);
     if (!lock) {
       return socket.emit("cardError", {
         message: "⛔️ This card is currently being selected by another player. Try another card.",
-        requestId // 👈 Still send back so client knows which click failed
+        requestId
       });
     }
 
-    // 2️⃣ Double check Redis AND DB ownership
+    // 2️⃣ Double-check Redis and DB ownership
     const [currentRedisOwner, existingCard] = await Promise.all([
       redis.hGet(gameCardsKey, strCardId),
       GameCard.findOne({ gameId: strGameId, cardId: Number(strCardId) }),
@@ -203,24 +216,14 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     if ((currentRedisOwner && currentRedisOwner !== strTelegramId) ||
         (existingCard?.isTaken && existingCard.takenBy !== strTelegramId)) {
       await redis.del(lockKey);
-      return socket.emit("cardUnavailable", { cardId: strCardId, requestId }); // 👈 include requestId
+      return socket.emit("cardUnavailable", { cardId: strCardId, requestId });
     }
 
-    // 3️⃣ Update or Create GameCard
+    // 3️⃣ Update or create GameCard
     if (existingCard) {
       const updateResult = await GameCard.updateOne(
-        {
-          gameId: strGameId,
-          cardId: Number(strCardId),
-          isTaken: false,
-        },
-        {
-          $set: {
-            card: cleanCard,
-            isTaken: true,
-            takenBy: strTelegramId,
-          }
-        }
+        { gameId: strGameId, cardId: Number(strCardId), isTaken: false },
+        { $set: { card: cleanCard, isTaken: true, takenBy: strTelegramId } }
       );
 
       if (updateResult.modifiedCount === 0) {
@@ -245,42 +248,22 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
       }
     }
 
-    // 4️⃣ Remove previously selected card by this user
-    const previousSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
-    if (previousSelectionRaw) {
-      const prev = JSON.parse(previousSelectionRaw);
-      if (prev.cardId && prev.cardId !== strCardId) {
-        await redis.hDel(gameCardsKey, prev.cardId);
-        await GameCard.findOneAndUpdate(
-          { gameId: strGameId, cardId: Number(prev.cardId) },
-          { isTaken: false, takenBy: null }
-        );
-        socket.to(strGameId).emit("cardAvailable", { cardId: prev.cardId });
-      }
-    }
-
-    // 5️⃣ Store new selection in Redis
-    await redis.hSet(gameCardsKey, strCardId, strTelegramId);
+    // 4️⃣ Store new selection in Redis
     const selectionData = JSON.stringify({
       telegramId: strTelegramId,
       cardId: strCardId,
       card: cleanCard,
-      gameId: strGameId,
+      gameId: strGameId
     });
+
+    await redis.hSet(gameCardsKey, strCardId, strTelegramId);
     await redis.hSet(userSelectionsKey, socket.id, selectionData);
     await redis.hSet("userSelectionsByTelegramId", strTelegramId, selectionData);
+    await redis.hSet("userLastRequestId", strTelegramId, requestId);
 
-    // 6️⃣ Emit confirmation with requestId
-    socket.emit("cardConfirmed", {
-      cardId: strCardId,
-      card: cleanCard,
-      requestId // 👈 CRUCIAL
-    });
-
-    socket.to(strGameId).emit("otherCardSelected", {
-      telegramId: strTelegramId,
-      cardId: strCardId
-    });
+    // 5️⃣ Emit confirmation and broadcast updates
+    socket.emit("cardConfirmed", { cardId: strCardId, card: cleanCard, requestId });
+    socket.to(strGameId).emit("otherCardSelected", { telegramId: strTelegramId, cardId: strCardId });
 
     const updatedSelections = await redis.hGetAll(gameCardsKey);
     io.to(strGameId).emit("currentCardSelections", updatedSelections);
@@ -292,9 +275,11 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     console.error("❌ cardSelected error:", err);
     socket.emit("cardError", { message: "Card selection failed.", requestId });
   } finally {
-    await redis.del(lockKey); // 🔓 Always release lock
+    // 🔓 Always release lock
+    await redis.del(lockKey);
   }
-});
+ });
+
 
 
 
@@ -1114,6 +1099,7 @@ const safeJsonParse = (rawPayload, key, socketId) => {
 };
 
 // A map to store pending disconnect timeouts, keyed by a unique identifier.
+
 socket.on("disconnect", async (reason) => {
     console.log(`🔴 Client disconnected: ${socket.id}, Reason: ${reason}`);
 
@@ -1250,50 +1236,53 @@ socket.on("disconnect", async (reason) => {
 // --- Modular Cleanup Functions (Self-contained and robust) ---
 
 const cleanupLobbyPhase = async (strTelegramId, strGameId, _, io, redis) => {
-    console.log(`⏱️ Lobby grace period expired for User: ${strTelegramId}, Game: ${strGameId}. Performing lobby-specific cleanup.`);
+    console.log(`⏱️ Lobby grace period expired for User: ${strTelegramId}, Game: ${strGameId}. Performing cleanup.`);
 
-    // Release card and update DB
+    const gameCardsKey = `gameCards:${strGameId}`;
+
+    // 1️⃣ Get the last selected card from Redis
     const userOverallSelectionRaw = await redis.hGet("userSelectionsByTelegramId", strTelegramId);
+    let userHeldCardId = null;
     if (userOverallSelectionRaw) {
-        const { cardId: userHeldCardId, gameId: selectedGameId } = safeJsonParse(userOverallSelectionRaw);
-        if (String(selectedGameId) === strGameId && userHeldCardId) {
-            const gameCardsKey = `gameCards:${strGameId}`;
-            const cardOwner = await redis.hGet(gameCardsKey, String(userHeldCardId));
-            if (cardOwner === strTelegramId) {
-                await redis.hDel(gameCardsKey, String(userHeldCardId));
-                await GameCard.findOneAndUpdate({ gameId: strGameId, cardId: Number(userHeldCardId) }, { isTaken: false, takenBy: null });
-                io.to(strGameId).emit("cardReleased", { cardId: Number(userHeldCardId), telegramId: strTelegramId });
-                console.log(`✅ Card ${userHeldCardId} released for ${strTelegramId} due to grace period expiry from game ${strGameId}.`);
-            }
-        }
+        const parsed = safeJsonParse(userOverallSelectionRaw);
+        if (parsed?.cardId) userHeldCardId = parsed.cardId;
     }
 
-    // Remove user from all relevant sets and cleanup overall selection
-    const sessionKey = `gameSessions:${strGameId}`;
+    // 2️⃣ Always check DB for any card taken by this user in this game
+    const dbCard = await GameCard.findOne({ gameId: strGameId, takenBy: strTelegramId });
+
+    if (userHeldCardId || dbCard) {
+        const cardToRelease = userHeldCardId || dbCard.cardId;
+        await redis.hDel(gameCardsKey, String(cardToRelease));
+        await GameCard.findOneAndUpdate(
+            { gameId: strGameId, cardId: Number(cardToRelease) },
+            { isTaken: false, takenBy: null }
+        );
+        io.to(strGameId).emit("cardReleased", { cardId: Number(cardToRelease), telegramId: strTelegramId });
+        console.log(`✅ Card ${cardToRelease} released for ${strTelegramId} due to grace period expiry.`);
+    }
+
+    // 3️⃣ Remove user from sets & Redis maps
     await redis.multi()
-        .sRem(sessionKey, strTelegramId)
+        .sRem(`gameSessions:${strGameId}`, strTelegramId)
         .sRem(`gamePlayers:${strGameId}`, strTelegramId)
         .hDel("userSelectionsByTelegramId", strTelegramId)
         .exec();
 
-    console.log(`👤 ${strTelegramId} removed from lobby sets and overall selection cleaned up after grace period expiry for game ${strGameId}.`);
-
-    // Broadcast updated player counts
-    const numberOfPlayersLobby = await redis.sCard(sessionKey) || 0;
+    // 4️⃣ Broadcast updated counts
+    const numberOfPlayersLobby = await redis.sCard(`gameSessions:${strGameId}`) || 0;
     io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers: numberOfPlayersLobby });
-    console.log(`📊 Broadcasted counts for game ${strGameId}: Lobby Players = ${numberOfPlayersLobby} after grace period cleanup.`);
 
-    // Check for full game reset
+    // 5️⃣ Reset game if empty
     const totalPlayersGamePlayers = await redis.sCard(`gamePlayers:${strGameId}`);
-    console.log("🚀🚀🚀 totalPlayer", totalPlayersGamePlayers);
     if (numberOfPlayersLobby === 0 && totalPlayersGamePlayers === 0) {
-        console.log(`🧹 Game ${strGameId} empty after lobby phase grace period. Triggering full game reset.`);
         await GameControl.findOneAndUpdate({ gameId: strGameId }, { isActive: false, totalCards: 0, players: [], endedAt: new Date() });
         await syncGameIsActive(strGameId, false);
         resetGame(strGameId, io, state, redis);
-        console.log(`Game ${strGameId} has been fully reset.`);
+        console.log(`🧹 Game ${strGameId} fully reset.`);
     }
 };
+
 
 const cleanupJoinGamePhase = async (strTelegramId, strGameId, strGameSessionId, io, redis) => {
     let retries = 3;
