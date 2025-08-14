@@ -171,7 +171,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 });
 
 
- socket.on("cardSelected", async (data) => {
+socket.on("cardSelected", async (data) => {
   const { telegramId, cardId, card, gameId, requestId } = data;
 
   // --- 1. Data Sanitization & Key Preparation ---
@@ -190,9 +190,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
   const userLastRequestIdKey = `userLastRequestId`; // Maps telegramId -> last requestId
 
   // --- 2. Acquire User-Level Lock ---
-  // This is the most critical change. It prevents a user from starting a new action
-  // before their previous one is fully complete.
-  const userLock = await redis.set(userActionLockKey, requestId, "NX", "EX", 10); // 10-second expiry
+  const userLock = await redis.set(userActionLockKey, requestId, "NX", "EX", 10);
   if (!userLock) {
     return socket.emit("cardError", {
       message: "⏳ Your previous action is still processing. Please wait a moment.",
@@ -201,15 +199,13 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
   }
 
   try {
-    // --- 3. Get User's Current Selection ---
+    // --- 3. Get User's Current Selection (for Redis cleanup & broadcast) ---
     const previousSelectionRaw = await redis.hGet(userSelectionsByTelegramIdKey, strTelegramId);
     const previousSelection = previousSelectionRaw ? JSON.parse(previousSelectionRaw) : null;
 
-    // If user is re-selecting the same card, do nothing.
     if (previousSelection && previousSelection.cardId === strCardId) {
-      // Optionally, re-send confirmation if the client might have missed it.
       socket.emit("cardConfirmed", { cardId: strCardId, card: cleanCard, requestId });
-      return; // Exit early
+      return; // Exit early, card is already selected by this user.
     }
 
     // --- 4. Check Card Availability & Acquire Card-Level Lock ---
@@ -218,7 +214,6 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
       return socket.emit("cardUnavailable", { cardId: strCardId, requestId });
     }
 
-    // Now, try to lock the specific card to prevent other users from grabbing it.
     const cardLock = await redis.set(cardLockKey, strTelegramId, "NX", "EX", 10);
     if (!cardLock) {
       return socket.emit("cardUnavailable", { cardId: strCardId, requestId });
@@ -226,20 +221,25 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
     // --- 5. Perform the Atomic Swap: Release Old Card, Claim New Card ---
 
-    // A) Release the user's previously held card (if any)
+    // A) Release any previously held card(s) in the database.
+    // This is the key change. It's more robust than relying on a potentially stale read from Redis.
+    // It enforces the "one card per user" rule directly in the database.
+    await GameCard.updateMany(
+      { gameId: strGameId, takenBy: strTelegramId },
+      { $set: { isTaken: false, takenBy: null } }
+    );
+
+    // B) Clean up Redis for the old card and notify clients.
+    // We still use the (potentially stale) previousSelection for this, as it's less critical than the DB.
     if (previousSelection && previousSelection.cardId) {
       const prevCardId = String(previousSelection.cardId);
-      await Promise.all([
-        redis.hDel(gameCardsKey, prevCardId),
-        GameCard.updateOne(
-          { gameId: strGameId, cardId: Number(prevCardId) },
-          { $set: { isTaken: false, takenBy: null } }
-        )
-      ]);
-      socket.to(strGameId).emit("cardReleased", { cardId: prevCardId, telegramId: strTelegramId });
+      if (prevCardId !== strCardId) {
+        await redis.hDel(gameCardsKey, prevCardId);
+        socket.to(strGameId).emit("cardReleased", { cardId: prevCardId, telegramId: strTelegramId });
+      }
     }
 
-    // B) Claim the new card
+    // C) Claim the new card in both DB and Redis
     const selectionData = JSON.stringify({
       telegramId: strTelegramId,
       cardId: strCardId,
@@ -248,13 +248,11 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     });
 
     await Promise.all([
-      // Update MongoDB: Use upsert for a single, efficient database operation.
       GameCard.updateOne(
         { gameId: strGameId, cardId: Number(strCardId) },
         { $set: { card: cleanCard, isTaken: true, takenBy: strTelegramId } },
-        { upsert: true } // Creates the document if it doesn't exist
+        { upsert: true }
       ),
-      // Update Redis state
       redis.hSet(gameCardsKey, strCardId, strTelegramId),
       redis.hSet(userSelectionsKey, socket.id, selectionData),
       redis.hSet(userSelectionsByTelegramIdKey, strTelegramId, selectionData),
@@ -278,14 +276,10 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     socket.emit("cardError", { message: "An unexpected error occurred. Please try again.", requestId });
   } finally {
     // --- 7. Release All Locks ---
-    // It's crucial to release the locks to allow future actions.
     await redis.del(userActionLockKey);
-    await redis.del(cardLockKey); // Also release the card-specific lock
+    await redis.del(cardLockKey);
   }
 });
-
-
-
 
 
 
