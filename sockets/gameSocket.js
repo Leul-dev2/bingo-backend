@@ -189,12 +189,15 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     if (previousSelectionRaw) {
       const prev = JSON.parse(previousSelectionRaw);
       if (prev.cardId && prev.cardId !== strCardId) {
-        await redis.hDel(gameCardsKey, prev.cardId);
-        await GameCard.findOneAndUpdate(
-          { gameId: strGameId, cardId: Number(prev.cardId) },
-          { isTaken: false, takenBy: null }
-        );
-        socket.to(strGameId).emit("cardReleased", { cardId: prev.cardId, telegramId: strTelegramId });
+        const prevCardOwner = await redis.hGet(gameCardsKey, prev.cardId);
+        if (!prevCardOwner || prevCardOwner === strTelegramId) {
+          await redis.hDel(gameCardsKey, prev.cardId);
+          await GameCard.findOneAndUpdate(
+            { gameId: strGameId, cardId: Number(prev.cardId), takenBy: strTelegramId },
+            { isTaken: false, takenBy: null }
+          );
+          socket.to(strGameId).emit("cardReleased", { cardId: prev.cardId, telegramId: strTelegramId });
+        }
       }
     }
 
@@ -219,7 +222,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
       return socket.emit("cardUnavailable", { cardId: strCardId, requestId });
     }
 
-    // 3️⃣ Update or create GameCard
+    // 3️⃣ Update or create GameCard atomically
     if (existingCard) {
       const updateResult = await GameCard.updateOne(
         { gameId: strGameId, cardId: Number(strCardId), isTaken: false },
@@ -278,7 +281,8 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     // 🔓 Always release lock
     await redis.del(lockKey);
   }
- });
+});
+
 
 
 
