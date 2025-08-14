@@ -222,6 +222,28 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         // --- 5. Check Card Availability & Acquire Card-Level Lock ---
         // The card is taken by someone else
         if (existingOwnerId && existingOwnerId !== strTelegramId) {
+              
+    // A) Find the player's currently held card from Redis
+            const previousCardIdToRelease = Object.keys(allGameCards).find(
+                key => allGameCards[key] === strTelegramId
+            );
+        // B) If they had a card, release it from the DB and Redis
+        if (previousCardIdToRelease) {
+            // Asynchronously update the DB and Redis
+            await Promise.all([
+                GameCard.updateOne(
+                    { gameId: strGameId, cardId: Number(previousCardIdToRelease), takenBy: strTelegramId },
+                    { $set: { isTaken: false, takenBy: null } }
+                ),
+                redis.hDel(gameCardsKey, previousCardIdToRelease)
+            ]);
+
+            // Notify other clients about the released card
+            socket.to(strGameId).emit("cardReleased", { 
+                cardId: previousCardIdToRelease, 
+                telegramId: strTelegramId 
+            });
+        }
             return socket.emit("cardUnavailable", { cardId: strCardId, requestId });
         }
 
