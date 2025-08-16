@@ -659,11 +659,8 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
             { $set: { isTaken: false, takenBy: null } }
        );
 
-       // 3. Loop through the cards and emit "cardAvailable" for each one
-       //    This will trigger the cleanup logic on the client
-       for (const cardId of Object.keys(allSelectedCards)) {
-           io.to(strGameId).emit("cardAvailable", { cardId: Number(cardId) });
-       }
+       // ⭐ NEW: Emit a single event for the full reset instead of looping
+       io.to(strGameId).emit("gameCardResetOngameStart");
 
    } catch (error) {
        console.error(`❌ Error releasing cards on game start for game ${strGameId}:`, error);
@@ -692,6 +689,7 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
     io.to(strGameId).emit("gameStart", { gameId: strGameId });
     await startDrawing(strGameId, strGameSessionId, io, state, redis);
 }
+
 
 
 // Helper to refund all players who were successfully deducted
