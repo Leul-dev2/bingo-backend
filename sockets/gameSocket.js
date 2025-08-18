@@ -878,7 +878,7 @@ async function fullGameCleanup(gameId, redis, state) {
                         message: "Your winning pattern was not completed by the last two drawn numbers. 😢",
                         reason: "recent_number_mismatch",
                         telegramId,
-                        cardId: cardData.id,
+                        cardId: cartelaId,
                         card: cardData.card,          // ✅ Include the player's card
                         lastTwoNumbers: lastTwoDrawnNumbers, // ✅ Include the last two drawn numbers
                         selectedNumbers: selectedNumbers // ✅ Include the player's selected numbers
