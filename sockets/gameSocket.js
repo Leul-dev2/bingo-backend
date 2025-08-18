@@ -871,10 +871,15 @@ async function fullGameCleanup(gameId, redis, state) {
                     }
                 }
 
+               // Server-side code
                 if (!isRecentNumberInPattern) {
                     console.log("❌ Winner not confirmed: Winning pattern not completed by a recent drawn number.");
-                    socket.emit("winnerError", {
-                        message: "Your winning pattern was not completed by the last two drawn numbers. 😢"
+                    socket.emit("bingoClaimFailed", {
+                        message: "Your winning pattern was not completed by the last two drawn numbers. 😢",
+                        reason: "recent_number_mismatch",
+                        card: cardData.card,          // ✅ Include the player's card
+                        lastTwoNumbers: lastTwoDrawnNumbers, // ✅ Include the last two drawn numbers
+                        selectedNumbers: selectedNumbers // ✅ Include the player's selected numbers
                     });
                     return;
                 }
