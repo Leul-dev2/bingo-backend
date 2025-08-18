@@ -44,7 +44,7 @@ router.get('/', async (req, res) => {
    const transformed = games.map(g => ({
   id: g.sessionId.slice(-4), // last 4 as ref
   user: g.username,
-  ref: g.sessionId,
+  ref: g.sessionId.slice(-4),//last 4 as ref
   board: Math.floor(Math.random() * 50), // fake for now
   calls: Math.floor(Math.random() * 25), // fake for now
   date: new Date(g.createdAt).toLocaleDateString(),
