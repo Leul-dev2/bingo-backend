@@ -32,10 +32,9 @@ router.get('/:telegramId', async (req, res) => {
     }
 
     const bonus = 0; // placeholder for future bonus logic
-    const coins = Math.floor(games.length / 3);
+    const coins = 0; // FAKE FOR NOW
     const gamesWon = games.filter((g) => g.eventType === 'win').length;
-    const latestEntry = games[0];
-    const username = latestEntry?.username || user.username || 'Unknown';
+    const username = User.username[0] || "Unknown"
 
     return res.status(200).json({
       success: true,
