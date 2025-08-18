@@ -1,7 +1,7 @@
 // File: ../utils/resetRound.js
 const GameControl = require("../models/GameControl");
 const GameCard = require("../models/GameCard");
-const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLockKey, getGameActiveKey, getGameSessionsKey, getGamePlayersKey } = require("./redisKeys"); // Assume redisKeys.js is updated with all helper functions
+const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLockKey, getGameActiveKey, getGameSessionsKey, getGamePlayersKey } = require("./redisKeys");
 
 async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
     const strGameId = String(gameId);
@@ -9,22 +9,18 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
     console.log(`🔄 Resetting round for game: ${strGameId}`);
 
     // Clear intervals and timeouts for this round
-    // ✅ Always check sub-objects exist before accessing
     if (state?.countdownIntervals?.[strGameId]) {
         clearInterval(state.countdownIntervals[strGameId]);
         delete state.countdownIntervals[strGameId];
     }
-
     if (state?.drawIntervals?.[strGameId]) {
         clearInterval(state.drawIntervals[strGameId]);
         delete state.drawIntervals[strGameId];
     }
-
     if (state?.drawStartTimeouts?.[strGameId]) {
         clearTimeout(state.drawStartTimeouts[strGameId]);
         delete state.drawStartTimeouts[strGameId];
     }
-
     if (state?.activeDrawLocks?.[strGameId]) {
         delete state.activeDrawLocks[strGameId];
     }
@@ -32,32 +28,34 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
     // Clear Redis keys specific to the current round
     await Promise.all([
         redis.set(`gameIsActive:${gameId}`, "false"),
-        redis.del(getGameDrawsKey(GameSessionId)),      // Clear drawn numbers for this round
-        redis.del(getGameDrawStateKey(strGameId)), 
-        redis.del(getGameDrawsKey(strGameSessionId)),   // Clear drawing state
-        redis.del(getActiveDrawLockKey(strGameId)), // Clear draw lock
-        redis.del(getGameSessionsKey(strGameId)), 
-       // redis.del(getGamePlayersKey(strGameId)),  
+        redis.del(getGameDrawsKey(GameSessionId)),
+        redis.del(getGameDrawStateKey(strGameId)),
+        redis.del(getGameDrawsKey(strGameSessionId)),
+        redis.del(getActiveDrawLockKey(strGameId)),
+        redis.del(getGameSessionsKey(strGameId)),
         redis.del(getGameRoomsKey(strGameId)),
-        redis.del(getGameActiveKey(strGameId)),       // Clear active players in the game room
+        redis.del(getGameActiveKey(strGameId)),
         redis.del(`gameSessionId:${strGameId}`),
     ]);
 
-    // Reset GameCard statuses for this game
-    await GameCard.updateMany({ gameId: strGameId }, { isTaken: false, takenBy: null });
-    console.log(`✅ GameCards for ${strGameId} reset.`);
-    // this should emit to frontend that card is reset....
+    // 🏆 FIX: Only reset cards that were part of the game session 🏆
+    await GameCard.updateMany(
+        { gameId: strGameId, GameSessionId: strGameSessionId },
+        { isTaken: false, takenBy: null, GameSessionId: null }
+    );
+    console.log(`✅ GameCards for session ${strGameSessionId} reset.`);
+
     console.log("Searching for GameControl with GameSessionId:", strGameSessionId);
-   const updatedGame = await GameControl.findOneAndUpdate(
-    { GameSessionId: strGameSessionId },
-    { $set: { isActive: false, endedAt: new Date() } },
-    { new: true }
+    const updatedGame = await GameControl.findOneAndUpdate(
+        { GameSessionId: strGameSessionId },
+        { $set: { isActive: false, endedAt: new Date() } },
+        { new: true }
     );
     console.log("Updated GameControl:", updatedGame);
 
     console.log(`✅ Game is ready for game play `);
 
-    // --- NEW: Clear user selections for the specific gameId ---
+    // --- Clear user selections for the specific gameId ---
     const userSelections = await redis.hGetAll("userSelectionsByTelegramId");
     const telegramIdsToDelete = [];
 
@@ -78,20 +76,15 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
     } else {
         console.log(`No user selections found for game ${strGameId} to delete.`);
     }
-    // --- END NEW ---
 
     // Clear in-memory game state for this round
     delete state.gameDraws[strGameId];
-    // Note: state.gameSessionIds[strGameId] is NOT cleared here as per "gameroom only" reset
-    // Note: state.gameIsActive[strGameId] is NOT cleared here, handled by GameControl DB if it means overall game
-    // Note: state.gameReadyToStart[strGameId] is NOT cleared here
-
     state.gameIsActive[strGameId] = false;
     state.gameReadyToStart[strGameId] = false;
     state.gameSessionIds[strGameId] = null;
 
     console.log(`🔄 Round reset complete for game: ${strGameId}`);
-    io.to(strGameId).emit("roundEnded", { gameId: strGameId }); // Emit specific round ended event
+    io.to(strGameId).emit("roundEnded", { gameId: strGameId });
     socket.emit("gameEnd");
     console.log("📖📖 game End is emitted");
 }
