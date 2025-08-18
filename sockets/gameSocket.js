@@ -782,13 +782,15 @@ async function fullGameCleanup(gameId, redis, state) {
             gameData.index += 1;
 
             // Save updated game state back to Redis
-            await redis.set(gameDrawStateKey, JSON.stringify(gameData));
-
             // Add the drawn number to the Redis list
             const callNumberLength = await redis.rPush(gameDrawsKey, number.toString());
 
-            // ⭐ Add this line to store the latest call number length in the state
-             gameData.callNumberLength = callNumberLength; 
+            // ⭐ CORRECT ORDER: Update the gameData object in memory
+            gameData.callNumberLength = callNumberLength; 
+
+            // ⭐ CORRECT ORDER: Save the UPDATED game state back to Redis
+            await redis.set(gameDrawStateKey, JSON.stringify(gameData));
+
 
             // Format the number label (e.g. "B-12")
             const letterIndex = Math.floor((number - 1) / 15);
