@@ -787,6 +787,9 @@ async function fullGameCleanup(gameId, redis, state) {
             // Add the drawn number to the Redis list
             const callNumberLength = await redis.rPush(gameDrawsKey, number.toString());
 
+            // ⭐ Add this line to store the latest call number length in the state
+             gameData.callNumberLength = callNumberLength; 
+
             // Format the number label (e.g. "B-12")
             const letterIndex = Math.floor((number - 1) / 15);
             const letter = ["B", "I", "N", "G", "O"][letterIndex];
@@ -958,6 +961,15 @@ async function fullGameCleanup(gameId, redis, state) {
         const drawn = await redis.lRange(`gameDraws:${strGameSessionId}`, 0, -1);
         const drawnNumbers = new Set(drawn.map(Number));
         const winnerPattern = checkBingoPattern(board, drawnNumbers, selectedSet);
+
+          // ⭐ Fetch the game state to get the last call number length
+        const gameDrawStateKey = `gameDrawState:${strGameSessionId}`;
+        const gameDataRaw = await redis.get(gameDrawStateKey);
+        let callNumberLength = null;
+        if (gameDataRaw) {
+            const gameData = JSON.parse(gameDataRaw);
+            callNumberLength = gameData.callNumberLength || 0;
+        }
         
 
         // ⭐ Record the winner's payout in the ledger
@@ -999,6 +1011,8 @@ async function fullGameCleanup(gameId, redis, state) {
             eventType: "win",
             winAmount: prizeAmount,
             stake: stakeAmount,
+            cartelaId: cartelaId, // ⭐ Added cartelaId
+            callNumberLength: callNumberLength, // ⭐ Added callNumberLength
             createdAt: new Date(),
         });
 
@@ -1016,6 +1030,8 @@ async function fullGameCleanup(gameId, redis, state) {
                     eventType: "lose",
                     winAmount: 0,
                     stake: stakeAmount,
+                    cartelaId: null, // ⭐ Added cartelaId (null for losers)
+                    callNumberLength: callNumberLength, // ⭐ Added callNumberLength
                     createdAt: new Date(),
                 });
             }
