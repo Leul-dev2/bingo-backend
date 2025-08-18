@@ -14,6 +14,7 @@ const walletRoute = require('./routes/wallet');
 const profileRoutes = require('./routes/profile');
 const registerGameSocket = require("./sockets/gameSocket")
 const paymentRoutes = require("./routes/paymentRoutes"); // or wherever your file is
+const smsRoutes = require("./routes/smsWebhook");
 
 
 const User = require("./models/user");
@@ -44,6 +45,7 @@ app.use('/api/history', historyRoutes);
 app.use('/api/wallet', walletRoute);
 app.use('/api/profile', profileRoutes);
 app.use("/api/payment", paymentRoutes);
+app.use("/api", smsRoutes);
 
 
 
