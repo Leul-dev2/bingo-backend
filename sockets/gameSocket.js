@@ -1024,6 +1024,7 @@ async function fullGameCleanup(gameId, redis, state) {
             if (playerTelegramId !== telegramId) {
                 const playerUser = await User.findOne({ telegramId: playerTelegramId });
                 const loserCard = await GameCard.findOne({ gameId: strGameId, takenBy: playerTelegramId });
+                console.log("looser card🤪🤪", loserCard);
                 if (!playerUser) continue;
                 await GameHistory.create({
                     sessionId: strGameSessionId,
