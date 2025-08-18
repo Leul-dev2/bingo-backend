@@ -45,11 +45,11 @@ router.get('/', async (req, res) => {
   id: g.sessionId.slice(-4), // last 4 as ref
   user: g.username,
   ref: g.sessionId.slice(-4),//last 4 as ref
-  board: Math.floor(Math.random() * 50), // fake for now
-  calls: Math.floor(Math.random() * 25), // fake for now
+  board:g.cartelaId, // fake for now
+  calls: g.callNumberLength, // fake for now
   date: new Date(g.createdAt).toLocaleDateString(),
   time: new Date(g.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
- win: g.eventType === 'lose' ? -g.stake : g.winAmount,}));
+  win: g.eventType === 'lose' ? -g.stake : g.winAmount,}));
 
 
     return res.json(transformed);
