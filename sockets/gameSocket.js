@@ -1023,6 +1023,7 @@ async function fullGameCleanup(gameId, redis, state) {
         for (const playerTelegramId of players) {
             if (playerTelegramId !== telegramId) {
                 const playerUser = await User.findOne({ telegramId: playerTelegramId });
+                const loserCard = await GameCard.findOne({ gameId: strGameId, takenBy: playerTelegramId });
                 if (!playerUser) continue;
                 await GameHistory.create({
                     sessionId: strGameSessionId,
@@ -1032,7 +1033,7 @@ async function fullGameCleanup(gameId, redis, state) {
                     eventType: "lose",
                     winAmount: 0,
                     stake: stakeAmount,
-                    cartelaId: null, // ⭐ Added cartelaId (null for losers)
+                    cartelaId: loserCard ? loserCard.cardId : null, 
                     callNumberLength: callNumberLength, // ⭐ Added callNumberLength
                     createdAt: new Date(),
                 });
