@@ -1,10 +1,9 @@
-require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const http = require("http");
 const mongoose = require("mongoose");
 const { Server } = require("socket.io");
-const smsRoutes = require('./routes/sms');
+require("dotenv").config();
 
 const connectDB = require("./config/db");
 const userRoutes = require("./routes/userRoutes");
@@ -47,7 +46,7 @@ app.use('/api/history', historyRoutes);
 app.use('/api/wallet', walletRoute);
 app.use('/api/profile', profileRoutes);
 app.use("/api/payment", paymentRoutes);
-app.use('/api', smsRoutes);
+app.use("/api", smsRoutes);
 
 
 
