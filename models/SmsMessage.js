@@ -1,12 +1,11 @@
-// models/SmsMessage.js
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 const SmsMessageSchema = new mongoose.Schema({
-  from: { type: String, required: true },      // Sender phone number
-  message: { type: String, required: true },   // SMS text body
-  timestamp: { type: Date, default: Date.now },// When received
-  gateway: { type: String },                   // (Optional) Gateway ID from SMSSync
-  status: { type: String, default: "pending" } // pending | processed
+  from: { type: String, required: true },
+  message: { type: String, required: true },
+  timestamp: { type: Number, default: Date.now },
+  gateway: { type: String, default: 'default' },
+  status: { type: String, enum: ['pending', 'processed'], default: 'pending' },
 });
 
-module.exports = mongoose.model("SmsMessage", SmsMessageSchema);
+module.exports = mongoose.model('SmsMessage', SmsMessageSchema);
