@@ -1,43 +1,48 @@
 const express = require('express');
 const router = express.Router();
-const mongoose = require('mongoose');
-
-// Import your Mongoose model
 const SmsMessage = require('../models/SmsMessage');
 
 router.post('/sms-webhook', async (req, res) => {
   try {
     console.log("📩 Incoming webhook:", req.body);
 
-    // The payload format from SMSSync or similar apps
-    // It's crucial that these field names match the data sent by your app
-    const { from, message, sent_timestamp, gateway } = req.body;
+    // Try to normalize the payload (support multiple apps)
+    const from =
+      req.body.from || req.body.sender || req.body.address || req.body.phone;
 
-    // Check for the required fields
+    const message =
+      req.body.message || req.body.content || req.body.body || req.body.text;
+
+    const sent_timestamp =
+      req.body.sent_timestamp || req.body.timestamp || req.body.time;
+
+    const gateway = req.body.gateway || "default";
+
+    // Validation
     if (!from || !message) {
       console.error('❌ Invalid payload: Missing "from" or "message".', req.body);
-      return res.status(400).send({ message: 'Invalid payload: Missing from or message.' });
+      return res
+        .status(400)
+        .send({ message: 'Invalid payload: Missing from or message.' });
     }
 
-    // Create a new document using the SmsMessage model
+    // Save SMS
     const newSms = new SmsMessage({
-      from: from,
-      message: message,
-      // Use the timestamp from the payload, or a new one if it's not provided
+      from,
+      message,
       timestamp: sent_timestamp ? new Date(sent_timestamp) : Date.now(),
-      gateway: gateway,
+      gateway,
     });
 
-    // Save the document to the MongoDB database
     await newSms.save();
     console.log(`✅ SMS from ${from} saved successfully.`);
 
-    // Send a 200 OK response to the gateway app to confirm receipt
-    return res.status(200).send({ message: 'SMS received and processed successfully' });
-
+    // Confirm to the app
+    return res
+      .status(200)
+      .send({ message: 'SMS received and processed successfully' });
   } catch (error) {
     console.error('❌ Error processing SMS webhook:', error);
-    // Send a 500 error response if something went wrong
     return res.status(500).send({ message: 'Internal Server Error' });
   }
 });
