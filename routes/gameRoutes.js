@@ -122,8 +122,9 @@ router.post("/start", async (req, res) => {
 
 // ... (your existing /status route below)
 router.get('/:gameId/status', async (req, res) => {
-    const { gameId } = req.params;
-    console.log("🚀 /status route hit with gameId:", req.params.gameId);
+     const { gameId } = req.params;
+     const gameIdStr = String(gameId);
+     console.log("🚀 /status route hit with gameId:", req.params.gameId);
 
     try {
         const isActiveStr = await redis.get(`gameIsActive:${gameId}`);
@@ -135,7 +136,7 @@ router.get('/:gameId/status', async (req, res) => {
             });
         }
 
-        const game = await GameControl.findOne({ gameId });
+        const game = await GameControl.findOne({ gameId: gameIdStr });
         if (!game) {
             return res.status(404).json({
                 isActive: false,
