@@ -137,6 +137,7 @@ router.get('/:gameId/status', async (req, res) => {
         }
 
         const game = await GameControl.findOne({ gameId: gameIdStr });
+        console.log("gameid to find ", game);
         if (!game) {
             return res.status(404).json({
                 isActive: false,
