@@ -13,7 +13,9 @@ router.get("/", (req, res) => {
  */
 router.get("/getUser", async (req, res) => {
   const { telegramId, refresh } = req.query;
+  const telegramIdNum = Number(telegramId);
   console.log("user is have gotten here! 🚀🚀", req.query);
+  console.log("user is have gotten here! 🚀🚀", telegramIdNum);
 
   if (!telegramId) {
     return res.status(400).json({ error: "Missing telegramId" });
@@ -24,7 +26,7 @@ router.get("/getUser", async (req, res) => {
 
     // If force refresh is passed, bypass Redis and fetch from DB
     if (refresh === "true") {
-      const user = await User.findOne({ telegramId });
+      const user = await User.findOne({ telegramIdNum });
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
@@ -42,7 +44,7 @@ router.get("/getUser", async (req, res) => {
     }
 
     // Not found in Redis, fallback to DB
-    const user = await User.findOne({ telegramId });
+    const user = await User.findOne({ telegramIdNum });
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
