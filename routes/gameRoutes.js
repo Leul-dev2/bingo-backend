@@ -123,7 +123,7 @@ router.post("/start", async (req, res) => {
 // ... (your existing /status route below)
 router.get('/:gameId/status', async (req, res) => {
      const { gameId } = req.params;
-     const gameIdStr = String(gameId).trim();
+     const gameIdStr = String(gameId);
      console.log("🚀 /status route hit with gameId:", gameIdStr);
 
     try {
