@@ -4,7 +4,7 @@ const { createClient } = require("redis");
 const redisClient = createClient({
   url: process.env.REDIS_URL, // Set your Upstash URL in environment variables on Render
   socket: {
-    tls: true,
+    tls: false,
     rejectUnauthorized: false, // sometimes needed for Upstash TLS
   },
 });
