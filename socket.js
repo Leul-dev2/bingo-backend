@@ -1,6 +1,6 @@
 import { io } from "socket.io-client";
 
-const socket = io("https://bingobot-backend-bwdo.onrender.com", {
+const socket = io("http://frontend.bingoogame.com/", {
   autoConnect: false, // we'll connect manually
 });
 
