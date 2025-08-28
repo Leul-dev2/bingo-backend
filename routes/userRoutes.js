@@ -13,6 +13,7 @@ router.get("/", (req, res) => {
  */
 router.get("/getUser", async (req, res) => {
   const { telegramId, refresh } = req.query;
+  console.log("user is have gotten here! 🚀🚀", req.query);
 
   if (!telegramId) {
     return res.status(400).json({ error: "Missing telegramId" });
