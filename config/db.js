@@ -1,3 +1,5 @@
+console.log("Mongo URI loaded from environment inside dbjs:", process.env.MONGODB_URI);
+
 const mongoose = require("mongoose");
 
 const connectDB = async () => {

@@ -1,6 +1,6 @@
 require("dotenv").config();
 
-console.log("Mongo URI loaded from environment:", process.env.MONGO_URI);
+console.log("Mongo URI loaded from environment index:", process.env.MONGODB_URI);
 
 const express = require("express");
 const cors = require("cors");
