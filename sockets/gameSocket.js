@@ -372,6 +372,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
             // MODIFIED: Find the game and the specific player object within it.
             const game = await GameControl.findOne({ GameSessionId: strGameSessionId, 'players.telegramId': Number(strTelegramId) });
+            console.log("game value inside the joinGame 🔥🔥🔥", game);
 
             // --- NEW LOGIC: Check if the player was in the game, but the game is now over. ---
             if (game?.endedAt) {
