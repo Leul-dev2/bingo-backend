@@ -394,6 +394,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             // If no record is found, the user was never in this game session.
             if (!game) {
                 socket.emit("gameEnd", { message: "The game has ended." });
+                 console.log(`gameEnd for player ${strTelegramId} to 🤪🤪🤪.`);
                 console.warn(`🚫 Blocked user ${strTelegramId} from joining game session ${strGameSessionId} because no player record was found.`);
                 const winnerRaw = await redis.get(`winnerInfo:${strGameSessionId}`);
                 if (winnerRaw) {
