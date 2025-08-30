@@ -93,7 +93,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
         // --- IMPORTANT: Clean up any residual 'joinGame' phase info for this socket ---
         // This handles the transition from 'joinGame' phase to 'lobby' phase for the same socket
-        await redis.hDel(`joinGameSocketsInfo`, socket.id);
+       // await redis.hDel(`joinGameSocketsInfo`, socket.id);
         console.log(`🧹 Cleaned up residual 'joinGameSocketsInfo' for socket ${socket.id} as it's now in 'lobby' phase.`);
 
 
@@ -423,6 +423,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             }));
             await redis.set(`activeSocket:${strTelegramId}:${socket.id}`, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
             console.log(`Backend: Socket ${socket.id} for ${strTelegramId} set up in 'joinGame' phase.`);
+
 
             await redis.sAdd(`gameRooms:${strGameId}`, strTelegramId);
             console.log("➕➕➕players added to gameRooms", `gameRooms:${strGameId}`);
