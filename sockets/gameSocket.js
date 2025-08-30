@@ -356,10 +356,16 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
     socket.on("joinGame", async ({ gameId, GameSessionId, telegramId }) => {
         console.log("joinGame is invoked 🔥🔥🔥");
         try {
+            console.log("joinGame is invoked 🔥🔥🔥 tryyyyyy");
             const strGameId = String(gameId);
             const strGameSessionId = String(GameSessionId);
             const strTelegramId = String(telegramId);
             const timeoutKey = `${strTelegramId}:${strGameId}:joinGame`;
+
+            console.log(timeoutKey, "timeout key inside join🤪🤪");
+              console.log(strGameId);
+                console.log(strGameSessionId);
+                  console.log(strTelegramId);
 
             console.log("gameSessionID inside joingame", GameSessionId );
 
