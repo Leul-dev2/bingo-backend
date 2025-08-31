@@ -354,6 +354,12 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
     // --- UPDATED: socket.on("joinGame") ---
     socket.on("joinGame", async ({ gameId, GameSessionId, telegramId }) => {
+        console.log("Game status in joinGame:", {
+                endedAt: game?.endedAt,
+                isActive: game?.isActive,
+                players: game?.players.map(p => p.telegramId),
+            });
+
         console.log("joinGame is invoked 🔥🔥🔥");
         try {
             console.log("joinGame is invoked 🔥🔥🔥 tryyyyyy");
