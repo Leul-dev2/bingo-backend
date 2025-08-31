@@ -1,4 +1,16 @@
 {
   "schemaVersion": 2,
-  "templateId": "node/22"
+  "dockerfileLines": [
+    "FROM node:18-alpine",
+    "WORKDIR /usr/src/app",
+    "COPY package*.json ./",
+    "RUN npm install",
+    "COPY . .",
+    "CMD [\"npm\", \"start\"]"
+  ],
+  "ports": [
+    "5000"
+  ],
+  "notExposeAsWebapp": false,
+  "websocketSupport": true
 }
