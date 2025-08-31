@@ -398,7 +398,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
                     console.log(`✅ Redirecting player ${strTelegramId} to winner page.`);
                 } else {
                     // Redirect to home page
-                    socket.emit("gameEnd", { message: "The game has ended." });
+                  //  socket.emit("gameEnd", { message: "The game has ended." });
                     console.log(`✅ Redirecting player ${strTelegramId} to home page.`);
                     console.log("game ended ⏳⏳🔥🔥", game?.endedAt);
                 }
@@ -407,7 +407,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
             // If no record is found, the user was never in this game session.
             if (!game) {
-                socket.emit("gameEnd", { message: "The game has ended." });
+                //socket.emit("gameEnd", { message: "The game has ended." });
                  console.log(`gameEnd for player ${strTelegramId} to 🤪🤪🤪.`);
                  console.log("game ended inside if(!game)", game);
                 console.warn(`🚫 Blocked user ${strTelegramId} from joining game session ${strGameSessionId} because no player record was found.`);
