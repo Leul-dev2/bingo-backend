@@ -389,6 +389,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             // --- NEW LOGIC: Check if the player was in the game, but the game is now over. ---
             if (game?.endedAt) {
                 console.log(`🔄 Player ${strTelegramId} tried to join a game that has ended.`);
+                console.log("game ended ⏳⏳ inside if (game?.endedAt)", game?.endedAt);
                 const winnerRaw = await redis.get(`winnerInfo:${strGameSessionId}`);
                 if (winnerRaw) {
                     const winnerInfo = JSON.parse(winnerRaw);
@@ -399,6 +400,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
                     // Redirect to home page
                     socket.emit("gameEnd", { message: "The game has ended." });
                     console.log(`✅ Redirecting player ${strTelegramId} to home page.`);
+                    console.log("game ended ⏳⏳🔥🔥", game?.endedAt);
                 }
                 return;
             }
@@ -407,6 +409,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             if (!game) {
                 socket.emit("gameEnd", { message: "The game has ended." });
                  console.log(`gameEnd for player ${strTelegramId} to 🤪🤪🤪.`);
+                 console.log("game ended inside if(!game)", game);
                 console.warn(`🚫 Blocked user ${strTelegramId} from joining game session ${strGameSessionId} because no player record was found.`);
                 const winnerRaw = await redis.get(`winnerInfo:${strGameSessionId}`);
                 if (winnerRaw) {
