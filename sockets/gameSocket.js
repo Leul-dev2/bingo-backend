@@ -1240,6 +1240,9 @@ socket.on("disconnect", async (reason) => {
             }
         }
 
+        console.log(`[DISCONNECT] Payload for🔥🔥🔥🔥 ${socket.id}:`, userPayload);
+
+
         // 3. Early exit if crucial info is missing
         if (!userPayload || !userPayload.telegramId || !userPayload.gameId || !disconnectedPhase) {
             console.log("❌ No relevant user session info found or payload corrupted for this disconnected socket ID. Skipping full disconnect cleanup.");
@@ -1379,6 +1382,7 @@ const cleanupLobbyPhase = async (strTelegramId, strGameId, _, io, redis) => {
 
     // 5️⃣ Reset game if empty
     const totalPlayersGamePlayers = await redis.sCard(`gamePlayers:${strGameId}`);
+    onsole.log(`[CLEANUP] After removing ${strTelegramId}: lobby=${numberOfPlayersLobby}, gamePlayers=${totalPlayersGamePlayers}`);
     if (numberOfPlayersLobby === 0 && totalPlayersGamePlayers === 0) {
         await GameControl.findOneAndUpdate({ gameId: strGameId }, { isActive: false, totalCards: 0, players: [], endedAt: new Date() });
         await syncGameIsActive(strGameId, false);
