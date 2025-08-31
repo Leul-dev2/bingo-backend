@@ -26,7 +26,7 @@ const { // <-- Add this line
 const { Socket } = require("socket.io");
 const pendingDisconnectTimeouts = new Map(); // Key: `${telegramId}:${gameId}`, Value: setTimeout ID
 const ACTIVE_DISCONNECT_GRACE_PERIOD_MS = 2 * 1000; // For card selection lobby (10 seconds)
-const JOIN_GAME_GRACE_PERIOD_MS = 6 * 1000; // For initial join/live game phase (5 seconds)
+const JOIN_GAME_GRACE_PERIOD_MS = 2 * 1000; // For initial join/live game phase (5 seconds)
 const ACTIVE_SOCKET_TTL_SECONDS = 60 * 3;
 
 
@@ -93,7 +93,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
         // --- IMPORTANT: Clean up any residual 'joinGame' phase info for this socket ---
         // This handles the transition from 'joinGame' phase to 'lobby' phase for the same socket
-       await redis.hDel(`joinGameSocketsInfo`, socket.id);
+        await redis.hDel(`joinGameSocketsInfo`, socket.id);
         console.log(`🧹 Cleaned up residual 'joinGameSocketsInfo' for socket ${socket.id} as it's now in 'lobby' phase.`);
 
 
@@ -354,19 +354,12 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
     // --- UPDATED: socket.on("joinGame") ---
     socket.on("joinGame", async ({ gameId, GameSessionId, telegramId }) => {
-      
         console.log("joinGame is invoked 🔥🔥🔥");
         try {
-            console.log("joinGame is invoked 🔥🔥🔥 tryyyyyy");
             const strGameId = String(gameId);
             const strGameSessionId = String(GameSessionId);
             const strTelegramId = String(telegramId);
             const timeoutKey = `${strTelegramId}:${strGameId}:joinGame`;
-
-            console.log(timeoutKey, "timeout key inside join🤪🤪");
-              console.log(strGameId);
-                console.log(strGameSessionId);
-                  console.log(strTelegramId);
 
             console.log("gameSessionID inside joingame", GameSessionId );
 
@@ -379,17 +372,10 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
             // MODIFIED: Find the game and the specific player object within it.
             const game = await GameControl.findOne({ GameSessionId: strGameSessionId, 'players.telegramId': Number(strTelegramId) });
-            console.log("game value inside the joinGame 🔥🔥🔥", game);
-              console.log("Game status in joinGame:", {
-                endedAt: game?.endedAt,
-                isActive: game?.isActive,
-                players: game?.players.map(p => p.telegramId),
-            });
 
             // --- NEW LOGIC: Check if the player was in the game, but the game is now over. ---
             if (game?.endedAt) {
                 console.log(`🔄 Player ${strTelegramId} tried to join a game that has ended.`);
-                console.log("game ended ⏳⏳ inside if (game?.endedAt)", game?.endedAt);
                 const winnerRaw = await redis.get(`winnerInfo:${strGameSessionId}`);
                 if (winnerRaw) {
                     const winnerInfo = JSON.parse(winnerRaw);
@@ -398,18 +384,15 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
                     console.log(`✅ Redirecting player ${strTelegramId} to winner page.`);
                 } else {
                     // Redirect to home page
-                  //  socket.emit("gameEnd", { message: "The game has ended." });
+                    socket.emit("gameEnd", { message: "The game has ended." });
                     console.log(`✅ Redirecting player ${strTelegramId} to home page.`);
-                    console.log("game ended ⏳⏳🔥🔥", game?.endedAt);
                 }
                 return;
             }
 
             // If no record is found, the user was never in this game session.
             if (!game) {
-                //socket.emit("gameEnd", { message: "The game has ended." });
-                 console.log(`gameEnd for player ${strTelegramId} to 🤪🤪🤪.`);
-                 console.log("game ended inside if(!game)", game);
+                socket.emit("gameEnd", { message: "The game has ended." });
                 console.warn(`🚫 Blocked user ${strTelegramId} from joining game session ${strGameSessionId} because no player record was found.`);
                 const winnerRaw = await redis.get(`winnerInfo:${strGameSessionId}`);
                 if (winnerRaw) {
@@ -438,7 +421,6 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             }));
             await redis.set(`activeSocket:${strTelegramId}:${socket.id}`, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
             console.log(`Backend: Socket ${socket.id} for ${strTelegramId} set up in 'joinGame' phase.`);
-
 
             await redis.sAdd(`gameRooms:${strGameId}`, strTelegramId);
             console.log("➕➕➕players added to gameRooms", `gameRooms:${strGameId}`);
@@ -1240,9 +1222,6 @@ socket.on("disconnect", async (reason) => {
             }
         }
 
-        console.log(`[DISCONNECT] Payload for🔥🔥🔥🔥 ${socket.id}:`, userPayload);
-
-
         // 3. Early exit if crucial info is missing
         if (!userPayload || !userPayload.telegramId || !userPayload.gameId || !disconnectedPhase) {
             console.log("❌ No relevant user session info found or payload corrupted for this disconnected socket ID. Skipping full disconnect cleanup.");
@@ -1382,7 +1361,6 @@ const cleanupLobbyPhase = async (strTelegramId, strGameId, _, io, redis) => {
 
     // 5️⃣ Reset game if empty
     const totalPlayersGamePlayers = await redis.sCard(`gamePlayers:${strGameId}`);
-    onsole.log(`[CLEANUP] After removing ${strTelegramId}: lobby=${numberOfPlayersLobby}, gamePlayers=${totalPlayersGamePlayers}`);
     if (numberOfPlayersLobby === 0 && totalPlayersGamePlayers === 0) {
         await GameControl.findOneAndUpdate({ gameId: strGameId }, { isActive: false, totalCards: 0, players: [], endedAt: new Date() });
         await syncGameIsActive(strGameId, false);
@@ -1479,14 +1457,3 @@ const cleanupJoinGamePhase = async (strTelegramId, strGameId, strGameSessionId, 
 
   });
 };
-
-
-
-
-
-
-
-
-
-
-
