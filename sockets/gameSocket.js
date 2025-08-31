@@ -354,12 +354,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
 
     // --- UPDATED: socket.on("joinGame") ---
     socket.on("joinGame", async ({ gameId, GameSessionId, telegramId }) => {
-        console.log("Game status in joinGame:", {
-                endedAt: game?.endedAt,
-                isActive: game?.isActive,
-                players: game?.players.map(p => p.telegramId),
-            });
-
+      
         console.log("joinGame is invoked 🔥🔥🔥");
         try {
             console.log("joinGame is invoked 🔥🔥🔥 tryyyyyy");
@@ -385,6 +380,11 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             // MODIFIED: Find the game and the specific player object within it.
             const game = await GameControl.findOne({ GameSessionId: strGameSessionId, 'players.telegramId': Number(strTelegramId) });
             console.log("game value inside the joinGame 🔥🔥🔥", game);
+              console.log("Game status in joinGame:", {
+                endedAt: game?.endedAt,
+                isActive: game?.isActive,
+                players: game?.players.map(p => p.telegramId),
+            });
 
             // --- NEW LOGIC: Check if the player was in the game, but the game is now over. ---
             if (game?.endedAt) {
