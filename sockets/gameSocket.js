@@ -1365,7 +1365,7 @@ socket.on("disconnect", async (reason) => {
 
 // --- Modular Cleanup Functions (Self-contained and robust) ---
 
-const cleanupLobbyPhase = async (strTelegramId, strGameSessionId, strGameId, _, io, redis) => {
+const cleanupLobbyPhase = async (strTelegramId, strGameId, strGameSessionId, io, redis) => {
     console.log(`⏱️ Lobby grace period expired for User: ${strTelegramId}, Game: ${strGameId}. Performing cleanup.`);
 
     const gameCardsKey = `gameCards:${strGameId}`;
