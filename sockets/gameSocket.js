@@ -421,6 +421,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             }));
             await redis.set(`activeSocket:${strTelegramId}:${socket.id}`, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
             console.log(`Backend: Socket ${socket.id} for ${strTelegramId} set up in 'joinGame' phase.`);
+            console.log("joinsocket info🔥🔥", joinGameSocketInfo);
 
             await redis.sAdd(`gameRooms:${strGameId}`, strTelegramId);
             console.log("➕➕➕players added to gameRooms", `gameRooms:${strGameId}`);
@@ -1209,6 +1210,9 @@ socket.on("disconnect", async (reason) => {
             .hGet("joinGameSocketsInfo", socket.id)
             .exec();
 
+
+            console.log("joinsocket info 🔥🔥 inside disconnect", joinGameSocketInfo); 
+
         // 1. Try to retrieve info from 'lobby' phase first
         if (userSelectionPayloadRaw) {
             userPayload = safeJsonParse(userSelectionPayloadRaw, "userSelections", socket.id);
@@ -1319,12 +1323,14 @@ socket.on("disconnect", async (reason) => {
                     try {
                             console.log(`[DEBUG] Attempting to update GameSessionId: ${strGameSessionId} for player: ${strTelegramId}`);
                             console.log("reason", reason, "inside cleanupfunction", strTelegramId, "➖➖");
-                            const result = await GameControl.updateOne(
-                            { GameSessionId: strGameSessionId, 'players.telegramId': Number(strTelegramId) },
-                            { '$set': { 'players.$.status': 'disconnected' } }
-                        );
-    
-            console.log(`✅ Player ${strTelegramId} status updated to 'disconnected'. Result:`, result);
+                           if (strGameSessionId && strGameSessionId !== 'NO_SESSION_ID') {
+                      const result = await GameControl.updateOne(
+                                // Verify telegramId is a number if that's the schema type, otherwise remove Number()
+                                { GameSessionId: strGameSessionId, 'players.telegramId': Number(strTelegramId) }, 
+                                { '$set': { 'players.$.status': 'disconnected' } }
+                            );
+                            console.log(`✅ Player ${strTelegramId} status updated to 'disconnected'. Result:`, result);
+                        }
                         await cleanupFunction(strTelegramId, strGameId, strGameSessionId, io, redis);
                     } catch (e) {
                         console.error(`❌ Error during grace period cleanup for ${timeoutKeyForPhase}:`, e);
