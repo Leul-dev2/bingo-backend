@@ -65,7 +65,7 @@ async function resetGame(gameId, strGameSessionId,  io,  state, redis) {
     try {
         await Promise.all([
         redis.set(`gameIsActive:${gameId}`, "false"),
-        redis.del(getGameDrawsKey(GameSessionId)),
+        redis.del(getGameDrawsKey(strGameSessionId)),
         redis.del(getGameDrawStateKey(strGameId)),
         redis.del(getGameDrawsKey(strGameSessionId)),
         redis.del(getActiveDrawLockKey(strGameId)),
