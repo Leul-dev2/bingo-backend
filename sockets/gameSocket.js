@@ -1249,7 +1249,7 @@ socket.on("disconnect", async (reason) => {
         strTelegramId = String(userPayload.telegramId);
         strGameId = String(userPayload.gameId);
         // Ensure GameSessionId is assigned, defaulting if not present (e.g., in a lobby)
-        strGameSessionId = userPayload.GameSessionId || 'NO_SESSION_ID';
+        strGameSessionId = userPayload.GameSessionId|| gameSessionId || 'NO_SESSION_ID';
 
         console.log(`[DISCONNECT DEBUG] Processing disconnect for User: ${strTelegramId}, Game: ${strGameId}, Socket: ${socket.id}, Final Deduced Phase: ${disconnectedPhase}`);
 
