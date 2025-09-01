@@ -561,7 +561,14 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
 
 // The core logic for player deductions and game start
 async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, redis, state) {
-    const playersForDeduction = (await GameControl.findOne({GameSessionId: strGameSessionId }).select('players -_id'))?.players.map(player => player?.telegramId).filter(Boolean) || [];
+    // ⭐ Step 1: Query the database to get the most up-to-date player list
+    const currentGameControl = await GameControl.findOne({GameSessionId: strGameSessionId }).select('players -_id');
+    
+    // ⭐ Step 2: Filter the player list to get only those with a 'connected' status
+    const connectedPlayers = (currentGameControl?.players || []).filter(p => p.status === 'connected');
+    
+    const playersForDeduction = connectedPlayers.map(player => player?.telegramId).filter(Boolean);
+    console.log("player connected are 🤑🤑", playersForDeduction);
     let successfulDeductions = 0;
     let finalPlayerList = [];
     // 🟢 Corrected: A new array to hold the full player objects for the GameControl update
@@ -1300,6 +1307,13 @@ socket.on("disconnect", async (reason) => {
             if (cleanupFunction) {
                 const timeoutId = setTimeout(async () => {
                     try {
+                         // ⭐ Add the update query here ⭐
+                // This updates the player's status to 'disconnected' in the database
+                await GameControl.updateOne(
+                    { GameSessionId: strGameSessionId, 'players.telegramId': strTelegramId },
+                    { '$set': { 'players.$.status': 'disconnected' } }
+                 );
+
                         await cleanupFunction(strTelegramId, strGameId, strGameSessionId, io, redis);
                     } catch (e) {
                         console.error(`❌ Error during grace period cleanup for ${timeoutKeyForPhase}:`, e);
