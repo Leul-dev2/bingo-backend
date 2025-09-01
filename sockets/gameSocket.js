@@ -1213,6 +1213,11 @@ socket.on("disconnect", async (reason) => {
 
             console.log("joinsocket info 🔥🔥 inside disconnect  userSelectionPayloadRaw", userSelectionPayloadRaw, "joingame payloadra", joinGamePayloadRaw ); 
 
+        const payload = JSON.parse(joinGamePayloadRaw);
+
+        // Access the GameSessionId property
+        const gameSessionId = String(payload.GameSessionId);
+
         // 1. Try to retrieve info from 'lobby' phase first
         if (userSelectionPayloadRaw) {
             userPayload = safeJsonParse(userSelectionPayloadRaw, "userSelections", socket.id);
@@ -1321,12 +1326,12 @@ socket.on("disconnect", async (reason) => {
             if (cleanupFunction) {
                 const timeoutId = setTimeout(async () => {
                     try {
-                            console.log(`[DEBUG] Attempting to update GameSessionId: ${strGameSessionId} for player: ${strTelegramId}`);
+                            console.log(`[DEBUG] Attempting to update GameSessionId: ${gameSessionId} for player: ${strTelegramId}`);
                             console.log("reason", reason, "inside cleanupfunction", strTelegramId, "➖➖");
                            if (strGameSessionId && strGameSessionId !== 'NO_SESSION_ID') {
                       const result = await GameControl.updateOne(
                                 // Verify telegramId is a number if that's the schema type, otherwise remove Number()
-                                { GameSessionId: strGameSessionId, 'players.telegramId': Number(strTelegramId) }, 
+                                { GameSessionId: gameSessionId, 'players.telegramId': Number(strTelegramId) }, 
                                 { '$set': { 'players.$.status': 'disconnected' } }
                             );
                             console.log(`✅ Player ${strTelegramId} status updated to 'disconnected'. Result:`, result);
