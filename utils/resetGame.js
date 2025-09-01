@@ -1,6 +1,6 @@
 const GameControl = require("../models/GameControl");
 
-async function resetGame(gameId, io, state, redis) {
+async function resetGame(gameId, io, strGameSessionId, state, redis) {
     const {
         drawIntervals,
         countdownIntervals,
