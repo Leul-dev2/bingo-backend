@@ -421,7 +421,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             }));
             await redis.set(`activeSocket:${strTelegramId}:${socket.id}`, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
             console.log(`Backend: Socket ${socket.id} for ${strTelegramId} set up in 'joinGame' phase.`);
-            console.log("joinsocket info🔥🔥", joinGameSocketInfo);
+            console.log("joinsocket info🔥🔥", joinGameSocketInfo.GameSessionId);
 
             await redis.sAdd(`gameRooms:${strGameId}`, strTelegramId);
             console.log("➕➕➕players added to gameRooms", `gameRooms:${strGameId}`);
