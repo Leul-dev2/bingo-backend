@@ -1336,11 +1336,12 @@ socket.on("disconnect", async (reason) => {
                             );
                             console.log(`✅ Player ${strTelegramId} status updated to 'disconnected'. Result:`, result);
 
-                        const results = await User.findOneAndUpdate(
-                            { 'players.telegramId': Number(strTelegramId)},
-                            { $set: { reservedForGameId: null } },
-                         );
-                          console.log(`👴 Player ${strTelegramId} reservedGameId`, results);
+                        const userUpdateResult = await User.findOneAndUpdate(
+                            // Use the top-level telegramId field to find the user
+                            { telegramId: Number(strTelegramId) },
+                            { $set: { reservedForGameId: null } }
+                        );
+                          console.log(`👴 Player ${strTelegramId} reservedGameId`, userUpdateResult);
 
                         }
                         await cleanupFunction(strTelegramId, strGameId, strGameSessionId, io, redis);
