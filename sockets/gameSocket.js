@@ -1283,6 +1283,16 @@ socket.on("disconnect", async (reason) => {
 
         console.log(`[DISCONNECT DEBUG] Remaining active sockets for ${strTelegramId} in game ${strGameId} in phase '${disconnectedPhase}': ${remainingSocketsForThisPhaseCount}`);
 
+                  // ⭐ Add the update query here ⭐
+                // This updates the player's status to 'disconnected' in the database
+                if (reason === "transport close"){
+                    console.log("reason", reason, "for", strTelegramId, "➖➖");
+                    await GameControl.updateOne(
+                        { GameSessionId: strGameSessionId, 'players.telegramId': strTelegramId },
+                        { '$set': { 'players.$.status': 'disconnected' } }
+                    );
+                }
+
         // --- Grace Period and Cleanup based on the user's last remaining socket for this phase ---
         const timeoutKeyForPhase = `${strTelegramId}:${strGameId}:${disconnectedPhase}`;
 
@@ -1307,13 +1317,6 @@ socket.on("disconnect", async (reason) => {
             if (cleanupFunction) {
                 const timeoutId = setTimeout(async () => {
                     try {
-                         // ⭐ Add the update query here ⭐
-                // This updates the player's status to 'disconnected' in the database
-                await GameControl.updateOne(
-                    { GameSessionId: strGameSessionId, 'players.telegramId': strTelegramId },
-                    { '$set': { 'players.$.status': 'disconnected' } }
-                 );
-
                         await cleanupFunction(strTelegramId, strGameId, strGameSessionId, io, redis);
                     } catch (e) {
                         console.error(`❌ Error during grace period cleanup for ${timeoutKeyForPhase}:`, e);
