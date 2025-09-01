@@ -1,6 +1,8 @@
 const GameControl = require("../models/GameControl");
+const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLockKey, getGameActiveKey, getGameSessionsKey, getGamePlayersKey } = require("./redisKeys");
 
 async function resetGame(gameId, strGameSessionId,  io,  state, redis) {
+    const strGameId = String(gameId);
     console.log("inside reset Game gamesessionid🤪🤪", strGameSessionId);
     const {
         drawIntervals,
@@ -34,22 +36,20 @@ async function resetGame(gameId, strGameSessionId,  io,  state, redis) {
 
 
     // ⏱ 3. Clear timeouts/intervals
-    if (drawIntervals?.[gameId]) {
-        clearInterval(drawIntervals[gameId]);
-        delete drawIntervals[gameId];
-        console.log(`🛑 Cleared draw interval for gameId: ${gameId}`);
+  if (state?.countdownIntervals?.[strGameId]) {
+        clearInterval(state.countdownIntervals[strGameId]);
+        delete state.countdownIntervals[strGameId];
     }
-
-    if (countdownIntervals?.[gameId]) {
-        clearInterval(countdownIntervals[gameId]);
-        delete countdownIntervals[gameId];
-        console.log(`🛑 Cleared countdown interval for gameId: ${gameId}`);
+    if (state?.drawIntervals?.[strGameId]) {
+        clearInterval(state.drawIntervals[strGameId]);
+        delete state.drawIntervals[strGameId];
     }
-
-    if (drawStartTimeouts?.[gameId]) {
-        clearTimeout(drawStartTimeouts[gameId]);
-        delete drawStartTimeouts[gameId];
-        console.log(`🛑 Cleared draw start timeout for gameId: ${gameId}`);
+    if (state?.drawStartTimeouts?.[strGameId]) {
+        clearTimeout(state.drawStartTimeouts[strGameId]);
+        delete state.drawStartTimeouts[strGameId];
+    }
+    if (state?.activeDrawLocks?.[strGameId]) {
+        delete state.activeDrawLocks[strGameId];
     }
 
     // 🧠 4. Clear in-memory state
@@ -64,13 +64,16 @@ async function resetGame(gameId, strGameSessionId,  io,  state, redis) {
     // 🗑️ 5. Redis cleanup for game-specific keys
     try {
         await Promise.all([
-            redis.del(`gameSessions:${gameId}`),
-            redis.del(`gameRooms:${gameId}`),
-            redis.del(`gameCards:${gameId}`),
-            redis.del(`gamePlayers:${gameId}`), // Confirmed: Delete the master player set
-            redis.del(`gameIsActive:${gameId}`), // Optional: if stored
-            redis.del(`gameActive:${gameId}`),   // Optional: if stored
-        ]);
+        redis.set(`gameIsActive:${gameId}`, "false"),
+        redis.del(getGameDrawsKey(GameSessionId)),
+        redis.del(getGameDrawStateKey(strGameId)),
+        redis.del(getGameDrawsKey(strGameSessionId)),
+        redis.del(getActiveDrawLockKey(strGameId)),
+        redis.del(getGameSessionsKey(strGameId)),
+        redis.del(getGameRoomsKey(strGameId)),
+        redis.del(getGameActiveKey(strGameId)),
+        redis.del(`gameSessionId:${strGameId}`),
+    ]);
         console.log(`✅ Core Redis game keys for ${gameId} cleared.`);
 
         // --- IMPORTANT NOTE ON USER SELECTIONS CLEANUP ---
