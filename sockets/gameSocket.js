@@ -1317,11 +1317,13 @@ socket.on("disconnect", async (reason) => {
             if (cleanupFunction) {
                 const timeoutId = setTimeout(async () => {
                     try {
-                         console.log("reason", reason, "inside cleanupfunction", strTelegramId, "➖➖");
-                         await GameControl.updateOne(
-                        { GameSessionId: strGameSessionId, 'players.telegramId': strTelegramId },
-                        { '$set': { 'players.$.status': 'disconnected' } }
-                       );
+                            console.log("reason", reason, "inside cleanupfunction", strTelegramId, "➖➖");
+                            const result = await GameControl.updateOne(
+                            { GameSessionId: strGameSessionId, 'players.telegramId': strTelegramId },
+                            { '$set': { 'players.$.status': 'disconnected' } }
+                        );
+    
+            console.log(`✅ Player ${strTelegramId} status updated to 'disconnected'. Result:`, result);
                         await cleanupFunction(strTelegramId, strGameId, strGameSessionId, io, redis);
                     } catch (e) {
                         console.error(`❌ Error during grace period cleanup for ${timeoutKeyForPhase}:`, e);
