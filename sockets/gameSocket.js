@@ -1328,8 +1328,8 @@ socket.on("disconnect", async (reason) => {
                     try {
                             console.log(`[DEBUG] Attempting to update GameSessionId: ${gameSessionId} for player: ${strTelegramId}`);
                             console.log("reason", reason, "inside cleanupfunction", strTelegramId, "➖➖");
-                           if (strGameSessionId && strGameSessionId !== 'NO_SESSION_ID') {
-                      const result = await GameControl.updateOne(
+                           if (gameSessionId) {
+                            const result = await GameControl.updateOne(
                                 // Verify telegramId is a number if that's the schema type, otherwise remove Number()
                                 { GameSessionId: gameSessionId, 'players.telegramId': Number(strTelegramId) }, 
                                 { '$set': { 'players.$.status': 'disconnected' } }
