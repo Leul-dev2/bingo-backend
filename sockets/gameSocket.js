@@ -1335,6 +1335,13 @@ socket.on("disconnect", async (reason) => {
                                 { '$set': { 'players.$.status': 'disconnected' } }
                             );
                             console.log(`✅ Player ${strTelegramId} status updated to 'disconnected'. Result:`, result);
+
+                        const results = await User.findOneAndUpdate(
+                            { 'players.telegramId': Number(strTelegramId)},
+                            { $set: { reservedForGameId: null } },
+                         );
+                          console.log(`👴 Player ${strTelegramId} reservedGameId`, results);
+
                         }
                         await cleanupFunction(strTelegramId, strGameId, strGameSessionId, io, redis);
                     } catch (e) {
@@ -1493,3 +1500,9 @@ const cleanupJoinGamePhase = async (strTelegramId, strGameId, strGameSessionId, 
 
   });
 };
+
+
+
+
+
+         
