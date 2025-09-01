@@ -1317,6 +1317,7 @@ socket.on("disconnect", async (reason) => {
             if (cleanupFunction) {
                 const timeoutId = setTimeout(async () => {
                     try {
+                            console.log(`[DEBUG] Attempting to update GameSessionId: ${strGameSessionId} for player: ${strTelegramId}`);
                             console.log("reason", reason, "inside cleanupfunction", strTelegramId, "➖➖");
                             const result = await GameControl.updateOne(
                             { GameSessionId: strGameSessionId, 'players.telegramId': Number(strTelegramId) },
