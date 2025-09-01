@@ -413,7 +413,7 @@ socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
             console.log(`👤 Player ${strTelegramId} status updated to 'connected' for game ${strGameId}.`);
 
             // The rest of the logic remains largely the same.
-            await redis.hSet(`joinGameSocketsInfo`, socket.id, JSON.stringify({
+           const joinGameSocketInfo = await redis.hSet(`joinGameSocketsInfo`, socket.id, JSON.stringify({
                 telegramId: strTelegramId,
                 gameId: strGameId,
                 GameSessionId: strGameSessionId,
@@ -1211,7 +1211,7 @@ socket.on("disconnect", async (reason) => {
             .exec();
 
 
-            console.log("joinsocket info 🔥🔥 inside disconnect", joinGameSocketInfo); 
+            console.log("joinsocket info 🔥🔥 inside disconnect  userSelectionPayloadRaw", userSelectionPayloadRaw, "joingame payloadra", joinGamePayloadRaw ); 
 
         // 1. Try to retrieve info from 'lobby' phase first
         if (userSelectionPayloadRaw) {
