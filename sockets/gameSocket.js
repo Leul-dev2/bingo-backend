@@ -1319,7 +1319,7 @@ socket.on("disconnect", async (reason) => {
                     try {
                             console.log("reason", reason, "inside cleanupfunction", strTelegramId, "➖➖");
                             const result = await GameControl.updateOne(
-                            { GameSessionId: strGameSessionId, 'players.telegramId': strTelegramId },
+                            { GameSessionId: strGameSessionId, 'players.telegramId': Number(strTelegramId) },
                             { '$set': { 'players.$.status': 'disconnected' } }
                         );
     
