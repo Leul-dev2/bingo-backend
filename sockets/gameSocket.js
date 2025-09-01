@@ -1365,7 +1365,7 @@ socket.on("disconnect", async (reason) => {
 
 // --- Modular Cleanup Functions (Self-contained and robust) ---
 
-const cleanupLobbyPhase = async (strTelegramId, strGameId, _, io, redis) => {
+const cleanupLobbyPhase = async (strTelegramId, strGameSessionId, strGameId, _, io, redis) => {
     console.log(`⏱️ Lobby grace period expired for User: ${strTelegramId}, Game: ${strGameId}. Performing cleanup.`);
 
     const gameCardsKey = `gameCards:${strGameId}`;
@@ -1408,7 +1408,7 @@ const cleanupLobbyPhase = async (strTelegramId, strGameId, _, io, redis) => {
     if (numberOfPlayersLobby === 0 && totalPlayersGamePlayers === 0) {
         await GameControl.findOneAndUpdate({ gameId: strGameId }, { isActive: false, totalCards: 0, players: [], endedAt: new Date() });
         await syncGameIsActive(strGameId, false);
-        resetGame(strGameId, io, state, redis);
+        resetGame(strGameId, strGameSessionId, io, state, redis);
         console.log(`🧹 Game ${strGameId} fully reset.`);
     }
 };
@@ -1494,7 +1494,7 @@ const cleanupJoinGamePhase = async (strTelegramId, strGameId, strGameSessionId, 
             }
             );
         await syncGameIsActive(strGameId, false);
-        resetGame(strGameId, io, state, redis);
+        resetGame(strGameId,strGameSessionId, io, state, redis);
         console.log(`Game ${strGameId} has been fully reset.`);
     }
 };

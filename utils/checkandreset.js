@@ -6,7 +6,7 @@ const { getGameRoomsKey, getGamePlayersKey } = require("./redisKeys"); // <-- AD
 
 async function checkAndResetIfEmpty(gameId, GameSessionId, socket, io, redis, state) {
     const strGameId = String(gameId); // Ensure gameId is always a string for Redis keys
-
+    const strGameSessionId = String(GameSessionId);
     // Use the helper functions for Redis keys
     const gameRoomsRedisKey = getGameRoomsKey(strGameId);
     const gamePlayersRedisKey = getGamePlayersKey(strGameId);
@@ -44,7 +44,7 @@ async function checkAndResetIfEmpty(gameId, GameSessionId, socket, io, redis, st
         }
 
         // Perform a full game reset (Redis keys, in-memory state)
-        await resetGame(strGameId, io, state, redis);
+        await resetGame(strGameId, strGameSessionId, io, state, redis);
 
         io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "Game has ended due to all players leaving." }); // Add message for clarity
         return true; // Indicate that a full game reset occurred

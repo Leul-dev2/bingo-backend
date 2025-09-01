@@ -17,13 +17,12 @@ async function resetGame(gameId, io, state, redis) {
 
     // 🛠 1. Update GameControl in MongoDB
     try {
-        await GameControl.findOneAndUpdate(
-            { gameId: gameId.toString() },
-            {
-                isActive: false,
-                endedAt: new Date(),
-            }
-        );
+        const updatedGame = await GameControl.findOneAndUpdate(
+                { GameSessionId: strGameSessionId },
+                { $set: { isActive: false, endedAt: new Date() } },
+                { new: true }
+            );
+            console.log("Updated GameControl:", updatedGame);
         console.log(`✅ GameControl for game ${gameId} has been reset in DB.`);
     } catch (err) {
         console.error(`❌ Failed to reset GameControl for ${gameId}:`, err);
