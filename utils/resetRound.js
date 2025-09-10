@@ -1,7 +1,7 @@
 // File: ../utils/resetRound.js
 const GameControl = require("../models/GameControl");
 const GameCard = require("../models/GameCard");
-const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLockKey, getGameActiveKey, getGameSessionsKey, getGamePlayersKey } = require("./redisKeys");
+const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLockKey, getGameActiveKey, getGameSessionsKey, getGamePlayersKey, getActivePlayers } = require("./redisKeys");
 
 async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
     const strGameId = String(gameId);
@@ -36,6 +36,7 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
         redis.del(getGameRoomsKey(strGameId)),
         redis.del(getGameActiveKey(strGameId)),
         redis.del(`gameSessionId:${strGameId}`),
+        redis.del(getActivePlayers(strGameSessionId))
     ]);
 
     // 🏆 FIX: Only reset cards that were part of the game session 🏆

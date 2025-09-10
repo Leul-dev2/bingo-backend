@@ -4,6 +4,10 @@ function getGameActiveKey(gameId) {
     return `gameActive:${gameId}`;
 }
 
+function getActivePlayers(strGameSessionId){
+     return `activePlayers:${strGameSessionId}`;
+}
+
 function getGameActiveKeys(gameId) {
     return `gameIsActive:${gameId}`;
 }
@@ -63,4 +67,5 @@ module.exports = {
     getUserBalanceKey,
     getActiveSocketKey,
     getCardsKey,
+    getActivePlayers
 };
