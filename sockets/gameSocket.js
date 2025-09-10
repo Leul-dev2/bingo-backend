@@ -632,9 +632,14 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
         return;
     }
 
-        const activePlayersKey = `activePlayers:${strGameSessionId}`;
+       const activePlayersKey = `activePlayers:${strGameSessionId}`;
         if (successfullyDeductedPlayers.length > 0) {
-            await redis.sAdd(activePlayersKey, successfullyDeductedPlayers);
+            // Convert every ID in the array to a string
+            const playerIdsAsStrings = successfullyDeductedPlayers.map(String);
+            
+            // Now, add the stringified IDs to the set
+            await redis.sAdd(activePlayersKey, playerIdsAsStrings);
+
             // Set an expiry to auto-clean this key in case the server crashes
             await redis.expire(activePlayersKey, 3600); // Expires in 1 hour
         }
