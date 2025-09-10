@@ -12,7 +12,6 @@ const resetRound = require("../utils/resetRound");
 const clearGameSessions = require('../utils/clearGameSessions'); // Adjust path as needed
 const deleteCardsByTelegramId = require('../utils/deleteCardsByTelegramId');
 const { // <-- Add this line
-    getActivePlayers,
     getGameActiveKey,
     getCountdownKey,
     getActiveDrawLockKey,
@@ -59,8 +58,6 @@ const { v4: uuidv4 } = require("uuid");
   gameIsActive: {},
   gameReadyToStart: {},
 };
-
-
   io.on("connection", (socket) => {
       console.log("🟢 New client connected");
       console.log("Client connected with socket ID:", socket.id);
@@ -632,7 +629,8 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
         return;
     }
 
-       const activePlayersKey = `activePlayers:${strGameSessionId}`;
+
+        const activePlayersKey = `activePlayers:${strGameSessionId}`;
         if (successfullyDeductedPlayers.length > 0) {
             // Convert every ID in the array to a string
             const playerIdsAsStrings = successfullyDeductedPlayers.map(String);
@@ -642,7 +640,7 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
 
             // Set an expiry to auto-clean this key in case the server crashes
             await redis.expire(activePlayersKey, 3600); // Expires in 1 hour
-        }
+           }
 
     // Game is a go!
    // ⭐ New logic to calculate the prize with the house cut
@@ -900,57 +898,20 @@ async function fullGameCleanup(gameId, redis, state) {
                 }
 
                // Server-side code
-               if (!isRecentNumberInPattern) {
-                        console.log(`❌ Invalid Bingo Claim by ${telegramId}. Disqualifying player from session ${GameSessionId}.`);
-                        
-                        // The Redis key where we track who is still in the game.
-                        const activePlayersKey = `activePlayers:${GameSessionId}`;
-
-                        // 1. Inform the player they are disqualified from this round.
-                        socket.emit("bingoClaimFailed", {
-                            message: "Invalid claim. You have been removed from this round. 😢",
-                            reason: "disqualified_invalid_claim",
-                            telegramId,
-                            gameId,
-                        });
-
-                        // 2. Remove the player from the set of active players for this session.
-                        await redis.sRem(activePlayersKey, String(telegramId));
-                        
-                        // 3. Check how many players are left.
-                        const remainingPlayers = await redis.sCard(activePlayersKey);
-                        console.log(`Player ${telegramId} disqualified. ${remainingPlayers} active players remaining.`);
-
-                        // 4. If that was the LAST active player, end the game.
-                        if (remainingPlayers < 1) { 
-                            console.log(`🛑 All players have been disqualified from game ${gameId}. Ending game.`);
-
-                            // Stop the drawing interval
-                            if (state.drawIntervals[gameId]) {
-                                clearInterval(state.drawIntervals[gameId]);
-                                delete state.drawIntervals[gameId];
-                            }
-
-                            // Set game to inactive in the database
-                            await GameControl.findOneAndUpdate(
-                                { GameSessionId: GameSessionId },
-                                { $set: { isActive: false, endedAt: new Date() } }
-                            );
-                            await syncGameIsActive(gameId, false);
-
-                            // Notify the entire room that the game is over
-                            io.to(gameId).emit("gameEnded", {
-                                gameId: gameId,
-                                message: "Game ended because no valid players remain."
-                            });
-
-                            // Perform a full cleanup
-                            await resetRound(gameId, GameSessionId, socket, io, state, redis);
-                        }
-
-                        // 5. Stop further execution for THIS claim, allowing the game to continue if others are still playing.
-                        return;
-                    }
+                if (!isRecentNumberInPattern) {
+                    console.log("❌ Winner not confirmed: Winning pattern not completed by a recent drawn number.");
+                    socket.emit("bingoClaimFailed", {
+                        message: "Your winning pattern was not completed by the last two drawn numbers. 😢",
+                        reason: "recent_number_mismatch",
+                        telegramId,
+                        gameId,
+                        cardId: cartelaId,
+                        card: cardData.card,          // ✅ Include the player's card
+                        lastTwoNumbers: lastTwoDrawnNumbers, // ✅ Include the last two drawn numbers
+                        selectedNumbers: selectedNumbers // ✅ Include the player's selected numbers
+                    });
+                    return;
+                }
 
                 const winnerLockKey = `winnerLock:${GameSessionId}`;
 
