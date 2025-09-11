@@ -1,6 +1,6 @@
 const express = require("express");
 const User = require("../models/user");
-const redis = require("../utils/redisClient"); // Import your Redis client
+const redis = require("../utils/redisClient");
 const router = express.Router();
 
 router.get("/", (req, res) => {
@@ -8,57 +8,34 @@ router.get("/", (req, res) => {
 });
 
 /**
- * GET /getUser?telegramId=12345[&refresh=true]
- * If refresh=true is passed, it fetches fresh data from DB and updates Redis.
+ * GET /getUser?telegramId=12345
+ * Always fetch from DB, then update Redis.
  */
 router.get("/getUser", async (req, res) => {
-  const { telegramId, refresh } = req.query;
-  const telegramIdNum = Number(telegramId);
-  console.log("user is have gotten here! 🚀🚀", req.query);
-  console.log("user is have gotten here! 🚀🚀", telegramIdNum);
+  const { telegramId } = req.query;
+  const telegramIdNum = Number(telegramId);
 
-  if (!telegramId) {
-    return res.status(400).json({ error: "Missing telegramId" });
-  }
+  if (!telegramId) {
+    return res.status(400).json({ error: "Missing telegramId" });
+  }
 
-  try {
-    const cacheKey = `userBalance:${telegramId}`;
+  try {
+    const cacheKey = `userBalance:${telegramId}`;
 
-    // If force refresh is passed, bypass Redis and fetch from DB
-    if (refresh === "true") {
-      // FIX: Use { telegramId: telegramIdNum }
-      const user = await User.findOne({ telegramId: telegramIdNum });
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
+    // Always get fresh value from DB
+    const user = await User.findOne({ telegramId: telegramIdNum });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
 
-      // Update cache with latest value
-      await redis.set(cacheKey, user.balance, { EX: 60 });
+    // Update Redis to keep it consistent
+    await redis.set(cacheKey, user.balance, { EX: 60 });
 
-      return res.json({ balance: user.balance, source: "refreshed-db" });
-    }
-
-    // Try to get balance from Redis
-    const cachedBalance = await redis.get(cacheKey);
-    if (cachedBalance !== null) {
-      return res.json({ balance: Number(cachedBalance), source: "cache" });
-    }
-
-    // Not found in Redis, fallback to DB
-    // FIX: Use { telegramId: telegramIdNum }
-    const user = await User.findOne({ telegramId: telegramIdNum });
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    // Cache it for future
-    await redis.set(cacheKey, user.balance, { EX: 60 });
-
-    return res.json({ balance: user.balance, source: "db" });
-  } catch (error) {
-    console.error("❌ Error fetching user data:", error);
-    return res.status(500).json({ error: "Server error" });
-  }
+    return res.json({ balance: user.balance, source: "db" });
+  } catch (error) {
+    console.error("❌ Error fetching user data:", error);
+    return res.status(500).json({ error: "Server error" });
+  }
 });
 
 module.exports = router;

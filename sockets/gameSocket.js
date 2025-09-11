@@ -732,6 +732,7 @@ async function refundStakes(playerIds,strGameSessionId, stakeAmount, redis) {
 
 // Helper to perform a full cleanup of game state
 async function fullGameCleanup(gameId, redis, state) {
+    console.log("fullGameCleanup 🔥🔥🔥");
     delete state.activeDrawLocks[gameId];
     await redis.del(getActiveDrawLockKey(gameId));
     await syncGameIsActive(gameId, false);
