@@ -1359,6 +1359,32 @@ socket.on("disconnect", async (reason) => {
 
                         }
                         await cleanupFunction(strTelegramId, strGameId, strGameSessionId, io, redis);
+                         const game = await GameControl.findOne({ GameSessionId: gameSessionId });
+
+                     if (game && game.players.every(player => player.status === 'disconnected')) {
+                            await GameControl.updateOne(
+                                { GameSessionId: gameSessionId },
+                                { 
+                                    '$set': { 
+                                        'isActive': false, 
+                                        'endedAt': new Date() 
+                                    } 
+                                }
+                            );
+                            console.log(`❗ Game ${game.gameId} has ended due to all players disconnecting.`);
+
+                            await resetRound({
+                                gameId: strGameId,
+                                gameSessionId: gameSessionId,
+                                socket,
+                                io,
+                                state,
+                                redis
+                            }); 
+
+                            io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "Game ended due to all players leaving the room." });
+                            console.log("🛑🛑 game is cleared in disconnect after all players leave");
+                        }
                     } catch (e) {
                         console.error(`❌ Error during grace period cleanup for ${timeoutKeyForPhase}:`, e);
                     } finally {
