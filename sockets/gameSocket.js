@@ -1373,14 +1373,7 @@ socket.on("disconnect", async (reason) => {
                             );
                             console.log(`❗ Game ${game.gameId} has ended due to all players disconnecting.`);
 
-                            await resetRound({
-                                gameId: strGameId,
-                                gameSessionId: gameSessionId,
-                                socket,
-                                io,
-                                state,
-                                redis
-                            }); 
+                            await resetRound(strGameId, gameSessionId, socket, io, state, redis);
 
                             io.to(strGameId).emit("gameEnded", { gameId: strGameId, message: "Game ended due to all players leaving the room." });
                             console.log("🛑🛑 game is cleared in disconnect after all players leave");
