@@ -5,7 +5,7 @@ const ledgerSchema = new mongoose.Schema({
     amount: { type: Number, required: true },
     transactionType: { 
         type: String, 
-        enum: ['house_profit', 'player_winnings', 'stake_deduction', 'stake_refund'], // ⭐ Added 'stake_refund'
+        enum: ['house_profit', 'player_winnings', 'stake_deduction', 'stake_refund', 'bonus_stake_deduction'], // ⭐ Added 'stake_refund'
         required: true 
     },
     description: { type: String },
