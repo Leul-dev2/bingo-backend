@@ -1227,10 +1227,14 @@ socket.on("disconnect", async (reason) => {
 
             console.log("joinsocket info 🔥🔥 inside disconnect  userSelectionPayloadRaw", userSelectionPayloadRaw, "joingame payloadra", joinGamePayloadRaw ); 
 
-        const payload = JSON.parse(joinGamePayloadRaw);
-
-        // Access the GameSessionId property
-        const gameSessionId = String(payload.GameSessionId);
+     if (joinGamePayloadRaw) {
+        try {
+            payload = JSON.parse(joinGamePayloadRaw);
+            gameSessionId = payload?.GameSessionId ? String(payload.GameSessionId) : null;
+        } catch (err) {
+            console.warn("⚠️ Failed to parse joinGamePayloadRaw", joinGamePayloadRaw, err);
+        }
+     }
 
         // 1. Try to retrieve info from 'lobby' phase first
         if (userSelectionPayloadRaw) {
