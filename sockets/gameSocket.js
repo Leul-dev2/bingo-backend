@@ -509,7 +509,7 @@ socket.on("gameCount", async ({ gameId, GameSessionId }) => {
         await prepareNewGame(strGameId, strGameSessionId, redis, state);
         
         // --- 3. START COUNTDOWN ---
-        let countdownValue = 15;
+        let countdownValue = 30;
         io.to(strGameId).emit("countdownTick", { countdown: countdownValue });
         await redis.set(getCountdownKey(strGameId), countdownValue.toString());
 
