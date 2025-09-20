@@ -562,153 +562,163 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
 
 // The core logic for player deductions and game start
 async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, redis, state) {
-    // ⭐ Step 1: Query the database to get the most up-to-date player list
-    const currentGameControl = await GameControl.findOne({GameSessionId: strGameSessionId }).select('players -_id');
-    
-    // ⭐ Step 2: Filter the player list to get only those with a 'connected' status
-    const connectedPlayers = (currentGameControl?.players || []).filter(p => p.status === 'connected');
-    
-    const playersForDeduction = connectedPlayers.map(player => player?.telegramId).filter(Boolean);
+    // ⭐ Step 1: Query the database to get the most up-to-date player list
+    const currentGameControl = await GameControl.findOne({ GameSessionId: strGameSessionId }).select('players -_id');
+
+    // ⭐ Step 2: Filter the player list to get only those with a 'connected' status
+    const connectedPlayers = (currentGameControl?.players || []).filter(p => p.status === 'connected');
+
+    const playersForDeduction = connectedPlayers.map(player => player?.telegramId).filter(Boolean);
     console.log("player connected are 🤑🤑", playersForDeduction);
-    let successfulDeductions = 0;
-    let finalPlayerList = [];
-    // 🟢 Corrected: A new array to hold the full player objects for the GameControl update
-    let finalPlayerObjects = [];
-    let successfullyDeductedPlayers = [];
-    const stakeAmount = Number(strGameId);
-    
-    if (playersForDeduction.length < MIN_PLAYERS_TO_START) {
-        console.log(`🛑 Not enough players after countdown. Aborting.`);
-        io.to(strGameId).emit("gameNotStarted", { message: "Not enough players to start." });
-        await fullGameCleanup(strGameId, redis, state);
-        return;
-    }
+    let successfulDeductions = 0;
+    let finalPlayerObjects = [];
+    let successfullyDeductedPlayers = [];
+    const stakeAmount = Number(strGameId);
 
-    // --- Stake Deduction Loop ---
-    for (const playerTelegramId of playersForDeduction) {
-        try {
-            const user = await User.findOneAndUpdate(
-                { telegramId: playerTelegramId, reservedForGameId: strGameId, balance: { $gte: stakeAmount } },
-                { $inc: { balance: -stakeAmount }, $unset: { reservedForGameId: "" } },
-                { new: true }
-            );
-            if (user) {
-                successfulDeductions++;
-                // 🟢 Corrected: Push the telegramId for other logic (like redis)
-                successfullyDeductedPlayers.push(playerTelegramId);
-                // 🟢 Corrected: Push the full object into the new array for the GameControl update
-                finalPlayerObjects.push({ telegramId: playerTelegramId, status: 'connected' });
-                await redis.set(`userBalance:${playerTelegramId}`, user.balance.toString(), "EX", 60);
+    if (playersForDeduction.length < MIN_PLAYERS_TO_START) {
+        console.log(`🛑 Not enough players after countdown. Aborting.`);
+        io.to(strGameId).emit("gameNotStarted", { message: "Not enough players to start." });
+        await fullGameCleanup(strGameId, redis, state);
+        return;
+    }
 
-                 // ⭐ Log the stake deduction to the ledger
-                await Ledger.create({
-                    gameSessionId: strGameSessionId,
-                    amount: -stakeAmount,
-                    transactionType: 'stake_deduction',
-                    telegramId: playerTelegramId,
-                    description: `Stake deduction for game session ${strGameSessionId}`
-                });
+    // --- Stake Deduction Loop ---
+    for (const playerTelegramId of playersForDeduction) {
+        try {
+            let user = null;
+            let deductionSuccessful = false;
 
-            } else {
-                await User.updateOne({ telegramId: playerTelegramId }, { $unset: { reservedForGameId: "" } });
-               await redis.sRem(getGameRoomsKey(strGameId), playerTelegramId.toString());
-                await GameControl.updateOne({ GameSessionId: strGameSessionId }, { $pull: { players: { telegramId: playerTelegramId } } });
-            }
-        } catch (error) {
-            console.error(`❌ Error deducting balance for player ${playerTelegramId}:`, error);
-            await User.updateOne({ telegramId: playerTelegramId }, { $unset: { reservedForGameId: "" } });
-        }
-    }
-    
-    // --- Final Validation & Game Start/Refund ---
-    if (successfulDeductions < MIN_PLAYERS_TO_START) {
-        console.log("🛑 Not enough players after deductions. Refunding stakes.");
-        await refundStakes(successfullyDeductedPlayers, strGameSessionId, stakeAmount, redis);
-        io.to(strGameId).emit("gameNotStarted", { message: "Not enough players. Your stake has been refunded." });
-        await fullGameCleanup(strGameId, redis, state);
-        return;
-    }
+            // 🟢 ATTEMPT 1: Deduct from bonus_balance first
+            user = await User.findOneAndUpdate(
+                { telegramId: playerTelegramId, reservedForGameId: strGameId, bonus_balance: { $gte: stakeAmount } },
+                { $inc: { bonus_balance: -stakeAmount }, $unset: { reservedForGameId: "" } },
+                { new: true }
+            );
 
+            if (user) {
+                deductionSuccessful = true;
+                // Log bonus deduction to ledger
+                await Ledger.create({
+                    gameSessionId: strGameSessionId,
+                    amount: -stakeAmount,
+                    transactionType: 'bonus_stake_deduction',
+                    telegramId: playerTelegramId,
+                    description: `Bonus stake deduction for game session ${strGameSessionId}`
+                });
+            } else {
+                // 🟢 ATTEMPT 2: If bonus deduction fails, deduct from regular balance
+                user = await User.findOneAndUpdate(
+                    { telegramId: playerTelegramId, reservedForGameId: strGameId, balance: { $gte: stakeAmount } },
+                    { $inc: { balance: -stakeAmount }, $unset: { reservedForGameId: "" } },
+                    { new: true }
+                );
 
-        const activePlayersKey = `activePlayers:${strGameSessionId}`;
-        if (successfullyDeductedPlayers.length > 0) {
-            // Convert every ID in the array to a string
-            const playerIdsAsStrings = successfullyDeductedPlayers.map(String);
-            
-            // Now, add the stringified IDs to the set
-            await redis.sAdd(activePlayersKey, playerIdsAsStrings);
+                if (user) {
+                    deductionSuccessful = true;
+                    // Log regular balance deduction to ledger
+                    await Ledger.create({
+                        gameSessionId: strGameSessionId,
+                        amount: -stakeAmount,
+                        transactionType: 'stake_deduction',
+                        telegramId: playerTelegramId,
+                        description: `Stake deduction from main balance for game session ${strGameSessionId}`
+                    });
+                }
+            }
 
-            // Set an expiry to auto-clean this key in case the server crashes
-            await redis.expire(activePlayersKey, 3600); // Expires in 1 hour
-           }
+            // If a deduction was successful (either from bonus or main balance)
+            if (deductionSuccessful) {
+                successfulDeductions++;
+                successfullyDeductedPlayers.push(playerTelegramId);
+                finalPlayerObjects.push({ telegramId: playerTelegramId, status: 'connected' });
+                await redis.set(`userBalance:${playerTelegramId}`, user.balance.toString(), "EX", 60);
+                await redis.set(`userBonusBalance:${playerTelegramId}`, user.bonus_balance.toString(), "EX", 60);
+            } else {
+                // No deduction was possible, so cleanup the user's state
+                await User.updateOne({ telegramId: playerTelegramId }, { $unset: { reservedForGameId: "" } });
+                await redis.sRem(getGameRoomsKey(strGameId), playerTelegramId.toString());
+                await GameControl.updateOne({ GameSessionId: strGameSessionId }, { $pull: { players: { telegramId: playerTelegramId } } });
+                console.log(`🛑 User ${playerTelegramId} did not have sufficient funds (bonus or real). Skipping.`);
+            }
+        } catch (error) {
+            console.error(`❌ Error deducting balance for player ${playerTelegramId}:`, error);
+            await User.updateOne({ telegramId: playerTelegramId }, { $unset: { reservedForGameId: "" } });
+        }
+    }
+    
+    // --- Final Validation & Game Start/Refund ---
+    if (successfulDeductions < MIN_PLAYERS_TO_START) {
+        console.log("🛑 Not enough players after deductions. Refunding stakes.");
+        await refundStakes(successfullyDeductedPlayers, strGameSessionId, stakeAmount, redis);
+        io.to(strGameId).emit("gameNotStarted", { message: "Not enough players. Your stake has been refunded." });
+        await fullGameCleanup(strGameId, redis, state);
+        return;
+    }
 
-    // Game is a go!
-   // ⭐ New logic to calculate the prize with the house cut
-        const totalPot = stakeAmount * successfulDeductions;
-        const houseProfit = totalPot * HOUSE_CUT_PERCENTAGE;
-        const prizeAmount = totalPot - houseProfit; // This is the new, reduced prize amount
+    const activePlayersKey = `activePlayers:${strGameSessionId}`;
+    if (successfullyDeductedPlayers.length > 0) {
+        const playerIdsAsStrings = successfullyDeductedPlayers.map(String);
+        await redis.sAdd(activePlayersKey, playerIdsAsStrings);
+        await redis.expire(activePlayersKey, 3600);
+    }
 
-        // 🟢 Now, update the GameControl document with the correct prizeAmount and the new houseProfit field
-        await GameControl.findOneAndUpdate(
-        { GameSessionId: strGameSessionId },
-        { $set: { 
-            isActive: true, 
-            totalCards: successfulDeductions, 
-            prizeAmount: prizeAmount, 
-            houseProfit: houseProfit, // ⭐ This line saves the profit to the database
-            players: finalPlayerObjects 
-        } }
-        );
-        await syncGameIsActive(strGameId, true);
-    
-    // Release the lock now that the game is officially active
-    delete state.activeDrawLocks[strGameId];
-    await redis.del(getActiveDrawLockKey(strGameId));
+    const totalPot = stakeAmount * successfulDeductions;
+    const houseProfit = totalPot * HOUSE_CUT_PERCENTAGE;
+    const prizeAmount = totalPot - houseProfit;
 
-   // 🎯 NEW LOGIC: Release all selected cards before the game starts
-   console.log(`🧹 Releasing all selected cards for game ${strGameId}...`);
-   const gameCardsKey = `gameCards:${strGameId}`;
+    await GameControl.findOneAndUpdate(
+        { GameSessionId: strGameSessionId },
+        {
+            $set: {
+                isActive: true,
+                totalCards: successfulDeductions,
+                prizeAmount: prizeAmount,
+                houseProfit: houseProfit,
+                players: finalPlayerObjects
+            }
+        }
+    );
+    await syncGameIsActive(strGameId, true);
 
-   try {
-       // 1. Get all currently selected cards from Redis
-       const allSelectedCards = await redis.hGetAll(gameCardsKey);
+    delete state.activeDrawLocks[strGameId];
+    await redis.del(getActiveDrawLockKey(strGameId));
 
-       // 2. Clear all card data in Redis and the DB
-       await redis.del(gameCardsKey);
-       await GameCard.updateMany(
-            { gameId: strGameId, cardId: { $in: Object.keys(allSelectedCards).map(Number) } },
-            { $set: { isTaken: false, takenBy: null } }
-       );
+    console.log(`🧹 Releasing all selected cards for game ${strGameId}...`);
+    const gameCardsKey = `gameCards:${strGameId}`;
 
-       // ⭐ NEW: Emit a single event for the full reset instead of looping
-       io.to(strGameId).emit("gameCardResetOngameStart");
+    try {
+        const allSelectedCards = await redis.hGetAll(gameCardsKey);
+        await redis.del(gameCardsKey);
+        await GameCard.updateMany(
+            { gameId: strGameId, cardId: { $in: Object.keys(allSelectedCards).map(Number) } },
+            { $set: { isTaken: false, takenBy: null } }
+        );
+        io.to(strGameId).emit("gameCardResetOngameStart");
+    } catch (error) {
+        console.error(`❌ Error releasing cards on game start for game ${strGameId}:`, error);
+    }
+    console.log(`✅ All cards released for game ${strGameId}.`);
 
-   } catch (error) {
-       console.error(`❌ Error releasing cards on game start for game ${strGameId}:`, error);
-   }
-   console.log(`✅ All cards released for game ${strGameId}.`);
+    const totalDrawingLength = 75;
 
-      // --- EMIT GAME DETAILS BEFORE STARTING DRAWING ---
-    const totalDrawingLength = 75; // Total numbers to be drawn
-      
-    console.log(`✅ Emitting gameDetails for game ${strGameId}:`, {
-        winAmount: prizeAmount,
-        playersCount: successfulDeductions,
-        stakeAmount: stakeAmount,
-        totalDrawingLength: 75,
-     });
+    console.log(`✅ Emitting gameDetails for game ${strGameId}:`, {
+        winAmount: prizeAmount,
+        playersCount: successfulDeductions,
+        stakeAmount: stakeAmount,
+        totalDrawingLength: 75,
+    });
 
-    io.to(strGameId).emit("gameDetails", { 
-        winAmount: prizeAmount,
-        playersCount: successfulDeductions,
-        stakeAmount: stakeAmount,
-        totalDrawingLength: totalDrawingLength,
-    });
+    io.to(strGameId).emit("gameDetails", {
+        winAmount: prizeAmount,
+        playersCount: successfulDeductions,
+        stakeAmount: stakeAmount,
+        totalDrawingLength: totalDrawingLength,
+    });
 
-    console.log("⭐⭐ gameDetails emited");
+    console.log("⭐⭐ gameDetails emited");
 
-    io.to(strGameId).emit("gameStart", { gameId: strGameId });
-    await startDrawing(strGameId, strGameSessionId, io, state, redis);
+    io.to(strGameId).emit("gameStart", { gameId: strGameId });
+    await startDrawing(strGameId, strGameSessionId, io, state, redis);
 }
 
 

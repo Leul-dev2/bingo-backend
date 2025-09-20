@@ -6,6 +6,7 @@ const userSchema = new mongoose.Schema({
     accountNumber: { type: Number, unique: true, required: true },
     phoneNumber: { type: String, required: true },
     balance: { type: Number, default: 0 },
+    bonus_balance: {  type: Number, default: 0,},
     registeredAt: { type: Date, default: Date.now },
     transferInProgress: {
         type: Object,
