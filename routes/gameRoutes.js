@@ -73,18 +73,29 @@ router.post("/start", async (req, res) => {
             }
 
             // Step 7: Reserve the user's stake and prevent them from joining other games.
-            const user = await User.findOneAndUpdate(
+          const user = await User.findOneAndUpdate(
+            {
+                telegramId,
+                $and: [
                 {
-                    telegramId,
                     $or: [
-                        { bonus_balance: { $gte: lobbyDoc.stakeAmount } },
-                        { balance: { $gte: lobbyDoc.stakeAmount } }
-                    ],
-                    $or: [{ reservedForGameId: { $exists: false } }, { reservedForGameId: null }, { reservedForGameId: "" }]
+                    { bonus_balance: { $gte: lobbyDoc.stakeAmount } },
+                    { balance: { $gte: lobbyDoc.stakeAmount } }
+                    ]
                 },
-                { $set: { reservedForGameId: gameId } },
-                { new: true, session }
-            );
+                {
+                    $or: [
+                    { reservedForGameId: { $exists: false } },
+                    { reservedForGameId: null },
+                    { reservedForGameId: "" }
+                    ]
+                }
+                ]
+            },
+            { $set: { reservedForGameId: gameId } },
+            { new: true, session }
+        );
+
 
             if (!user) {
                 await session.abortTransaction();
