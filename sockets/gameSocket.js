@@ -1217,6 +1217,7 @@ socket.on("disconnect", async (reason) => {
         let strTelegramId = null;
         let strGameId = null;
         let strGameSessionId = null;
+        let gameSessionId = null;
 
         // Use Redis multi() to batch initial reads
         const [userSelectionPayloadRaw, joinGamePayloadRaw] = await redis.multi()
