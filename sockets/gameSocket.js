@@ -487,6 +487,11 @@ socket.on("gameCount", async ({ gameId, GameSessionId }) => {
 
     console.log("gameCount gamesessionId", GameSessionId);
 
+     if (state.countdownIntervals[strGameId]) {
+        console.log(`⏳ Countdown for game ${strGameId} is already running. Ignoring new 'gameCount' trigger.`);
+        return; // Exit the function immediately
+    }
+
     try {
         // --- 1. PRE-VALIDATION & LOCK ACQUISITION ---
         if (await isGameLockedOrActive(strGameId, redis, state)) {
