@@ -1000,9 +1000,6 @@ async function fullGameCleanup(gameId, redis, state) {
 
 
 
-
-
-
  async function processWinner({ 
     telegramId, 
     gameId, 
@@ -1055,7 +1052,7 @@ async function fullGameCleanup(gameId, redis, state) {
             // Update winner's balance
             User.updateOne({ telegramId }, { $inc: { balance: prizeAmount } }),
             // Update winner's balance in Redis cache
-            redis.incrbyfloat(`userBalance:${telegramId}`, prizeAmount),
+            await redis.incrByFloat(`userBalance:${telegramId}`, prizeAmount),
             // Record winner's payout in the ledger
             Ledger.create({
                 gameSessionId: strGameSessionId,
