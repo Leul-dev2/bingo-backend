@@ -31,7 +31,7 @@ router.get('/:telegramId', async (req, res) => {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    const bonus = 0; // placeholder for future bonus logic
+   // const bonus = 0; // placeholder for future bonus logic
     const coins = 0; // FAKE FOR NOW
     const gamesWon = games.filter((g) => g.eventType === 'win').length;
     const username = user.username || "Unknown"
@@ -41,7 +41,7 @@ router.get('/:telegramId', async (req, res) => {
       username,
       gamesWon,
       balance: user.balance,
-      bonus,
+      bonus: user.bonus_balance,
       coins,
     });
   } catch (err) {

@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const User = require("../models/user");
-const Payment = require("../models/payment");
+// const Payment = require("../models/payment");
+const Deposit = require("../models/Deposit");
 const Withdrawal = require("../models/withdrawal");
 const { userRateLimiter, globalRateLimiter } = require('../rate-limit/Limiter');
 
@@ -29,7 +30,8 @@ router.get('/', async (req, res) => {
     // Fetch user, deposits, and withdrawals in parallel
     const [user, deposits, withdrawals] = await Promise.all([
       User.findOne({ telegramId }),
-      Payment.find({ telegramId }, 'tx_ref amount status createdAt').sort({ createdAt: -1 }),
+      Deposit.find({ telegramId }, 'transactionId amount status createdAt').sort({ createdAt: -1 }),
+      //Payment.find({ telegramId }, 'tx_ref amount status createdAt').sort({ createdAt: -1 }),
       Withdrawal.find({ telegramId }, 'tx_ref amount status createdAt').sort({ createdAt: -1 }),
     ]);
 
