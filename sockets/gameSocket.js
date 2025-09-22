@@ -987,7 +987,7 @@ async function fullGameCleanup(gameId, redis, state) {
                 }
 
             // 4. If winner confirmed, call internal winner processing function
-            await processWinner({ telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis });
+            await processWinner({ telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis,  cardData,  drawnNumbersRaw });
 
 
             //socket.emit("winnerConfirmed", { message: "Winner verified and processed!" });
@@ -1003,77 +1003,77 @@ async function fullGameCleanup(gameId, redis, state) {
 
 
 
-   async function processWinner({ telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis }) {
+ async function processWinner({ 
+    telegramId, 
+    gameId, 
+    GameSessionId, 
+    cartelaId, 
+    io, 
+    selectedSet, 
+    state, 
+    redis,
+    cardData, // <-- PASS aurgument from checkWinner
+    drawnNumbersRaw // <-- PASS aurgument from checkWinner
+}) {
     const strGameId = String(gameId);
     const strGameSessionId = String(GameSessionId);
 
     console.log("Processing winner for game session:", strGameSessionId);
 
-    // Use the GameSessionId directly. No need for a Redis lookup.
-    // The previous code block that looked up the sessionId is removed.
-    
     try {
-        const gameData = await GameControl.findOne({ GameSessionId: strGameSessionId });
-        if (!gameData) {
+        // --- 1. PARALLELIZE INITIAL DATA FETCHING ---
+        // Fetch independent data concurrently instead of sequentially.
+        const [gameControlData, winnerUser, gameDrawStateRaw, players] = await Promise.all([
+            GameControl.findOne({ GameSessionId: strGameSessionId }),
+            User.findOne({ telegramId }),
+            redis.get(`gameDrawState:${strGameSessionId}`),
+            redis.sMembers(`gameRooms:${strGameId}`) || []
+        ]);
+
+        if (!gameControlData) {
             throw new Error(`GameControl data not found for GameSessionId ${strGameSessionId}`);
         }
-
-        const prizeAmount = gameData.prizeAmount;
-        const houseProfit = gameData.houseProfit;
-        const stakeAmount = gameData.stakeAmount;
-        const playerCount = gameData.totalCards;
-
-        if (typeof prizeAmount !== "number" || isNaN(prizeAmount)) {
-            throw new Error(`Invalid or missing prizeAmount (${prizeAmount}) for gameId: ${strGameId}`);
-        }
-
-        const winnerUser = await User.findOne({ telegramId });
         if (!winnerUser) {
             throw new Error(`User with telegramId ${telegramId} not found`);
         }
 
-        // --- Winner Payout ---
-        winnerUser.balance = Number(winnerUser.balance || 0) + prizeAmount;
-        await winnerUser.save();
-        await redis.set(`userBalance:${telegramId}`, winnerUser.balance.toString());
+        const { prizeAmount, houseProfit, stakeAmount, totalCards: playerCount } = gameControlData;
 
-        // --- Card Validation and Pattern Check ---
-        const selectedCard = await GameCard.findOne({ gameId: strGameId, cardId: cartelaId });
-        const board = selectedCard?.card || [];
-        
-        const drawn = await redis.lRange(`gameDraws:${strGameSessionId}`, 0, -1);
-        const drawnNumbers = new Set(drawn.map(Number));
+        // --- 2. USE DATA PASSED FROM checkWinner (NO REDUNDANT FETCHES) ---
+        const board = cardData.card || [];
+        const drawnNumbers = new Set(drawnNumbersRaw.map(Number));
         const winnerPattern = checkBingoPattern(board, drawnNumbers, selectedSet);
-
-          // ⭐ Fetch the game state to get the last call number length
-        const gameDrawStateKey = `gameDrawState:${strGameSessionId}`;
-        const gameDataRaw = await redis.get(gameDrawStateKey);
-        let callNumberLength = null;
-        if (gameDataRaw) {
-            const gameData = JSON.parse(gameDataRaw);
-            callNumberLength = gameData.callNumberLength || 0;
-        }
         
+        let callNumberLength = 0;
+        if (gameDrawStateRaw) {
+            const gameDrawData = JSON.parse(gameDrawStateRaw);
+            callNumberLength = gameDrawData.callNumberLength || 0;
+        }
 
-        // ⭐ Record the winner's payout in the ledger
-        await Ledger.create({
-            gameSessionId: strGameSessionId,
-            amount: prizeAmount,
-            transactionType: 'player_winnings',
-            telegramId: telegramId,
-            description: `Winnings for game session ${strGameSessionId}`
-        });
-
-        // ⭐ Record the house profit in the ledger
-        await Ledger.create({
-            gameSessionId: strGameSessionId,
-            amount: houseProfit,
-            transactionType: 'house_profit',
-            description: `House profit from game session ${strGameSessionId}`
-        });
-
-
-        // --- Broadcast Winner & Log History ---
+        // --- Winner Payout & Ledger (Run in Parallel) ---
+        await Promise.all([
+            // Update winner's balance
+            User.updateOne({ telegramId }, { $inc: { balance: prizeAmount } }),
+            // Update winner's balance in Redis cache
+            redis.incrbyfloat(`userBalance:${telegramId}`, prizeAmount),
+            // Record winner's payout in the ledger
+            Ledger.create({
+                gameSessionId: strGameSessionId,
+                amount: prizeAmount,
+                transactionType: 'player_winnings',
+                telegramId: telegramId,
+                description: `Winnings for game session ${strGameSessionId}`
+            }),
+            // Record house profit in the ledger
+            Ledger.create({
+                gameSessionId: strGameSessionId,
+                amount: houseProfit,
+                transactionType: 'house_profit',
+                description: `House profit from game session ${strGameSessionId}`
+            })
+        ]);
+        
+        // --- Broadcast Winner & Log Winner History ---
         io.to(strGameId).emit("winnerConfirmed", {
             winnerName: winnerUser.username || "Unknown",
             prizeAmount,
@@ -1094,35 +1094,48 @@ async function fullGameCleanup(gameId, redis, state) {
             eventType: "win",
             winAmount: prizeAmount,
             stake: stakeAmount,
-            cartelaId: cartelaId, // ⭐ Added cartelaId
-            callNumberLength: callNumberLength, // ⭐ Added callNumberLength
+            cartelaId: cartelaId,
+            callNumberLength: callNumberLength,
             createdAt: new Date(),
         });
 
-        // --- Log Losers ---
-        const players = await redis.sMembers(`gameRooms:${strGameId}`) || [];
-        for (const playerTelegramId of players) {
-            if (playerTelegramId !== telegramId) {
-                const playerUser = await User.findOne({ telegramId: playerTelegramId });
-                const loserCard = await GameCard.findOne({ gameId: strGameId, takenBy: playerTelegramId });
-                console.log("looser card🤪🤪", loserCard);
-                if (!playerUser) continue;
-                await GameHistory.create({
+        // --- 3. BATCH PROCESS LOSERS (THE CRITICAL OPTIMIZATION) ---
+        const loserTelegramIds = players.filter(id => id !== telegramId);
+
+        if (loserTelegramIds.length > 0) {
+            // Fetch all loser data in just two batch database queries
+            const [loserUsers, loserCards] = await Promise.all([
+                User.find({ telegramId: { $in: loserTelegramIds } }, 'telegramId username'),
+                GameCard.find({ gameId: strGameId, takenBy: { $in: loserTelegramIds } }, 'takenBy cardId')
+            ]);
+            
+            // Create maps for fast, in-memory lookups
+            const userMap = new Map(loserUsers.map(u => [u.telegramId, u]));
+            const cardMap = new Map(loserCards.map(c => [c.takenBy, c]));
+
+            // Build the history documents in memory (very fast)
+            const loserHistoryDocs = loserTelegramIds.map(id => {
+                const user = userMap.get(id);
+                const card = cardMap.get(id);
+                return {
                     sessionId: strGameSessionId,
                     gameId: strGameId,
-                    username: playerUser.username || "Unknown",
-                    telegramId: playerTelegramId,
+                    username: user ? user.username : "Unknown",
+                    telegramId: id,
                     eventType: "lose",
                     winAmount: 0,
                     stake: stakeAmount,
-                    cartelaId: loserCard ? loserCard.cardId : null, 
-                    callNumberLength: callNumberLength, // ⭐ Added callNumberLength
+                    cartelaId: card ? card.cardId : null,
+                    callNumberLength: callNumberLength,
                     createdAt: new Date(),
-                });
-            }
+                };
+            });
+
+            // Write all loser history to the database in a single operation
+            await GameHistory.insertMany(loserHistoryDocs);
         }
-        
-        // --- Final Cleanup & State Update ---
+
+        // --- 4. FINAL CLEANUP & STATE UPDATE (UNCHANGED) ---
         await GameControl.findOneAndUpdate(
             { GameSessionId: strGameSessionId },
             { isActive: false, endedAt: new Date() }
@@ -1140,7 +1153,6 @@ async function fullGameCleanup(gameId, redis, state) {
             gameId: strGameId
         }), { EX: 60 * 5 });
         
-        // --- Final Cleanup using Promise.all ---
         await Promise.all([
             redis.del(`gameRooms:${strGameId}`),
             redis.del(`gameCards:${strGameId}`),

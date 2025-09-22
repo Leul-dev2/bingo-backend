@@ -19,4 +19,14 @@ const gameHistorySchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
+// ✅ Indexes
+// For quickly finding all events in a session
+gameHistorySchema.index({ sessionId: 1 });
+
+// For quickly finding all history of a player
+gameHistorySchema.index({ telegramId: 1 });
+
+// For queries like: "get a player's history in a given session"
+gameHistorySchema.index({ sessionId: 1, telegramId: 1 });
+
 module.exports = mongoose.model("GameHistory", gameHistorySchema);

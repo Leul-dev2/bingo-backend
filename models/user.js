@@ -13,7 +13,8 @@ const userSchema = new mongoose.Schema({
         default: null, 
     },
     // 🟢 New field to lock a user's spot in a game without deducting their balance immediately
-    reservedForGameId: { type: String, default: null } 
+    reservedForGameId: { type: String, default: null }
 });
 
+userSchema.index({ telegramId: 1 }); 
 module.exports = mongoose.model("User", userSchema);

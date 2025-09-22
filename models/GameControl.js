@@ -1,31 +1,38 @@
 const mongoose = require('mongoose');
 
 const gameControlSchema = new mongoose.Schema({
-  GameSessionId: { type: String, required: true }, // unique ID per round
-  gameId: { type: String, required: true }, 
-  isActive: { type: Boolean, default: false },
-  createdAt: { type: Date, default: Date.now },
-  createdBy: { type: String },
-  stakeAmount: { type: Number, required: true },
-  totalCards: { type: Number, required: true },
-  prizeAmount: { type: Number, required: true },
-  houseProfit: {
-    type: Number,
-    required: true, 
-  },
-  players: [{
-      telegramId: { type: Number, required: true },
-      status: { type: String, enum: ['connected', 'disconnected'], default: 'connected' }
-  }],
-  endedAt: { type: Date },
+  GameSessionId: { type: String, required: true }, // unique ID per round
+  gameId: { type: String, required: true },
+  isActive: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now },
+  createdBy: { type: String },
+  stakeAmount: { type: Number, required: true },
+  totalCards: { type: Number, required: true },
+  prizeAmount: { type: Number, required: true },
+  houseProfit: {
+    type: Number,
+    required: true,
+  },
+  players: [
+    {
+      telegramId: { type: Number, required: true },
+      status: {
+        type: String,
+        enum: ['connected', 'disconnected'],
+        default: 'connected',
+      },
+    },
+  ],
+  endedAt: { type: Date },
 });
 
-// ⭐ This is the correct index to prevent the race condition.
-// It enforces that there can only be ONE document with a given `gameId`
-// and `isActive: false` (i.e., one lobby).
+// ⭐ Prevent multiple inactive lobbies for the same gameId
 gameControlSchema.index(
-    { gameId: 1, isActive: 1 },
-    { unique: true, partialFilterExpression: { isActive: false, endedAt: null } }
+  { gameId: 1, isActive: 1 },
+  { unique: true, partialFilterExpression: { isActive: false, endedAt: null } }
 );
 
-module.exports = mongoose.model("GameControl", gameControlSchema);
+// ⭐ Ensure fast lookups on GameSessionId
+gameControlSchema.index({ GameSessionId: 1 });
+
+module.exports = mongoose.model('GameControl', gameControlSchema);

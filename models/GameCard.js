@@ -29,4 +29,10 @@ const GameCardSchema = new mongoose.Schema({
 // ✅ Compound unique index to prevent duplicate cardId per game
 GameCardSchema.index({ gameId: 1, cardId: 1 }, { unique: true });
 
+// ✅ Index for quick lookups of "who took what"
+GameCardSchema.index({ takenBy: 1 });
+
+// ✅ Optional: speed up queries like "all cards taken by X in game Y"
+GameCardSchema.index({ gameId: 1, takenBy: 1 });
+
 module.exports = mongoose.model("GameCard", GameCardSchema);
