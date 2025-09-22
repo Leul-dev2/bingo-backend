@@ -729,18 +729,62 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
 
 
 // Helper to refund all players who were successfully deducted
-async function refundStakes(playerIds,strGameSessionId, stakeAmount, redis) {
+async function refundStakes(playerIds, strGameSessionId, stakeAmount, redis) {
     for (const playerId of playerIds) {
-        const refundedUser = await User.findOneAndUpdate({ telegramId: playerId }, { $inc: { balance: stakeAmount }, $unset: { reservedForGameId: "" } }, { new: true });
-        if (refundedUser) {
-            await redis.set(`userBalance:${playerId}`, refundedUser.balance.toString(), "EX", 60);
-             await Ledger.create({
-                gameSessionId: strGameSessionId,
-                amount: stakeAmount, // The amount is positive for a refund
-                transactionType: 'stake_refund',
+        try {
+            // 1. Find the original deduction record from the ledger
+            const deductionRecord = await Ledger.findOne({
                 telegramId: playerId,
-                description: `Stake refund for game session ${strGameSessionId}`
+                gameSessionId: strGameSessionId,
+                transactionType: { $in: ['stake_deduction', 'bonus_stake_deduction'] }
             });
+
+            let updateQuery;
+            let refundTransactionType;
+            let wasBonus = false;
+
+            // 2. Determine which balance to refund based on the record
+            if (deductionRecord && deductionRecord.transactionType === 'bonus_stake_deduction') {
+                // Player paid with BONUS, so refund to BONUS balance
+                updateQuery = { $inc: { bonus_balance: stakeAmount }, $unset: { reservedForGameId: "" } };
+                refundTransactionType = 'bonus_stake_refund';
+                wasBonus = true;
+                console.log(`Player ${playerId} paid with bonus. Preparing bonus refund.`);
+            } else {
+                // Player paid with MAIN, or we couldn't find a record (safe fallback)
+                updateQuery = { $inc: { balance: stakeAmount }, $unset: { reservedForGameId: "" } };
+                refundTransactionType = 'stake_refund';
+                 if (!deductionRecord) {
+                    console.warn(`⚠️ Ledger record not found for player ${playerId}. Defaulting to main balance refund.`);
+                }
+            }
+
+            // 3. Update the user's document with the correct balance refund
+            const refundedUser = await User.findOneAndUpdate({ telegramId: playerId }, updateQuery, { new: true });
+
+            if (refundedUser) {
+                // 4. Update the correct balance in Redis cache
+                if (wasBonus) {
+                    await redis.set(`userBonusBalance:${playerId}`, refundedUser.bonus_balance.toString(), "EX", 60);
+                } else {
+                    await redis.set(`userBalance:${playerId}`, refundedUser.balance.toString(), "EX", 60);
+                }
+
+                // 5. Create a new ledger entry for the refund transaction
+                await Ledger.create({
+                    gameSessionId: strGameSessionId,
+                    amount: stakeAmount,
+                    transactionType: refundTransactionType,
+                    telegramId: playerId,
+                    description: `Stake refund for cancelled game session ${strGameSessionId}`
+                });
+                console.log(`✅ Successfully refunded ${stakeAmount} to ${wasBonus ? 'bonus' : 'main'} balance for player ${playerId}.`);
+            } else {
+                console.error(`❌ Could not find user ${playerId} to process refund.`);
+            }
+
+        } catch (error) {
+            console.error(`❌ Error processing refund for player ${playerId}:`, error);
         }
     }
 }
