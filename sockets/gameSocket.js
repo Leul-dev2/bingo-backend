@@ -901,163 +901,186 @@ async function fullGameCleanup(gameId, redis, state) {
 
     //check winner
 
-    socket.on("checkWinner", async ({ telegramId, gameId, GameSessionId, cartelaId, selectedNumbers }) => {
-      console.time(`⏳checkWinner_${telegramId}`);
+   socket.on("checkWinner", async ({ telegramId, gameId, GameSessionId, cartelaId, selectedNumbers }) => {
+  console.time(`⏳checkWinner_${telegramId}`);
 
-      try {
-        const selectedSet = new Set((selectedNumbers || []).map(Number));
-        const numericCardId = Number(cartelaId);
-        if (isNaN(numericCardId)) {
-          return socket.emit("winnerError", { message: "Invalid card ID." });
-        }
+  try {
+    const selectedSet = new Set((selectedNumbers || []).map(Number));
+    const numericCardId = Number(cartelaId);
+    if (isNaN(numericCardId)) {
+      return socket.emit("winnerError", { message: "Invalid card ID." });
+    }
 
-        // --- 1️⃣ Fetch drawn numbers from Redis (Non-redundant fetch) ---
-        const drawnNumbersRaw = await redis.lRange(`gameDraws:${GameSessionId}`, 0, -1);
-        if (!drawnNumbersRaw?.length) return socket.emit("winnerError", { message: "No numbers drawn yet." });
-        const drawnNumbersArray = drawnNumbersRaw.map(Number);
-        const lastTwoDrawnNumbers = drawnNumbersArray.slice(-2);
-        const drawnNumbers = new Set(drawnNumbersArray);
+    // --- 1️⃣ Fetch drawn numbers from Redis (Non-redundant fetch) ---
+    const drawnNumbersRaw = await redis.lRange(`gameDraws:${GameSessionId}`, 0, -1);
+    if (!drawnNumbersRaw?.length) return socket.emit("winnerError", { message: "No numbers drawn yet." });
+    const drawnNumbersArray = drawnNumbersRaw.map(Number);
+    const lastTwoDrawnNumbers = drawnNumbersArray.slice(-2);
+    const drawnNumbers = new Set(drawnNumbersArray);
 
-        // --- 2️⃣ Fetch cardData once (Cache data for processor) ---
-        const cardData = await GameCard.findOne({ gameId, cardId: numericCardId });
-        if (!cardData) return socket.emit("winnerError", { message: "Card not found." });
+    // --- 2️⃣ Fetch cardData once (Cache data for processor) ---
+    const cardData = await GameCard.findOne({ gameId, cardId: numericCardId });
+    if (!cardData) return socket.emit("winnerError", { message: "Card not found." });
 
-        // --- 3️⃣ Check bingo pattern in memory ---
-        const pattern = checkBingoPattern(cardData.card, drawnNumbers, selectedSet);
-        if (!pattern.some(Boolean)) return socket.emit("winnerError", { message: "No winning pattern." });
+    // --- 3️⃣ Check bingo pattern in memory ---
+    const pattern = checkBingoPattern(cardData.card, drawnNumbers, selectedSet);
+    if (!pattern.some(Boolean)) return socket.emit("winnerError", { message: "No winning pattern." });
 
-        // --- 4️⃣ Check recent numbers in pattern (Critical game rule validation) ---
-        const flatCard = cardData.card.flat();
-        const isRecentNumberInPattern = lastTwoDrawnNumbers.some(num =>
-          // Checks if the recent number 'num' is present in the card and corresponds to a winning cell (pattern[i] === true)
-          flatCard.some((n, i) => pattern[i] && n === num)
-        );
-        if (!isRecentNumberInPattern) {
-          // Provides debugging info back to the client/logs on failure
-          return socket.emit("bingoClaimFailed", {
-            message: "Winning pattern not completed by recent numbers.",
-            telegramId, gameId, cardId: cartelaId, lastTwoNumbers: lastTwoDrawnNumbers, selectedNumbers
-          });
-        }
+    // --- 4️⃣ Check recent numbers in pattern (Critical game rule validation) ---
+    const flatCard = cardData.card.flat();
+    const isRecentNumberInPattern = lastTwoDrawnNumbers.some(num =>
+      // Checks if the recent number 'num' is present in the card and corresponds to a winning cell (pattern[i] === true)
+      flatCard.some((n, i) => pattern[i] && n === num)
+    );
+    if (!isRecentNumberInPattern) {
+      // Provides debugging info back to the client/logs on failure
+      return socket.emit("bingoClaimFailed", {
+        message: "Winning pattern not completed by recent numbers.",
+        telegramId, gameId, cardId: cartelaId, lastTwoNumbers: lastTwoDrawnNumbers, selectedNumbers
+      });
+    }
 
-        // --- 5️⃣ Acquire winner lock in Redis (Minimize DB calls inside lock) ---
-        const winnerLockKey = `winnerLock:${GameSessionId}`;
-        // EX: 20 seconds expiry, NX: Only set if Not eXists
-        const lockAcquired = await redis.set(winnerLockKey, telegramId, { NX: true, EX: 20 });
-        if (!lockAcquired) return; // Someone else won and acquired the lock first
+    // --- 5️⃣ Acquire winner lock in Redis (Minimize DB calls inside lock) ---
+    const winnerLockKey = `winnerLock:${GameSessionId}`;
+    // EX: 30 seconds expiry (Increased for safety), NX: Only set if Not eXists
+    const lockAcquired = await redis.set(winnerLockKey, telegramId, { NX: true, EX: 30 });
+    if (!lockAcquired) return; // Someone else won and acquired the lock first
 
-        // --- 6️⃣ Call optimized winner processor, passing cached data ---
-        await processWinner({
-          telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis, cardData, drawnNumbersRaw, winnerLockKey
-        });
+    // --- 6️⃣ Call optimized winner processor, passing cached data ---
+    await processWinner({
+      telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis, cardData, drawnNumbersRaw, winnerLockKey
+    });
 
-      } catch (error) {
-        console.error("checkWinner error:", error);
-        socket.emit("winnerError", { message: "Internal error." });
-      } finally {
-        console.timeEnd(`⏳checkWinner_${telegramId}`);
-      }
-    });
+  } catch (error) {
+    console.error("checkWinner error:", error);
+    socket.emit("winnerError", { message: "Internal error." });
+  } finally {
+    console.timeEnd(`⏳checkWinner_${telegramId}`);
+  }
+});
 
-    // --------------------- Optimized Winner Processor ---------------------
-    // This function addresses all five optimization points: parallelism, caching, batching, and cleanup.
-    async function processWinner({ telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis, cardData, drawnNumbersRaw, winnerLockKey }) {
-      const strGameId = String(gameId);
-      const strGameSessionId = String(GameSessionId);
+// --------------------- Optimized Winner Processor ---------------------
+// This function addresses all five optimization points: parallelism, caching, batching, and cleanup.
+async function processWinner({ telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis, cardData, drawnNumbersRaw, winnerLockKey }) {
+  const strGameId = String(gameId);
+  const strGameSessionId = String(GameSessionId);
 
-      try {
-        // --- 1️⃣ Parallelize initial data fetching (Solves Issue 1) ---
-        const [gameControl, winnerUser, gameDrawStateRaw, players] = await Promise.all([
-          GameControl.findOne({ GameSessionId: strGameSessionId }),
-          User.findOne({ telegramId }),
-          redis.get(`gameDrawState:${strGameSessionId}`), // Fetched once for JSON parsing (Issue 5)
-          redis.sMembers(`gameRooms:${strGameId}`) // Get all players for loser processing
-        ]);
+  try {
+    // --- 1️⃣ Parallelize initial data fetching (Critical Path) ---
+    const [gameControl, winnerUser, gameDrawStateRaw, players] = await Promise.all([
+      GameControl.findOne({ GameSessionId: strGameSessionId }),
+      User.findOne({ telegramId }),
+      redis.get(`gameDrawState:${strGameSessionId}`), 
+      redis.sMembers(`gameRooms:${strGameId}`) // Needed for immediate winner announcement
+    ]);
 
-        if (!gameControl || !winnerUser) throw new Error("Missing game or user data");
+    if (!gameControl || !winnerUser) throw new Error("Missing game or user data");
 
-        // --- 2️⃣ Use cached data and avoid heavy JSON parsing (Solves Issues 2 & 5) ---
-        const { prizeAmount, houseProfit, stakeAmount, totalCards: playerCount } = gameControl;
-        const board = cardData.card;
-        const winnerPattern = checkBingoPattern(board, new Set(drawnNumbersRaw.map(Number)), selectedSet);
-        const callNumberLength = gameDrawStateRaw ? JSON.parse(gameDrawStateRaw)?.callNumberLength || 0 : 0;
+    // --- 2️⃣ Use cached data (Critical Path) ---
+    const { prizeAmount, houseProfit, stakeAmount, totalCards: playerCount } = gameControl;
+    const board = cardData.card;
+    const winnerPattern = checkBingoPattern(board, new Set(drawnNumbersRaw.map(Number)), selectedSet);
+    const callNumberLength = gameDrawStateRaw ? JSON.parse(gameDrawStateRaw)?.callNumberLength || 0 : 0;
 
-        // --- 3️⃣ Parallel DB & Redis writes for winner/house (Solves Issue 1) ---
-        await Promise.all([
-          // Financial updates for winner (DB and Redis)
-          User.updateOne({ telegramId }, { $inc: { balance: prizeAmount } }),
-          redis.incrByFloat(`userBalance:${telegramId}`, prizeAmount),
-          Ledger.create({ gameSessionId: strGameSessionId, amount: prizeAmount, transactionType: 'player_winnings', telegramId }),
-          // Financial update for house/system
-          Ledger.create({ gameSessionId: strGameSessionId, amount: houseProfit, transactionType: 'house_profit' }),
-          // History tracking for winner (moved here to run in parallel)
-          GameHistory.create({ sessionId: strGameSessionId, gameId: strGameId, username: winnerUser.username || "Unknown", telegramId, eventType: "win", winAmount: prizeAmount, stake: stakeAmount, cartelaId, callNumberLength })
-        ]);
+    // --- 3️⃣ Broadcast winner information (IMMEDIATE RESPONSE TO WINNER) ---
+    // This is now done FIRST to achieve immediate confirmation to the user,
+    // before the slower, critical financial commits start.
+    io.to(strGameId).emit("winnerConfirmed", { winnerName: winnerUser.username || "Unknown", prizeAmount, playerCount, boardNumber: cartelaId, board, winnerPattern, telegramId, gameId: strGameId, GameSessionId: strGameSessionId });
 
-        // --- 4️⃣ Broadcast winner information ---
-        io.to(strGameId).emit("winnerConfirmed", { winnerName: winnerUser.username || "Unknown", prizeAmount, playerCount, boardNumber: cartelaId, board, winnerPattern, telegramId, gameId: strGameId, GameSessionId: strGameSessionId });
+    // --- 4️⃣ Parallel DB & Redis writes for winner/house (CRITICAL Financial Commit) ---
+    // We await this to guarantee financial integrity before declaring the main request complete.
+    await Promise.all([
+      // Financial updates for winner (DB and Redis)
+      User.updateOne({ telegramId }, { $inc: { balance: prizeAmount } }),
+      redis.incrByFloat(`userBalance:${telegramId}`, prizeAmount),
+      Ledger.create({ gameSessionId: strGameSessionId, amount: prizeAmount, transactionType: 'player_winnings', telegramId }),
+      // Financial update for house/system
+      Ledger.create({ gameSessionId: strGameSessionId, amount: houseProfit, transactionType: 'house_profit' }),
+      // History tracking for winner
+      GameHistory.create({ sessionId: strGameSessionId, gameId: strGameId, username: winnerUser.username || "Unknown", telegramId, eventType: "win", winAmount: prizeAmount, stake: stakeAmount, cartelaId, callNumberLength })
+    ]);
 
-        // --- 5️⃣ Batch process losers for history (Solves Issue 3) ---
-        const loserIds = players.filter(id => id !== telegramId).map(Number);
-        if (loserIds.length > 0) {
-          // Fetch necessary data for losers in parallel (2 DB calls total)
-          const [loserUsers, loserCards] = await Promise.all([
-            User.find({ telegramId: { $in: loserIds } }, 'telegramId username'),
-            GameCard.find({ gameId: strGameId, takenBy: { $in: loserIds } }, 'takenBy cardId')
-          ]);
-          
-          // Create in-memory maps (Solves Issue 2)
-          const userMap = new Map(loserUsers.map(u => [u.telegramId, u]));
-          const cardMap = new Map(loserCards.map(c => [c.takenBy, c]));
+    // --------------------------------------------------------------------------------
+    // ⚡ DEFERRED PROCESS: This heavy block runs asynchronously WITHOUT awaiting 
+    // so the primary request can return quickly (<100ms).
+    // --------------------------------------------------------------------------------
+    (async () => {
+      try {
+        // --- 5️⃣ Batch process losers for history (Heavy) ---
+        const loserIds = players.filter(id => id !== telegramId).map(Number);
+        if (loserIds.length > 0) {
+          // Fetch necessary data for losers in parallel (2 DB calls total)
+          const [loserUsers, loserCards] = await Promise.all([
+            User.find({ telegramId: { $in: loserIds } }, 'telegramId username'),
+            GameCard.find({ gameId: strGameId, takenBy: { $in: loserIds } }, 'takenBy cardId')
+          ]);
+          
+          // Create in-memory maps
+          const userMap = new Map(loserUsers.map(u => [u.telegramId, u]));
+          const cardMap = new Map(loserCards.map(c => [c.takenBy, c]));
 
-          // Build history documents in memory
-          const loserDocs = loserIds.map(id => ({
-            sessionId: strGameSessionId,
-            gameId: strGameId,
-            username: userMap.get(id)?.username || "Unknown",
-            telegramId: id,
-            eventType: "lose",
-            winAmount: 0,
-            stake: stakeAmount,
-            cartelaId: cardMap.get(id)?.cardId || null,
-            callNumberLength,
-            createdAt: new Date()
-          }));
+          // Build history documents in memory
+          const loserDocs = loserIds.map(id => ({
+            sessionId: strGameSessionId,
+            gameId: strGameId,
+            username: userMap.get(id)?.username || "Unknown",
+            telegramId: id,
+            eventType: "lose",
+            winAmount: 0,
+            stake: stakeAmount,
+            cartelaId: cardMap.get(id)?.cardId || null,
+            callNumberLength,
+            createdAt: new Date()
+          }));
 
-          // Batch insert all loser records (Solves Issue 3)
-          await GameHistory.insertMany(loserDocs);
-        }
+          // Batch insert all loser records
+          await GameHistory.insertMany(loserDocs);
+        }
 
-        // --- 6️⃣ Final state cleanup and transition (Solves Issue 1) ---
-        await Promise.all([
-          // Update game status in DB
-          GameControl.findOneAndUpdate({ GameSessionId: strGameSessionId }, { isActive: false, endedAt: new Date() }),
-          syncGameIsActive(strGameId, false),
-          // Cache winner info for short-term display
-          redis.set(`winnerInfo:${strGameSessionId}`, JSON.stringify({ winnerName: winnerUser.username || "Unknown", prizeAmount, playerCount, boardNumber: cartelaId, board, winnerPattern, telegramId, gameId: strGameId }), { EX: 300 }),
-          // Clear all associated Redis keys, including the lock (Critical Cleanup)
-          redis.del(
-            `gameRooms:${strGameId}`,
-            `gameCards:${strGameId}`,
-            `gameDraws:${strGameSessionId}`,
-            `gameActive:${strGameId}`,
-            `countdown:${strGameId}`,
-            `activeDrawLock:${strGameId}`,
-            `gameDrawState:${strGameSessionId}`,
-            winnerLockKey // Ensures distributed lock is released immediately
-          ),
-          // Reset card state in DB
-          GameCard.updateMany({ gameId: strGameId }, { isTaken: false, takenBy: null }),
-          // Transition to the next round
-          resetRound(strGameId, strGameSessionId, null, io, state, redis)
-        ]);
+        // --- 6️⃣ Final state cleanup and transition (Optimization: Redis Pipelining) ---
+        const cleanupTasks = [
+          // Update game status in DB
+          GameControl.findOneAndUpdate({ GameSessionId: strGameSessionId }, { isActive: false, endedAt: new Date() }),
+          syncGameIsActive(strGameId, false),
+          // Cache winner info for short-term display
+          redis.set(`winnerInfo:${strGameSessionId}`, JSON.stringify({ winnerName: winnerUser.username || "Unknown", prizeAmount, playerCount, boardNumber: cartelaId, board, winnerPattern, telegramId, gameId: strGameId }), { EX: 300 }),
+          // Transition to the next round
+          resetRound(strGameId, strGameSessionId, null, io, state, redis)
+        ];
+        
+        // ⚡ Un-awaited Card Reset: Run the potentially heavy updateMany in the background.
+        // If this is slow, it won't block the next round's start.
+        GameCard.updateMany({ gameId: strGameId }, { isTaken: false, takenBy: null }).catch(err => console.error("Async Card Reset Error:", err));
 
-        io.to(strGameId).emit("gameEnded");
+        // Use Redis Pipelining to send all DEL commands in a single round trip
+        const redisPipeline = redis.pipeline();
+        redisPipeline.del(
+          `gameRooms:${strGameId}`,
+          `gameCards:${strGameId}`,
+          `gameDraws:${strGameSessionId}`,
+          `gameActive:${strGameId}`,
+          `countdown:${strGameId}`,
+          `activeDrawLock:${strGameId}`,
+          `gameDrawState:${strGameSessionId}`,
+          winnerLockKey // Ensures distributed lock is released immediately
+        );
+        cleanupTasks.push(redisPipeline.exec());
 
-      } catch (error) {
-        console.error("🔥 processWinnerOptimized error:", error);
-      }
-    }
+        await Promise.all(cleanupTasks);
+        
+        io.to(strGameId).emit("gameEnded");
+
+      } catch (error) {
+        console.error("🔥 Deferred Cleanup Error:", error);
+        // Note: Errors here do not break the winner's main flow, but must be logged
+      }
+    })(); // Do not await, run in the background
+
+  } catch (error) {
+    console.error("🔥 processWinnerOptimized error:", error);
+  }
+}
+
 
 
 
