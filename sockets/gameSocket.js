@@ -1053,7 +1053,7 @@ async function processWinner({ telegramId, gameId, GameSessionId, cartelaId, io,
         GameCard.updateMany({ gameId: strGameId }, { isTaken: false, takenBy: null }).catch(err => console.error("Async Card Reset Error:", err));
 
         // Use Redis Pipelining to send all DEL commands in a single round trip
-        const redisPipeline = redis.pipeline();
+        const redisPipeline = redis.multi();
         redisPipeline.del(
           `gameRooms:${strGameId}`,
           `gameCards:${strGameId}`,
