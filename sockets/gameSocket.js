@@ -901,282 +901,164 @@ async function fullGameCleanup(gameId, redis, state) {
 
     //check winner
 
-    socket.on("checkWinner", async ({ telegramId, gameId, GameSessionId, cartelaId, selectedNumbers}) => {
-        console.time(`⏳⏳⏳checkWinner_ExecutionTime_${telegramId}`);
-        const selectedSet = new Set((selectedNumbers || []).map(Number));
+    socket.on("checkWinner", async ({ telegramId, gameId, GameSessionId, cartelaId, selectedNumbers }) => {
+      console.time(`⏳checkWinner_${telegramId}`);
 
-        try {
+      try {
+        const selectedSet = new Set((selectedNumbers || []).map(Number));
+        const numericCardId = Number(cartelaId);
+        if (isNaN(numericCardId)) {
+          return socket.emit("winnerError", { message: "Invalid card ID." });
+        }
 
-            // Validate cartelaId
-            const numericCardId = Number(cartelaId);
-            if (isNaN(numericCardId)) {
-                socket.emit("winnerError", { message: "Invalid or missing card ID." });
-                console.error("❌ checkWinner: cartelaId is NaN or invalid:", cartelaId);
-                return;
-            }
+        // --- 1️⃣ Fetch drawn numbers from Redis (Non-redundant fetch) ---
+        const drawnNumbersRaw = await redis.lRange(`gameDraws:${GameSessionId}`, 0, -1);
+        if (!drawnNumbersRaw?.length) return socket.emit("winnerError", { message: "No numbers drawn yet." });
+        const drawnNumbersArray = drawnNumbersRaw.map(Number);
+        const lastTwoDrawnNumbers = drawnNumbersArray.slice(-2);
+        const drawnNumbers = new Set(drawnNumbersArray);
 
-            // 1. Get drawn numbers as list from Redis and get the last number
-            const drawnNumbersRaw = await redis.lRange(`gameDraws:${GameSessionId}`, 0, -1);
-            if (!drawnNumbersRaw || drawnNumbersRaw.length === 0) {
-                socket.emit("winnerError", { message: "No numbers have been drawn yet." });
-                return;
-            }
-            
-            // Corrected logic: get the last number from the raw array before creating the Set
-            const drawnNumbersArray = drawnNumbersRaw.map(Number);
-            const lastTwoDrawnNumbers = drawnNumbersArray.slice(-2);
-            const drawnNumbers = new Set(drawnNumbersArray);
-            // 2. Fetch the official card from DB
-            const cardData = await GameCard.findOne({ gameId, cardId: Number(cartelaId) });
-            if (!cardData) {
-                socket.emit("winnerError", { message: "Card not found." });
-                return;
-            }
+        // --- 2️⃣ Fetch cardData once (Cache data for processor) ---
+        const cardData = await GameCard.findOne({ gameId, cardId: numericCardId });
+        if (!cardData) return socket.emit("winnerError", { message: "Card not found." });
 
-            console.log("✅ drawnNumbers:", drawnNumbers);
-            console.log("✅ selectedNumbers (marked):", selectedSet);
-            console.log("✅ cardData.card:", cardData.card);
+        // --- 3️⃣ Check bingo pattern in memory ---
+        const pattern = checkBingoPattern(cardData.card, drawnNumbers, selectedSet);
+        if (!pattern.some(Boolean)) return socket.emit("winnerError", { message: "No winning pattern." });
 
-            // 3. Backend pattern check function
-            const pattern = checkBingoPattern(cardData.card, drawnNumbers, selectedSet);
-            const isWinner = pattern.some(Boolean); // ✅ Check if any cell is true
+        // --- 4️⃣ Check recent numbers in pattern (Critical game rule validation) ---
+        const flatCard = cardData.card.flat();
+        const isRecentNumberInPattern = lastTwoDrawnNumbers.some(num =>
+          // Checks if the recent number 'num' is present in the card and corresponds to a winning cell (pattern[i] === true)
+          flatCard.some((n, i) => pattern[i] && n === num)
+        );
+        if (!isRecentNumberInPattern) {
+          // Provides debugging info back to the client/logs on failure
+          return socket.emit("bingoClaimFailed", {
+            message: "Winning pattern not completed by recent numbers.",
+            telegramId, gameId, cardId: cartelaId, lastTwoNumbers: lastTwoDrawnNumbers, selectedNumbers
+          });
+        }
 
-            if (!isWinner) {
-                socket.emit("winnerError", { message: "No winning pattern found." });
-                return;
-            }
-                // ✨ NEW VALIDATION STEP (UPDATED) ✨
-                const flatCard = cardData.card.flat();
-                let isRecentNumberInPattern = false;
+        // --- 5️⃣ Acquire winner lock in Redis (Minimize DB calls inside lock) ---
+        const winnerLockKey = `winnerLock:${GameSessionId}`;
+        // EX: 20 seconds expiry, NX: Only set if Not eXists
+        const lockAcquired = await redis.set(winnerLockKey, telegramId, { NX: true, EX: 20 });
+        if (!lockAcquired) return; // Someone else won and acquired the lock first
 
-                // Check if any of the last two drawn numbers are in the winning pattern
-                for (const recentNumber of lastTwoDrawnNumbers) {
-                    // Check if the current recent number is in the winning pattern
-                    if (flatCard.some((number, index) => pattern[index] && number === recentNumber)) {
-                        isRecentNumberInPattern = true;
-                        break; // Found a match, no need to check other numbers
-                    }
-                }
+        // --- 6️⃣ Call optimized winner processor, passing cached data ---
+        await processWinner({
+          telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis, cardData, drawnNumbersRaw, winnerLockKey
+        });
 
-               // Server-side code
-                if (!isRecentNumberInPattern) {
-                    console.log("❌ Winner not confirmed: Winning pattern not completed by a recent drawn number.");
-                    socket.emit("bingoClaimFailed", {
-                        message: "Your winning pattern was not completed by the last two drawn numbers. 😢",
-                        reason: "recent_number_mismatch",
-                        telegramId,
-                        gameId,
-                        cardId: cartelaId,
-                        card: cardData.card,          // ✅ Include the player's card
-                        lastTwoNumbers: lastTwoDrawnNumbers, // ✅ Include the last two drawn numbers
-                        selectedNumbers: selectedNumbers // ✅ Include the player's selected numbers
-                    });
-                    return;
-                }
-
-                const winnerLockKey = `winnerLock:${GameSessionId}`;
-
-                // Try to set the lock. 'NX' means 'Not eXists'.
-              const lockAcquired = await redis.set(winnerLockKey, telegramId, {
-                                            EX: 20,
-                                            NX: true
-                                        });
-                if (!lockAcquired) {
-                    // This player passed all checks but was not the first to set the lock.
-                   // socket.emit("winnerError", { message: "Another valid winner was processed first." });
-                    return;
-                }
-
-            // 4. If winner confirmed, call internal winner processing function
-            await processWinner({ telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis,  cardData,  drawnNumbersRaw });
-
-
-            //socket.emit("winnerConfirmed", { message: "Winner verified and processed!" });
-
-        } catch (error) {
-            console.error("Error in checkWinner:", error);
-            socket.emit("winnerError", { message: "Internal error verifying winner." });
-        }finally {
-        console.timeEnd(`⏳⏳⏳checkWinner_ExecutionTime_${telegramId}`); // End timer and print duration
-      }
+      } catch (error) {
+        console.error("checkWinner error:", error);
+        socket.emit("winnerError", { message: "Internal error." });
+      } finally {
+        console.timeEnd(`⏳checkWinner_${telegramId}`);
+      }
     });
 
+    // --------------------- Optimized Winner Processor ---------------------
+    // This function addresses all five optimization points: parallelism, caching, batching, and cleanup.
+    async function processWinner({ telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis, cardData, drawnNumbersRaw, winnerLockKey }) {
+      const strGameId = String(gameId);
+      const strGameSessionId = String(GameSessionId);
 
+      try {
+        // --- 1️⃣ Parallelize initial data fetching (Solves Issue 1) ---
+        const [gameControl, winnerUser, gameDrawStateRaw, players] = await Promise.all([
+          GameControl.findOne({ GameSessionId: strGameSessionId }),
+          User.findOne({ telegramId }),
+          redis.get(`gameDrawState:${strGameSessionId}`), // Fetched once for JSON parsing (Issue 5)
+          redis.sMembers(`gameRooms:${strGameId}`) // Get all players for loser processing
+        ]);
 
- async function processWinner({ 
-    telegramId, 
-    gameId, 
-    GameSessionId, 
-    cartelaId, 
-    io, 
-    selectedSet, 
-    state, 
-    redis,
-    cardData, // <-- PASS aurgument from checkWinner
-    drawnNumbersRaw // <-- PASS aurgument from checkWinner
-}) {
-    const strGameId = String(gameId);
-    const strGameSessionId = String(GameSessionId);
+        if (!gameControl || !winnerUser) throw new Error("Missing game or user data");
 
-    console.log("Processing winner for game session:", strGameSessionId);
+        // --- 2️⃣ Use cached data and avoid heavy JSON parsing (Solves Issues 2 & 5) ---
+        const { prizeAmount, houseProfit, stakeAmount, totalCards: playerCount } = gameControl;
+        const board = cardData.card;
+        const winnerPattern = checkBingoPattern(board, new Set(drawnNumbersRaw.map(Number)), selectedSet);
+        const callNumberLength = gameDrawStateRaw ? JSON.parse(gameDrawStateRaw)?.callNumberLength || 0 : 0;
 
-    try {
-        // --- 1. PARALLELIZE INITIAL DATA FETCHING ---
-        // Fetch independent data concurrently instead of sequentially.
-        const [gameControlData, winnerUser, gameDrawStateRaw, players] = await Promise.all([
-            GameControl.findOne({ GameSessionId: strGameSessionId }),
-            User.findOne({ telegramId }),
-            redis.get(`gameDrawState:${strGameSessionId}`),
-            redis.sMembers(`gameRooms:${strGameId}`) || []
-        ]);
+        // --- 3️⃣ Parallel DB & Redis writes for winner/house (Solves Issue 1) ---
+        await Promise.all([
+          // Financial updates for winner (DB and Redis)
+          User.updateOne({ telegramId }, { $inc: { balance: prizeAmount } }),
+          redis.incrByFloat(`userBalance:${telegramId}`, prizeAmount),
+          Ledger.create({ gameSessionId: strGameSessionId, amount: prizeAmount, transactionType: 'player_winnings', telegramId }),
+          // Financial update for house/system
+          Ledger.create({ gameSessionId: strGameSessionId, amount: houseProfit, transactionType: 'house_profit' }),
+          // History tracking for winner (moved here to run in parallel)
+          GameHistory.create({ sessionId: strGameSessionId, gameId: strGameId, username: winnerUser.username || "Unknown", telegramId, eventType: "win", winAmount: prizeAmount, stake: stakeAmount, cartelaId, callNumberLength })
+        ]);
 
-        if (!gameControlData) {
-            throw new Error(`GameControl data not found for GameSessionId ${strGameSessionId}`);
-        }
-        if (!winnerUser) {
-            throw new Error(`User with telegramId ${telegramId} not found`);
-        }
+        // --- 4️⃣ Broadcast winner information ---
+        io.to(strGameId).emit("winnerConfirmed", { winnerName: winnerUser.username || "Unknown", prizeAmount, playerCount, boardNumber: cartelaId, board, winnerPattern, telegramId, gameId: strGameId, GameSessionId: strGameSessionId });
 
-        const { prizeAmount, houseProfit, stakeAmount, totalCards: playerCount } = gameControlData;
+        // --- 5️⃣ Batch process losers for history (Solves Issue 3) ---
+        const loserIds = players.filter(id => id !== telegramId).map(Number);
+        if (loserIds.length > 0) {
+          // Fetch necessary data for losers in parallel (2 DB calls total)
+          const [loserUsers, loserCards] = await Promise.all([
+            User.find({ telegramId: { $in: loserIds } }, 'telegramId username'),
+            GameCard.find({ gameId: strGameId, takenBy: { $in: loserIds } }, 'takenBy cardId')
+          ]);
+          
+          // Create in-memory maps (Solves Issue 2)
+          const userMap = new Map(loserUsers.map(u => [u.telegramId, u]));
+          const cardMap = new Map(loserCards.map(c => [c.takenBy, c]));
 
-        // --- 2. USE DATA PASSED FROM checkWinner (NO REDUNDANT FETCHES) ---
-        const board = cardData.card || [];
-        const drawnNumbers = new Set(drawnNumbersRaw.map(Number));
-        const winnerPattern = checkBingoPattern(board, drawnNumbers, selectedSet);
-        
-        let callNumberLength = 0;
-        if (gameDrawStateRaw) {
-            const gameDrawData = JSON.parse(gameDrawStateRaw);
-            callNumberLength = gameDrawData.callNumberLength || 0;
-        }
+          // Build history documents in memory
+          const loserDocs = loserIds.map(id => ({
+            sessionId: strGameSessionId,
+            gameId: strGameId,
+            username: userMap.get(id)?.username || "Unknown",
+            telegramId: id,
+            eventType: "lose",
+            winAmount: 0,
+            stake: stakeAmount,
+            cartelaId: cardMap.get(id)?.cardId || null,
+            callNumberLength,
+            createdAt: new Date()
+          }));
 
-        // --- Winner Payout & Ledger (Run in Parallel) ---
-        await Promise.all([
-            // Update winner's balance
-            User.updateOne({ telegramId }, { $inc: { balance: prizeAmount } }),
-            // Update winner's balance in Redis cache
-            await redis.incrByFloat(`userBalance:${telegramId}`, prizeAmount),
-            // Record winner's payout in the ledger
-            Ledger.create({
-                gameSessionId: strGameSessionId,
-                amount: prizeAmount,
-                transactionType: 'player_winnings',
-                telegramId: telegramId,
-                description: `Winnings for game session ${strGameSessionId}`
-            }),
-            // Record house profit in the ledger
-            Ledger.create({
-                gameSessionId: strGameSessionId,
-                amount: houseProfit,
-                transactionType: 'house_profit',
-                description: `House profit from game session ${strGameSessionId}`
-            })
-        ]);
+          // Batch insert all loser records (Solves Issue 3)
+          await GameHistory.insertMany(loserDocs);
+        }
 
-        
-        // --- Broadcast Winner & Log Winner History ---
-        io.to(strGameId).emit("winnerConfirmed", {
-            winnerName: winnerUser.username || "Unknown",
-            prizeAmount,
-            playerCount,
-            boardNumber: cartelaId,
-            board,
-            winnerPattern,
-            telegramId,
-            gameId: strGameId,
-            GameSessionId: strGameSessionId,
-        });
+        // --- 6️⃣ Final state cleanup and transition (Solves Issue 1) ---
+        await Promise.all([
+          // Update game status in DB
+          GameControl.findOneAndUpdate({ GameSessionId: strGameSessionId }, { isActive: false, endedAt: new Date() }),
+          syncGameIsActive(strGameId, false),
+          // Cache winner info for short-term display
+          redis.set(`winnerInfo:${strGameSessionId}`, JSON.stringify({ winnerName: winnerUser.username || "Unknown", prizeAmount, playerCount, boardNumber: cartelaId, board, winnerPattern, telegramId, gameId: strGameId }), { EX: 300 }),
+          // Clear all associated Redis keys, including the lock (Critical Cleanup)
+          redis.del(
+            `gameRooms:${strGameId}`,
+            `gameCards:${strGameId}`,
+            `gameDraws:${strGameSessionId}`,
+            `gameActive:${strGameId}`,
+            `countdown:${strGameId}`,
+            `activeDrawLock:${strGameId}`,
+            `gameDrawState:${strGameSessionId}`,
+            winnerLockKey // Ensures distributed lock is released immediately
+          ),
+          // Reset card state in DB
+          GameCard.updateMany({ gameId: strGameId }, { isTaken: false, takenBy: null }),
+          // Transition to the next round
+          resetRound(strGameId, strGameSessionId, null, io, state, redis)
+        ]);
 
-        await GameHistory.create({
-            sessionId: strGameSessionId,
-            gameId: strGameId,
-            username: winnerUser.username || "Unknown",
-            telegramId,
-            eventType: "win",
-            winAmount: prizeAmount,
-            stake: stakeAmount,
-            cartelaId: cartelaId,
-            callNumberLength: callNumberLength,
-            createdAt: new Date(),
-        });
+        io.to(strGameId).emit("gameEnded");
 
-        // --- 3. BATCH PROCESS LOSERS (THE CRITICAL OPTIMIZATION) ---
-        const loserTelegramIds = players.filter(id => id !== telegramId).map(id => Number(id)); 
-
-        if (loserTelegramIds.length > 0) {
-            // Fetch all loser data in just two batch database queries
-            const [loserUsers, loserCards] = await Promise.all([
-                User.find({ telegramId: { $in: loserTelegramIds } }, 'telegramId username'),
-                GameCard.find({ gameId: strGameId, takenBy: { $in: loserTelegramIds } }, 'takenBy cardId')
-            ]);
-            
-            // Create maps for fast, in-memory lookups
-            const userMap = new Map(loserUsers.map(u => [u.telegramId, u]));
-            const cardMap = new Map(loserCards.map(c => [c.takenBy, c]));
-
-
-
-            // Build the history documents in memory (very fast)
-            const loserHistoryDocs = loserTelegramIds.map(id => {
-                const user = userMap.get(id);
-                const card = cardMap.get(id);
-                const loserUsername = user && user.username ? user.username : "Unknown";
-
-                return {
-                    sessionId: strGameSessionId,
-                    gameId: strGameId,
-                    username: loserUsername,
-                    telegramId: id,
-                    eventType: "lose",
-                    winAmount: 0,
-                    stake: stakeAmount,
-                    cartelaId: card ? card.cardId : null,
-                    callNumberLength: callNumberLength,
-                    createdAt: new Date(),
-                };
-            });
-
-            // Write all loser history to the database in a single operation
-            await GameHistory.insertMany(loserHistoryDocs);
-        }
-
-        // --- 4. FINAL CLEANUP & STATE UPDATE (UNCHANGED) ---
-        await GameControl.findOneAndUpdate(
-            { GameSessionId: strGameSessionId },
-            { isActive: false, endedAt: new Date() }
-        );
-        await syncGameIsActive(strGameId, false);
-
-        await redis.set(`winnerInfo:${strGameSessionId}`, JSON.stringify({
-            winnerName: winnerUser.username || "Unknown",
-            prizeAmount,
-            playerCount,
-            boardNumber: cartelaId,
-            board,
-            winnerPattern,
-            telegramId,
-            gameId: strGameId
-        }), { EX: 60 * 5 });
-        
-        await Promise.all([
-            redis.del(`gameRooms:${strGameId}`),
-            redis.del(`gameCards:${strGameId}`),
-            redis.del(`gameDraws:${strGameSessionId}`),
-            redis.del(`gameActive:${strGameId}`),
-            redis.del(`countdown:${strGameId}`),
-            redis.del(`activeDrawLock:${strGameId}`),
-            redis.del(`gameDrawState:${strGameSessionId}`),
-        ]);
-        
-        await GameCard.updateMany({ gameId: strGameId }, { isTaken: false, takenBy: null });
-
-        await resetRound(strGameId, strGameSessionId, socket, io, state, redis);
-        io.to(strGameId).emit("gameEnded");
-
-    } catch (error) {
-        console.error("🔥 Error processing winner:", error);
+      } catch (error) {
+        console.error("🔥 processWinnerOptimized error:", error);
+      }
     }
-}
+
 
 
 
