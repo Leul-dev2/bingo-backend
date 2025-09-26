@@ -1045,7 +1045,7 @@ async function processWinner({ telegramId, gameId, GameSessionId, cartelaId, io,
           // Cache winner info for short-term display
           redis.set(`winnerInfo:${strGameSessionId}`, JSON.stringify({ winnerName: winnerUser.username || "Unknown", prizeAmount, playerCount, boardNumber: cartelaId, board, winnerPattern, telegramId, gameId: strGameId }), { EX: 300 }),
           // Transition to the next round
-          resetRound(strGameId, strGameSessionId, null, io, state, redis)
+           resetRound(strGameId, strGameSessionId, socket, io, state, redis)
         ];
         
         // ⚡ Un-awaited Card Reset: Run the potentially heavy updateMany in the background.
@@ -1078,6 +1078,8 @@ async function processWinner({ telegramId, gameId, GameSessionId, cartelaId, io,
 
   } catch (error) {
     console.error("🔥 processWinnerOptimized error:", error);
+    // Ensure lock is released quickly if critical financial commit fails
+    await redis.del(winnerLockKey).catch(err => console.error("Lock release error:", err));
   }
 }
 
