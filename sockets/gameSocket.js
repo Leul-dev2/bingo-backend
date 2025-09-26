@@ -1073,7 +1073,6 @@ async function fullGameCleanup(gameId, redis, state) {
             })
         ]);
 
-        const winnerUsername = winnerUser.username || "Unknown";
         
         // --- Broadcast Winner & Log Winner History ---
         io.to(strGameId).emit("winnerConfirmed", {
@@ -1102,7 +1101,7 @@ async function fullGameCleanup(gameId, redis, state) {
         });
 
         // --- 3. BATCH PROCESS LOSERS (THE CRITICAL OPTIMIZATION) ---
-        const loserTelegramIds = players.filter(id => id !== telegramId);
+        const loserTelegramIds = players.filter(id => id !== telegramId).map(id => Number(id)); 
 
         if (loserTelegramIds.length > 0) {
             // Fetch all loser data in just two batch database queries
