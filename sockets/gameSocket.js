@@ -1072,6 +1072,8 @@ async function fullGameCleanup(gameId, redis, state) {
                 description: `House profit from game session ${strGameSessionId}`
             })
         ]);
+
+        const winnerUsername = winnerUser.username || "Unknown";
         
         // --- Broadcast Winner & Log Winner History ---
         io.to(strGameId).emit("winnerConfirmed", {
@@ -1113,14 +1115,18 @@ async function fullGameCleanup(gameId, redis, state) {
             const userMap = new Map(loserUsers.map(u => [u.telegramId, u]));
             const cardMap = new Map(loserCards.map(c => [c.takenBy, c]));
 
+
+
             // Build the history documents in memory (very fast)
             const loserHistoryDocs = loserTelegramIds.map(id => {
                 const user = userMap.get(id);
                 const card = cardMap.get(id);
+                const loserUsername = user && user.username ? user.username : "Unknown";
+
                 return {
                     sessionId: strGameSessionId,
                     gameId: strGameId,
-                    username: user ? user.username : "Unknown",
+                    username: loserUsername,
                     telegramId: id,
                     eventType: "lose",
                     winAmount: 0,
