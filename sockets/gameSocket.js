@@ -902,6 +902,7 @@ async function fullGameCleanup(gameId, redis, state) {
     //check winner
 
     socket.on("checkWinner", async ({ telegramId, gameId, GameSessionId, cartelaId, selectedNumbers}) => {
+        console.time(`⏳⏳⏳checkWinner_ExecutionTime_${data.telegramId}`);
         const selectedSet = new Set((selectedNumbers || []).map(Number));
 
         try {
@@ -995,7 +996,9 @@ async function fullGameCleanup(gameId, redis, state) {
         } catch (error) {
             console.error("Error in checkWinner:", error);
             socket.emit("winnerError", { message: "Internal error verifying winner." });
-        }
+        }finally {
+        console.timeEnd(`⏳⏳⏳checkWinner_ExecutionTime_${data.telegramId}`); // End timer and print duration
+      }
     });
 
 
