@@ -32,8 +32,8 @@ const server = http.createServer(app);
 const io = new Server(server, {
     cors: { origin: "https://frontend.bingoogame.com", methods: ["GET", "POST"] },
     // --- ADD THESE LINES TO CONFIGURE PING-PONG ---
-   pingInterval: 25000,
-   pingTimeout: 60000,
+   pingInterval: 15000,
+   pingTimeout: 25000,
     // ------------------------------------------------
 });
 
