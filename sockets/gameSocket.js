@@ -936,7 +936,7 @@ async function fullGameCleanup(gameId, redis, state) {
       // Provides debugging info back to the client/logs on failure
       return socket.emit("bingoClaimFailed", {
         message: "Winning pattern not completed by recent numbers.",
-        telegramId, gameId, cardId: cartelaId, lastTwoNumbers: lastTwoDrawnNumbers, selectedNumbers
+        telegramId, gameId, cardId: cartelaId, card: cardData.card, lastTwoNumbers: lastTwoDrawnNumbers, selectedNumbers
       });
     }
 
