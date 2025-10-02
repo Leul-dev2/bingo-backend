@@ -2,10 +2,11 @@
 const { createClient } = require("redis");
 
 const redisClient = createClient({
-  url: process.env.REDIS_URL, // Set your Upstash URL in environment variables on Render
+  url: process.env.REDIS_URL, // Upstash URL (rediss://)
   socket: {
-    tls: false,
-    rejectUnauthorized: false, // sometimes needed for Upstash TLS
+    tls: true,                  // ✅ Enable TLS
+    rejectUnauthorized: false,  // optional for Upstash
+    reconnectStrategy: retries => Math.min(retries * 50, 2000), // automatic reconnect
   },
 });
 
