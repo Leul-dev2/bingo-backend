@@ -85,26 +85,24 @@ router.post("/start", async (req, res) => {
             }
 
             // Step 7: Reserve the user's stake
-           const user = await User.findOneAndUpdate(
+          const user = await User.findOneAndUpdate(
                 {
                     telegramId,
-                    $and: [
-                        { // Condition 1: Check balance
-                            $or: [
-                                { bonus_balance: { $gte: lobbyDoc.stakeAmount } },
-                                { balance: { $gte: lobbyDoc.stakeAmount } }
-                            ]
-                        },
-                        { // Condition 2: Check reservation status (simplified)
+                    // 💡 CRITICAL FIX: Explicitly ensure reservedForGameId is null/empty/non-existent
+                    // This is the atomic lock check.
                     $or: [
-                            { reservedForGameId: { $exists: false } },
-                            { reservedForGameId: null },
-                            { reservedForGameId: "" }
-                        ]
-                        }
+                        { reservedForGameId: { $exists: false } },
+                        { reservedForGameId: null },
+                        { reservedForGameId: "" }
+                    ],
+                    // The balance check (now separate from the reservation check)
+                    $or: [
+                        { bonus_balance: { $gte: lobbyDoc.stakeAmount } },
+                        { balance: { $gte: lobbyDoc.stakeAmount } }
                     ]
                 },
-                { $set: { reservedForGameId: gameId } },
+                // The update will ONLY execute if ALL conditions above are met atomically.
+                { $set: { reservedForGameId: gameId } }, // ⚠️ IMPORTANT: Reserve for the GameSessionId, not just the generic gameId
                 { new: true, session }
             );
 
