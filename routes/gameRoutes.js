@@ -18,7 +18,7 @@ router.post("/start", async (req, res) => {
 
     // --- Step 1: ACQUIRE A DISTRIBUTED LOCK ---
     const lockKey = `startLock:${gameId}`;
-    const lockAcquired = await redis.set(lockKey, 'locked', 'EX', 5, 'NX');
+    const lockAcquired = await redis.set(lockKey, 'locked', 'EX', 15, 'NX');
 
     if (!lockAcquired) {
         return res.status(429).json({ error: "A game start request is already being processed. Please wait a moment." });
@@ -27,18 +27,42 @@ router.post("/start", async (req, res) => {
     // ⭐ Step 2: START A MONGOOSE SESSION AND TRANSACTION
     const session = await mongoose.startSession();
     let responseSent = false;
-    try {
+        try {
         await session.withTransaction(async () => {
-            // ⭐ This is the atomic operation to find or create the lobby.
-            const lobbyDoc = await GameControl.findOneAndUpdate(
+            // 1️⃣ Check for ACTIVE game first
+            const activeGame = await GameControl.findOne({
+            gameId,
+            isActive: true,
+            endedAt: null
+            }).session(session);
+
+            if (activeGame) {
+            responseSent = true;
+            return res.status(400).json({
+                success: false,
+                message: "🚫 A game is already running. Please join it.",
+                GameSessionId: activeGame.GameSessionId
+            });
+            }
+
+            // 2️⃣ Check for INACTIVE lobby
+            let lobbyDoc = await GameControl.findOne({
+            gameId,
+            isActive: false,
+            endedAt: null
+            }).session(session);
+
+            // 3️⃣ Create lobby if it doesn't exist
+            if (!lobbyDoc) {
+            lobbyDoc = await GameControl.findOneAndUpdate(
                 { gameId, isActive: false, endedAt: null },
                 { $setOnInsert: {
                     GameSessionId: uuidv4(),
                     gameId,
                     isActive: false,
-                    createdBy: 'System',
-                    stakeAmount: Number(gameId) > 0 ? Number(gameId) : 10,
-                    totalCards: 1,
+                    createdBy: DEFAULT_CREATED_BY,
+                    stakeAmount: Number(gameId) > 0 ? Number(gameId) : FALLBACK_STAKE_AMOUNT,
+                    totalCards: DEFAULT_GAME_TOTAL_CARDS,
                     prizeAmount: 0,
                     players: [],
                     houseProfit: 0,
@@ -47,96 +71,75 @@ router.post("/start", async (req, res) => {
                 }},
                 { new: true, upsert: true, session, runValidators: true }
             );
+            }
 
             const currentSessionId = lobbyDoc.GameSessionId;
-            
-            // --- Enrollment Logic ---
-            const isMemberDB = lobbyDoc.players.some(player => player.telegramId === telegramId);
-            if (isMemberDB) {
-                await session.abortTransaction();
-                responseSent = true;
-                return res.status(200).json({
-                    success: true,
-                    gameId,
-                    telegramId,
-                    message: "You are already in the game.",
-                    GameSessionId: currentSessionId,
-                });
-            }
 
-            // Step 6: Validate the card.
+            // --- Enrollment Logic: Auto-join lobby ---
+            const isMemberDB = lobbyDoc.players.some(player => player.telegramId === telegramId);
+            if (!isMemberDB) {
+            // Step 6: Validate the card
             const card = await GameCard.findOne({ gameId, cardId }).session(session);
             if (!card || !card.isTaken || card.takenBy !== telegramId) {
-                await session.abortTransaction();
-                responseSent = true;
-                return res.status(400).json({ error: "Please try another card." });
+                throw new Error("Invalid card. Please try another card.");
             }
 
-            // Step 7: Reserve the user's stake and prevent them from joining other games.
+            // Step 7: Reserve the user's stake
           const user = await User.findOneAndUpdate(
-            {
-                telegramId,
-                $and: [
                 {
+                    telegramId,
+                    // 💡 CRITICAL FIX: Explicitly ensure reservedForGameId is null/empty/non-existent
+                    // This is the atomic lock check.
                     $or: [
-                    { bonus_balance: { $gte: lobbyDoc.stakeAmount } },
-                    { balance: { $gte: lobbyDoc.stakeAmount } }
+                        { reservedForGameId: { $exists: false } },
+                        { reservedForGameId: null },
+                        { reservedForGameId: "" }
+                    ],
+                    // The balance check (now separate from the reservation check)
+                    $or: [
+                        { bonus_balance: { $gte: lobbyDoc.stakeAmount } },
+                        { balance: { $gte: lobbyDoc.stakeAmount } }
                     ]
                 },
-                {
-                    $or: [
-                    { reservedForGameId: { $exists: false } },
-                    { reservedForGameId: null },
-                    { reservedForGameId: "" }
-                    ]
-                }
-                ]
-            },
-            { $set: { reservedForGameId: gameId } },
-            { new: true, session }
-        );
-
+                // The update will ONLY execute if ALL conditions above are met atomically.
+                { $set: { reservedForGameId: gameId } }, // ⚠️ IMPORTANT: Reserve for the GameSessionId, not just the generic gameId
+                { new: true, session }
+            );
 
             if (!user) {
-                await session.abortTransaction();
-                responseSent = true;
-                return res.status(400).json({ error: "Insufficient balance or you are already in another game." });
+                throw new Error("Insufficient balance or already in another game.");
             }
 
-            // Step 8: Add the user to the GameControl document.
+            // Step 8: Add the user to the GameControl document
             await GameControl.updateOne(
                 { GameSessionId: currentSessionId },
                 { $addToSet: { players: { telegramId, status: 'connected' } } },
                 { session }
             );
 
-            // Step 9: Add the user to the Redis set for real-time tracking.
+            // Step 9: Add user to Redis set
             await redis.sAdd(`gameRooms:${gameId}`, telegramId);
-            
+            }
+
             responseSent = true;
             return res.status(200).json({
-                success: true,
-                gameId,
-                telegramId,
-                message: "Joined game successfully. Your stake has been reserved.",
-                GameSessionId: currentSessionId,
+            success: true,
+            gameId,
+            telegramId,
+            message: "Joined game successfully. Your stake has been reserved.",
+            GameSessionId: currentSessionId,
             });
         });
-    } catch (error) {
+        } catch (error) {
         console.error("🔥 Game Start Error:", error);
         if (!responseSent) {
-            // Check if it's a duplicate key error from the unique index
-            if (error.name === 'MongoError' && error.code === 11000) {
-                 return res.status(409).json({ error: "A game lobby is being created. Please try again in a moment." });
-            }
-            return res.status(500).json({ error: "Internal server error." });
+            return res.status(400).json({ error: error.message || "Internal server error." });
         }
-    } finally {
-        // --- Step 10: RELEASE THE LOCK AND END THE SESSION ---
+        } finally {
         await redis.del(lockKey);
         await session.endSession();
-    }
-});
+        }
+        });
 
 // ... (your existing /status route below)
 router.get('/:gameId/status', async (req, res) => {

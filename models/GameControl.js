@@ -32,6 +32,13 @@ gameControlSchema.index(
   { unique: true, partialFilterExpression: { isActive: false, endedAt: null } }
 );
 
+
+// ✅ Ensure only one active game per gameId
+gameControlSchema.index(
+  { gameId: 1, isActive: 1 },
+  { unique: true, partialFilterExpression: { isActive: true, endedAt: null } }
+);
+
 // ⭐ Ensure fast lookups on GameSessionId
 gameControlSchema.index({ GameSessionId: 1 });
 
