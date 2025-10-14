@@ -58,6 +58,7 @@ const { v4: uuidv4 } = require("uuid");
   gameIsActive: {},
   gameReadyToStart: {},
 };
+
   io.on("connection", (socket) => {
       console.log("🟢 New client connected");
       console.log("Client connected with socket ID:", socket.id);
@@ -92,11 +93,14 @@ const { v4: uuidv4 } = require("uuid");
                 console.log(`🆕 User ${strTelegramId} joining game ${strGameId}. No pending disconnect timeout found (or it already expired).`);
             }
 
-            // --- IMPORTANT: Clean up any residual 'joinGame' phase info for this socket ---
-            // This handles the transition from 'joinGame' phase to 'lobby' phase for the same socket
-            await redis.hDel(`joinGameSocketsInfo`, socket.id);
-            console.log(`🧹 Cleaned up residual 'joinGameSocketsInfo' for socket ${socket.id} as it's now in 'lobby' phase.`);
-
+            // ✅ FIX: Don't clean up joinGame phase info immediately - preserve for navigation
+            const existingJoinGameInfo = await redis.hGet(`joinGameSocketsInfo`, socket.id);
+            if (existingJoinGameInfo) {
+                console.log(`🔄 Socket ${socket.id} transitioning from joinGame to lobby phase for user ${strTelegramId}`);
+                // Keep the joinGame info for potential fallback during navigation
+                await redis.hSet(`previousJoinGameInfo`, socket.id, existingJoinGameInfo);
+                await redis.expire(`previousJoinGameInfo`, 30); // 30 second TTL
+            }
 
             // --- Step 2: Determine Current Card State for Reconnecting Player ---
             let currentHeldCardId = null;
@@ -463,6 +467,95 @@ const { v4: uuidv4 } = require("uuid");
         }
     });
 
+    // ✅ NEW: Add socket state recovery for navigation between pages
+    socket.on("recoverSocketState", async ({ telegramId, gameId, GameSessionId, fromPage }) => {
+        const strTelegramId = String(telegramId);
+        const strGameId = String(gameId);
+        
+        console.log(`🔄 Recovering socket state for ${strTelegramId} from ${fromPage} page`);
+
+        try {
+            // Check if user has active sockets in different phases
+            const activeSocketKeys = await redis.keys(`activeSocket:${strTelegramId}:*`);
+            
+            if (activeSocketKeys.length > 0) {
+                // User has other active connections, reuse state
+                console.log(`✅ User ${strTelegramId} has ${activeSocketKeys.length} active sockets, recovering state`);
+                
+                // Re-join appropriate rooms based on current phase
+                socket.join(strGameId);
+                
+                // Re-emit current game state
+                if (fromPage === 'bingoGame') {
+                    // User is returning to bingo game, send current game state
+                    const gameDrawsKey = getGameDrawsKey(GameSessionId);
+                    const drawnNumbersRaw = await redis.lRange(gameDrawsKey, 0, -1);
+                    const drawnNumbers = drawnNumbersRaw.map(Number);
+                    
+                    if (drawnNumbers.length > 0) {
+                        const formattedDrawnNumbers = drawnNumbers.map(number => {
+                            const letterIndex = Math.floor((number - 1) / 15);
+                            const letter = ["B", "I", "N", "G", "O"][letterIndex];
+                            return { number, label: `${letter}-${number}` };
+                        });
+                        
+                        socket.emit("drawnNumbersHistory", {
+                            gameId: strGameId,
+                            GameSessionId: GameSessionId,
+                            history: formattedDrawnNumbers
+                        });
+                    }
+                    
+                    // Send current player count
+                    const playerCount = await redis.sCard(`gameRooms:${strGameId}`) || 0;
+                    socket.emit("playerCountUpdate", {
+                        gameId: strGameId,
+                        playerCount,
+                    });
+                }
+                
+                socket.emit("socketStateRecovered", { 
+                    success: true, 
+                    message: "Socket state recovered successfully" 
+                });
+            } else {
+                // No active sockets found, need fresh join
+                console.log(`⚠️ No active sockets found for ${strTelegramId}, initiating fresh join`);
+                socket.emit("socketStateRecoveryFailed", { 
+                    message: "Please rejoin the game" 
+                });
+            }
+        } catch (error) {
+            console.error("❌ Socket state recovery error:", error);
+            socket.emit("socketStateRecoveryFailed", { 
+                message: "Recovery failed, please refresh" 
+            });
+        }
+    });
+
+    // ✅ NEW: Add socket state preservation for navigation
+    socket.on("preserveSocketState", async ({ telegramId, gameId, GameSessionId, currentPhase }) => {
+        const strTelegramId = String(telegramId);
+        const strGameId = String(gameId);
+        
+        console.log(`💾 Preserving socket state for ${strTelegramId} in phase ${currentPhase}`);
+        
+        try {
+            // Extend TTL for active socket to prevent cleanup during navigation
+            await redis.expire(`activeSocket:${strTelegramId}:${socket.id}`, 60); // 60 seconds
+            
+            // Preserve phase-specific info with longer TTL
+            if (currentPhase === 'lobby') {
+                await redis.expire(`userSelections`, 60);
+            } else if (currentPhase === 'joinGame') {
+                await redis.expire(`joinGameSocketsInfo`, 60);
+            }
+            
+            socket.emit("socketStatePreserved", { success: true });
+        } catch (error) {
+            console.error("❌ Socket state preservation error:", error);
+        }
+    });
  
     const clearUserReservations = async (playerIds) => {
         if (!playerIds || playerIds.length === 0) return;
@@ -1522,9 +1615,3 @@ const cleanupJoinGamePhase = async (strTelegramId, strGameId, strGameSessionId, 
 
   });
 };
-
-
-
-
-
-         
