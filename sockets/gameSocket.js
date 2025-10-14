@@ -1436,7 +1436,7 @@ socket.on("disconnect", async (reason) => {
             if (otherSocketInfo && String(otherSocketInfo.gameId) === strGameId && (otherSocketInfo.phase || 'lobby') === disconnectedPhase) {
                 remainingSocketsForThisPhaseCount++;
             } else {
-                staleKeysToDelete.push(`activeSocket:${strTelegramId}:${otherSocketId}`];
+                staleKeysToDelete.push(`activeSocket:${strTelegramId}:${otherSocketId}`);
             }
         }
 
