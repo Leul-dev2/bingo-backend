@@ -6,8 +6,6 @@ const GameCard = require("../models/GameCard");
 const redis = require("../utils/redisClient");
 const { v4: uuidv4 } = require('uuid');
 const mongoose = require('mongoose');
-const Joi = require('joi');
-const rateLimit = require('express-rate-limit');
 
 // ==================== CONFIGURATION ====================
 const CONFIG = {
@@ -20,75 +18,10 @@ const CONFIG = {
     REDIS: {
         TTL: {
             GAME_STATUS: 60,
-            NEGATIVE_CACHE: 30,
             LOCK: 15,
-            USER_BALANCE: 60
+            NEGATIVE_CACHE: 30
         }
-    },
-    VALIDATION: {
-        MIN_GAME_ID: 1,
-        MAX_GAME_ID: 1000
     }
-};
-
-// ==================== RATE LIMITING ====================
-const startGameLimiter = rateLimit({
-    windowMs: 1 * 60 * 1000, // 1 minute
-    max: 5, // 5 requests per minute
-    message: {
-        success: false,
-        error: "Too many game start attempts. Please try again later."
-    },
-    standardHeaders: true,
-    legacyHeaders: false,
-});
-
-const statusCheckLimiter = rateLimit({
-    windowMs: 30 * 1000, // 30 seconds
-    max: 30, // 30 requests per 30 seconds
-    message: {
-        success: false,
-        error: "Too many status check requests. Please slow down."
-    },
-    standardHeaders: true,
-    legacyHeaders: false,
-});
-
-// ==================== VALIDATION SCHEMAS ====================
-const validationSchemas = {
-    startGame: Joi.object({
-        gameId: Joi.alternatives()
-            .try(
-                Joi.string().pattern(/^\d+$/).required(),
-                Joi.number().integer().min(CONFIG.VALIDATION.MIN_GAME_ID).max(CONFIG.VALIDATION.MAX_GAME_ID).required()
-            ),
-        telegramId: Joi.alternatives()
-            .try(
-                Joi.string().pattern(/^\d+$/).required(),
-                Joi.number().integer().positive().required()
-            ),
-        cardId: Joi.alternatives()
-            .try(
-                Joi.string().pattern(/^\d+$/).required(),
-                Joi.number().integer().positive().required()
-            )
-    }),
-    
-    gameStatus: Joi.object({
-        gameId: Joi.alternatives()
-            .try(
-                Joi.string().pattern(/^\d+$/).required(),
-                Joi.number().integer().min(CONFIG.VALIDATION.MIN_GAME_ID).max(CONFIG.VALIDATION.MAX_GAME_ID).required()
-            )
-    }),
-    
-    userStatus: Joi.object({
-        telegramId: Joi.alternatives()
-            .try(
-                Joi.string().pattern(/^\d+$/).required(),
-                Joi.number().integer().positive().required()
-            )
-    })
 };
 
 // ==================== ERROR HANDLING ====================
@@ -127,6 +60,12 @@ class LockError extends GameAPIError {
     }
 }
 
+class InsufficientBalanceError extends GameAPIError {
+    constructor(message, context = {}) {
+        super(message, 'INSUFFICIENT_BALANCE', 400, context);
+    }
+}
+
 // ==================== UTILITY FUNCTIONS ====================
 const logger = {
     info: (message, meta = {}) => {
@@ -159,29 +98,70 @@ const logger = {
     }
 };
 
-const validateInput = (schema, data) => {
-    const { error, value } = schema.validate(data, {
-        abortEarly: false,
-        stripUnknown: true
-    });
-    
-    if (error) {
-        const details = error.details.map(detail => ({
-            field: detail.path.join('.'),
-            message: detail.message
-        }));
-        
-        throw new ValidationError('Invalid input provided', { details });
+// Simple validation functions
+const validateGameId = (gameId) => {
+    if (!gameId) {
+        throw new ValidationError('Game ID is required', { field: 'gameId' });
     }
     
-    return value;
+    const numGameId = Number(gameId);
+    if (isNaN(numGameId) || numGameId <= 0) {
+        throw new ValidationError('Game ID must be a positive number', { field: 'gameId', value: gameId });
+    }
+    
+    return String(gameId);
 };
 
-const safeMongoId = (id) => {
-    if (mongoose.Types.ObjectId.isValid(id)) {
-        return new mongoose.Types.ObjectId(id);
+const validateTelegramId = (telegramId) => {
+    if (!telegramId) {
+        throw new ValidationError('Telegram ID is required', { field: 'telegramId' });
     }
-    return id;
+    
+    const numTelegramId = Number(telegramId);
+    if (isNaN(numTelegramId) || numTelegramId <= 0) {
+        throw new ValidationError('Telegram ID must be a positive number', { field: 'telegramId', value: telegramId });
+    }
+    
+    return String(telegramId);
+};
+
+const validateCardId = (cardId) => {
+    if (!cardId) {
+        throw new ValidationError('Card ID is required', { field: 'cardId' });
+    }
+    
+    const numCardId = Number(cardId);
+    if (isNaN(numCardId) || numCardId <= 0) {
+        throw new ValidationError('Card ID must be a positive number', { field: 'cardId', value: cardId });
+    }
+    
+    return String(cardId);
+};
+
+const validateStartGameInput = (body) => {
+    const { gameId, telegramId, cardId } = body;
+    
+    if (!gameId || !telegramId || !cardId) {
+        throw new ValidationError('Missing required fields: gameId, telegramId, cardId');
+    }
+    
+    return {
+        gameId: validateGameId(gameId),
+        telegramId: validateTelegramId(telegramId),
+        cardId: validateCardId(cardId)
+    };
+};
+
+const validateGameStatusInput = (params) => {
+    const { gameId } = params;
+    
+    if (!gameId) {
+        throw new ValidationError('Game ID is required', { field: 'gameId' });
+    }
+    
+    return {
+        gameId: validateGameId(gameId)
+    };
 };
 
 const acquireDistributedLock = async (key, ttl = CONFIG.REDIS.TTL.LOCK) => {
@@ -191,12 +171,17 @@ const acquireDistributedLock = async (key, ttl = CONFIG.REDIS.TTL.LOCK) => {
 };
 
 const releaseDistributedLock = async (key, lockValue) => {
-    const currentLockValue = await redis.get(key);
-    if (currentLockValue === lockValue) {
-        await redis.del(key);
-        return true;
+    try {
+        const currentLockValue = await redis.get(key);
+        if (currentLockValue === lockValue) {
+            await redis.del(key);
+            return true;
+        }
+        return false;
+    } catch (error) {
+        logger.error('Error releasing distributed lock', error, { key });
+        return false;
     }
-    return false;
 };
 
 const withErrorHandling = (handler) => {
@@ -272,20 +257,22 @@ const REDIS_KEYS = {
 // ==================== ROUTE HANDLERS ====================
 
 /**
- * @route POST /api/game/start
- * @description Start or join a game session
+ * @route POST /api/games/start
+ * @description Start or join a game session with proper transaction handling
  */
-router.post("/start", startGameLimiter, withErrorHandling(async (req, res) => {
-    const validatedData = validateInput(validationSchemas.startGame, req.body);
+router.post("/start", withErrorHandling(async (req, res) => {
+    // Validate input
+    const validatedData = validateStartGameInput(req.body);
     const { gameId, telegramId, cardId } = validatedData;
     
-    const strGameId = String(gameId);
-    const strTelegramId = String(telegramId);
-    const strCardId = String(cardId);
+    const strGameId = gameId;
+    const strTelegramId = telegramId;
+    const strCardId = cardId;
     
     const lockKey = REDIS_KEYS.gameLock(strGameId);
     const session = await mongoose.startSession();
     let lockValue = null;
+    let responseSent = false;
 
     try {
         // Acquire distributed lock
@@ -297,8 +284,12 @@ router.post("/start", startGameLimiter, withErrorHandling(async (req, res) => {
             );
         }
 
-        let result;
-        
+        logger.info('Starting game session', {
+            gameId: strGameId,
+            telegramId: strTelegramId,
+            cardId: strCardId
+        });
+
         await withTransaction(session, async () => {
             // 1. Check for ACTIVE game
             const activeGame = await GameControl.findOne({
@@ -327,8 +318,9 @@ router.post("/start", startGameLimiter, withErrorHandling(async (req, res) => {
             const stakeAmount = Number(strGameId) > 0 ? Number(strGameId) : CONFIG.DEFAULT.STAKE_AMOUNT;
 
             if (!lobbyDoc) {
+                const newGameSessionId = uuidv4();
                 lobbyDoc = new GameControl({
-                    GameSessionId: uuidv4(),
+                    GameSessionId: newGameSessionId,
                     gameId: strGameId,
                     isActive: CONFIG.DEFAULT.IS_ACTIVE,
                     createdBy: CONFIG.DEFAULT.CREATED_BY,
@@ -344,7 +336,7 @@ router.post("/start", startGameLimiter, withErrorHandling(async (req, res) => {
                 
                 logger.info('Created new game lobby', {
                     gameId: strGameId,
-                    GameSessionId: lobbyDoc.GameSessionId,
+                    GameSessionId: newGameSessionId,
                     stakeAmount
                 });
             }
@@ -357,15 +349,15 @@ router.post("/start", startGameLimiter, withErrorHandling(async (req, res) => {
             );
 
             if (isMemberDB) {
-                result = {
+                responseSent = true;
+                return res.status(200).json({
                     success: true,
                     gameId: strGameId,
                     telegramId: strTelegramId,
                     message: "Already in lobby",
                     GameSessionId: currentSessionId,
                     stakeAmount: lobbyDoc.stakeAmount
-                };
-                return;
+                });
             }
 
             // 4. Validate the card
@@ -374,21 +366,34 @@ router.post("/start", startGameLimiter, withErrorHandling(async (req, res) => {
                 cardId: Number(strCardId)
             }).session(session);
             
-            if (!card || !card.isTaken || String(card.takenBy) !== strTelegramId) {
+            if (!card) {
+                throw new ValidationError(
+                    "Card not found",
+                    { 
+                        gameId: strGameId,
+                        cardId: strCardId
+                    }
+                );
+            }
+
+            if (!card.isTaken || String(card.takenBy) !== strTelegramId) {
                 throw new ValidationError(
                     "Invalid card selection. Please try another card.",
                     { 
                         gameId: strGameId,
                         cardId: strCardId,
-                        telegramId: strTelegramId
+                        telegramId: strTelegramId,
+                        cardOwner: card.takenBy,
+                        isTaken: card.isTaken
                     }
                 );
             }
 
-            // 5. Reserve user's stake with proper atomic check
+            // 5. Reserve user's stake with atomic check
+            const numericTelegramId = Number(strTelegramId);
             const user = await User.findOneAndUpdate(
                 {
-                    telegramId: Number(strTelegramId),
+                    telegramId: numericTelegramId,
                     $or: [
                         { reservedForGameId: { $exists: false } },
                         { reservedForGameId: null },
@@ -414,15 +419,42 @@ router.post("/start", startGameLimiter, withErrorHandling(async (req, res) => {
             );
 
             if (!user) {
-                throw new ConflictError(
-                    "Insufficient balance or already in another game.",
-                    {
-                        telegramId: strTelegramId,
-                        requiredAmount: lobbyDoc.stakeAmount,
-                        currentBalance: user?.balance,
-                        currentBonusBalance: user?.bonus_balance
-                    }
-                );
+                // Check why the user update failed
+                const userCheck = await User.findOne({ 
+                    telegramId: numericTelegramId 
+                }).session(session).lean();
+
+                if (!userCheck) {
+                    throw new ResourceNotFoundError('User not found', { telegramId: strTelegramId });
+                }
+
+                if (userCheck.reservedForGameId) {
+                    throw new ConflictError(
+                        "Already in another game",
+                        {
+                            telegramId: strTelegramId,
+                            reservedForGameId: userCheck.reservedForGameId
+                        }
+                    );
+                }
+
+                // Check balance
+                const hasSufficientBalance = userCheck.bonus_balance >= lobbyDoc.stakeAmount || 
+                                           userCheck.balance >= lobbyDoc.stakeAmount;
+                
+                if (!hasSufficientBalance) {
+                    throw new InsufficientBalanceError(
+                        "Insufficient balance",
+                        {
+                            telegramId: strTelegramId,
+                            requiredAmount: lobbyDoc.stakeAmount,
+                            currentBalance: userCheck.balance,
+                            currentBonusBalance: userCheck.bonus_balance
+                        }
+                    );
+                }
+
+                throw new ConflictError("Unable to join game at this time");
             }
 
             // 6. Add user to GameControl
@@ -431,7 +463,7 @@ router.post("/start", startGameLimiter, withErrorHandling(async (req, res) => {
                 { 
                     $addToSet: { 
                         players: { 
-                            telegramId: Number(strTelegramId),
+                            telegramId: numericTelegramId,
                             status: 'connected',
                             joinedAt: new Date()
                         } 
@@ -443,12 +475,14 @@ router.post("/start", startGameLimiter, withErrorHandling(async (req, res) => {
             // 7. Update Redis cache
             await Promise.all([
                 redis.sAdd(REDIS_KEYS.gameRooms(strGameId), strTelegramId),
-                redis.del(REDIS_KEYS.gameActive(strGameId)), // Invalidate cache
-                redis.set(REDIS_KEYS.userBalance(strTelegramId), user.balance.toString(), "EX", CONFIG.REDIS.TTL.USER_BALANCE),
-                redis.set(REDIS_KEYS.userBonusBalance(strTelegramId), user.bonus_balance.toString(), "EX", CONFIG.REDIS.TTL.USER_BALANCE)
+                redis.del(REDIS_KEYS.gameActive(strGameId)),
+                redis.set(REDIS_KEYS.userBalance(strTelegramId), user.balance.toString(), "EX", 60),
+                redis.set(REDIS_KEYS.userBonusBalance(strTelegramId), user.bonus_balance.toString(), "EX", 60)
             ]);
 
-            result = {
+            responseSent = true;
+            
+            const response = {
                 success: true,
                 gameId: strGameId,
                 telegramId: strTelegramId,
@@ -465,19 +499,19 @@ router.post("/start", startGameLimiter, withErrorHandling(async (req, res) => {
                 GameSessionId: currentSessionId,
                 stakeAmount: lobbyDoc.stakeAmount
             });
-        });
 
-        return res.status(200).json(result);
+            return res.status(200).json(response);
+        });
 
     } catch (error) {
-        logger.error('Game start error', error, {
-            gameId: strGameId,
-            telegramId: strTelegramId,
-            cardId: strCardId
-        });
-        
-        throw error; // Let withErrorHandling handle the response
-
+        if (!responseSent) {
+            logger.error('Game start error', error, {
+                gameId: strGameId,
+                telegramId: strTelegramId,
+                cardId: strCardId
+            });
+            throw error;
+        }
     } finally {
         // Cleanup
         if (lockValue) {
@@ -492,14 +526,14 @@ router.post("/start", startGameLimiter, withErrorHandling(async (req, res) => {
 }));
 
 /**
- * @route GET /api/game/:gameId/status
- * @description Get current game status
+ * @route GET /api/games/:gameId/status
+ * @description Get current game status with caching
  */
-router.get('/:gameId/status', statusCheckLimiter, withErrorHandling(async (req, res) => {
-    const validatedParams = validateInput(validationSchemas.gameStatus, req.params);
+router.get('/:gameId/status', withErrorHandling(async (req, res) => {
+    const validatedParams = validateGameStatusInput(req.params);
     const { gameId } = validatedParams;
     
-    const strGameId = String(gameId);
+    const strGameId = gameId;
 
     try {
         // Try Redis cache first
@@ -520,7 +554,7 @@ router.get('/:gameId/status', statusCheckLimiter, withErrorHandling(async (req, 
             .sort({ createdAt: -1 })
             .select('isActive players stakeAmount createdAt endedAt GameSessionId')
             .lean()
-            .maxTimeMS(5000); // 5 second timeout
+            .maxTimeMS(5000);
 
         if (!game) {
             // Cache negative result to prevent DB queries
@@ -581,116 +615,14 @@ router.get('/:gameId/status', statusCheckLimiter, withErrorHandling(async (req, 
 }));
 
 /**
- * @route GET /api/game/user/:telegramId/status
- * @description Get user's current game status and balance information
- */
-router.get('/user/:telegramId/status', statusCheckLimiter, withErrorHandling(async (req, res) => {
-    const validatedParams = validateInput(validationSchemas.userStatus, req.params);
-    const { telegramId } = validatedParams;
-    
-    const strTelegramId = String(telegramId);
-
-    try {
-        // Try Redis cache first for user data
-        const [cachedBalance, cachedBonusBalance] = await Promise.all([
-            redis.get(REDIS_KEYS.userBalance(strTelegramId)),
-            redis.get(REDIS_KEYS.userBonusBalance(strTelegramId))
-        ]);
-
-        let user, currentGame;
-        
-        // Only query database if we don't have cached data
-        if (cachedBalance === null || cachedBonusBalance === null) {
-            user = await User.findOne({ telegramId: Number(strTelegramId) })
-                .select('reservedForGameId balance bonus_balance username')
-                .lean()
-                .maxTimeMS(5000);
-
-            if (!user) {
-                throw new ResourceNotFoundError(
-                    'User not found',
-                    { telegramId: strTelegramId }
-                );
-            }
-
-            // Update cache
-            await Promise.all([
-                redis.set(REDIS_KEYS.userBalance(strTelegramId), user.balance.toString(), "EX", CONFIG.REDIS.TTL.USER_BALANCE),
-                redis.set(REDIS_KEYS.userBonusBalance(strTelegramId), user.bonus_balance.toString(), "EX", CONFIG.REDIS.TTL.USER_BALANCE)
-            ]);
-        } else {
-            user = {
-                telegramId: Number(strTelegramId),
-                balance: parseFloat(cachedBalance),
-                bonus_balance: parseFloat(cachedBonusBalance),
-                reservedForGameId: null // We don't cache this as it changes frequently
-            };
-            
-            // Still need to get reservedForGameId from DB
-            const userReservation = await User.findOne({ telegramId: Number(strTelegramId) })
-                .select('reservedForGameId username')
-                .lean();
-                
-            if (userReservation) {
-                user.reservedForGameId = userReservation.reservedForGameId;
-                user.username = userReservation.username;
-            }
-        }
-
-        // Get current game information if user has a reservation
-        if (user.reservedForGameId) {
-            currentGame = await GameControl.findOne({
-                GameSessionId: user.reservedForGameId
-            }).select('gameId isActive stakeAmount players createdAt').lean();
-        }
-
-        const response = {
-            success: true,
-            user: {
-                telegramId: strTelegramId,
-                username: user.username,
-                balance: user.balance,
-                bonus_balance: user.bonus_balance,
-                reservedForGameId: user.reservedForGameId,
-                source: cachedBalance !== null ? 'cache' : 'database'
-            },
-            currentGame: currentGame ? {
-                gameId: currentGame.gameId,
-                isActive: currentGame.isActive,
-                stakeAmount: currentGame.stakeAmount,
-                playerCount: currentGame.players?.length || 0,
-                createdAt: currentGame.createdAt,
-                GameSessionId: user.reservedForGameId
-            } : null,
-            timestamp: new Date().toISOString()
-        };
-
-        return res.json(response);
-
-    } catch (error) {
-        if (error instanceof ResourceNotFoundError) {
-            throw error;
-        }
-        
-        logger.error('User status check error', error, { telegramId: strTelegramId });
-        throw new GameAPIError(
-            'Internal server error while fetching user status',
-            'USER_STATUS_ERROR',
-            500,
-            { telegramId: strTelegramId }
-        );
-    }
-}));
-
-/**
- * @route GET /api/game/health
+ * @route GET /api/games/health
  * @description Health check endpoint
  */
 router.get('/health', async (req, res) => {
     try {
         const healthChecks = {
             redis: await redis.ping().then(() => 'connected').catch(() => 'disconnected'),
-            database: 'unknown', // We'll check with a simple query
+            database: 'unknown',
             timestamp: new Date().toISOString(),
             uptime: process.uptime(),
             memory: process.memoryUsage()
@@ -725,14 +657,14 @@ router.get('/health', async (req, res) => {
 });
 
 /**
- * @route GET /api/game/:gameId/details
+ * @route GET /api/games/:gameId/details
  * @description Get detailed game information
  */
-router.get('/:gameId/details', statusCheckLimiter, withErrorHandling(async (req, res) => {
-    const validatedParams = validateInput(validationSchemas.gameStatus, req.params);
+router.get('/:gameId/details', withErrorHandling(async (req, res) => {
+    const validatedParams = validateGameStatusInput(req.params);
     const { gameId } = validatedParams;
     
-    const strGameId = String(gameId);
+    const strGameId = gameId;
 
     const game = await GameControl.findOne({ gameId: strGameId })
         .sort({ createdAt: -1 })
