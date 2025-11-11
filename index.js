@@ -30,7 +30,7 @@ const GameHistory = require('./models/GameHistory');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: { origin: "https://bingo21.netlify.app", methods: ["GET", "POST"] },
+    cors: { origin: "*", methods: ["GET", "POST"] },
     // --- ADD THESE LINES TO CONFIGURE PING-PONG ---
    pingInterval: 15000,
    pingTimeout: 25000,
