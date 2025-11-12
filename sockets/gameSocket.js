@@ -172,149 +172,160 @@ const { v4: uuidv4 } = require("uuid");
     });
 
 
+   // ⬇️ REPLACEMENT "cardSelected" HANDLER (SUPPORTS MULTI-CARD) ⬇️
     socket.on("cardSelected", async (data) => {
-    const { telegramId, cardId, card, gameId, requestId } = data;
+        // --- 1. Data Sanitization & Key Preparation ---
+        // 🆕 MODIFIED: Expect 'cardIds' (array) instead of 'cardId'
+        const { telegramId, gameId, cardIds, requestId } = data;
 
-    // --- 1. Data Sanitization & Key Preparation ---
-    const strTelegramId = String(telegramId);
-    const strCardId = String(cardId);
-    const strGameId = String(gameId);
-    const cleanCard = card.map(row => row.map(c => (c === "FREE" ? 0 : Number(c))));
+        const strTelegramId = String(telegramId);
+        const strGameId = String(gameId);
+        const userActionLockKey = `lock:userAction:${strGameId}:${strTelegramId}`;
+        const gameCardsKey = `gameCards:${strGameId}`;
+        const userSelectionsKey = `userSelections`;
+        const userSelectionsByTelegramIdKey = `userSelectionsByTelegramId`;
+        const userLastRequestIdKey = `userLastRequestId`;
 
-    const userActionLockKey = `lock:userAction:${strGameId}:${strTelegramId}`;
-    const cardLockKey = `lock:card:${strGameId}:${strCardId}`;
+        // 🆕 VALIDATION: Ensure cardIds is a valid array of numbers
+        // This ensures it's an array, even if frontend sends null or single value
+        const desiredCardIds = (Array.isArray(cardIds) ? cardIds : [cardIds])
+                                .map(Number)
+                                .filter(id => !isNaN(id) && id > 0);
 
-    // Redis keys
-    const gameCardsKey = `gameCards:${strGameId}`;
-    const userSelectionsKey = `userSelections`;
-    const userSelectionsByTelegramIdKey = `userSelectionsByTelegramId`;
-    const userLastRequestIdKey = `userLastRequestId`;
-
-    // --- 2. Acquire User-Level Lock ---
-    const userLock = await redis.set(userActionLockKey, requestId, "NX", "EX", 10);
-    if (!userLock) {
-        return socket.emit("cardError", {
-            message: "⏳ Your previous action is still processing. Please wait a moment.",
-            requestId
-        });
-    }
-
-    try {
-        // --- 3. Get User's Current Selection from the authoritative source: gameCardsKey ---
-        const existingOwnerId = await redis.hGet(gameCardsKey, strCardId);
-        
-        // --- 4. Get the user's *previous* selection to clean up ---
-        let previousCardIdToRelease = null;
-        const allGameCards = await redis.hGetAll(gameCardsKey);
-        
-        for (const [key, value] of Object.entries(allGameCards)) {
-            if (value === strTelegramId) {
-                previousCardIdToRelease = key;
-                break;
-            }
-        }
-        
-        // Exit early if the user is selecting the same card they already have
-        if (existingOwnerId === strTelegramId) {
-            socket.emit("cardConfirmed", { cardId: strCardId, card: cleanCard, requestId });
-            return;
-        }
-
-        // --- 5. Check Card Availability & Acquire Card-Level Lock ---
-        // The card is taken by someone else
-        if (existingOwnerId && existingOwnerId !== strTelegramId) {
-              
-    // A) Find the player's currently held card from Redis
-            const previousCardIdToRelease = Object.keys(allGameCards).find(
-                key => allGameCards[key] === strTelegramId
-            );
-        // B) If they had a card, release it from the DB and Redis
-        if (previousCardIdToRelease) {
-            // Asynchronously update the DB and Redis
-            await Promise.all([
-                GameCard.updateOne(
-                    { gameId: strGameId, cardId: Number(previousCardIdToRelease), takenBy: strTelegramId },
-                    { $set: { isTaken: false, takenBy: null } }
-                ),
-                redis.hDel(gameCardsKey, previousCardIdToRelease)
-            ]);
-
-            // Notify other clients about the released card
-            socket.to(strGameId).emit("cardReleased", { 
-                cardId: previousCardIdToRelease, 
-                telegramId: strTelegramId 
+        // --- 2. Acquire User-Level Lock ---
+        const userLock = await redis.set(userActionLockKey, requestId, "NX", "EX", 10);
+        if (!userLock) {
+            return socket.emit("cardError", {
+                message: "⏳ Your previous action is still processing. Please wait a moment.",
+                requestId,
+                currentHeldCardIds: [] // Send empty array on failure
             });
         }
-            return socket.emit("cardUnavailable", { cardId: strCardId, requestId });
+
+        try {
+            // --- 3. Get User's CURRENTLY HELD cards from DB ---
+            const currentlyHeldCards = await GameCard.find({
+                gameId: strGameId,
+                takenBy: strTelegramId
+            });
+            const currentlyHeldCardIds = currentlyHeldCards.map(c => c.cardId);
+
+            // --- 4. Determine which cards to RELEASE and which to ACQUIRE ---
+            const cardsToRelease = currentlyHeldCardIds.filter(id => !desiredCardIds.includes(id));
+            const cardsToAcquire = desiredCardIds.filter(id => !currentlyHeldCardIds.includes(id));
+            
+            // --- 5. Check Availability of cards to ACQUIRE ---
+            if (cardsToAcquire.length > 0) {
+                // Check if any of the cards we *want* are taken by *someone else*
+                const unavailableCards = await GameCard.find({
+                    gameId: strGameId,
+                    cardId: { $in: cardsToAcquire },
+                    isTaken: true,
+                    takenBy: { $ne: strTelegramId } 
+                });
+
+                if (unavailableCards.length > 0) {
+                    // One of the new cards is taken. Abort the change.
+                    // Send back the user's *original* list of cards
+                    socket.emit("cardUnavailable", { 
+                        cardId: unavailableCards[0].cardId, // The specific card that failed
+                        currentHeldCardIds: currentlyHeldCardIds, // The state *before* this failed request
+                        requestId 
+                    });
+                    return; // Stop execution
+                }
+            }
+
+            // --- 6. Perform the Atomic Update ---
+            const dbPromises = [];
+            const redisMulti = redis.multi();
+            
+            // A) Release old cards
+            if (cardsToRelease.length > 0) {
+                dbPromises.push(
+                    GameCard.updateMany(
+                        { gameId: strGameId, cardId: { $in: cardsToRelease }, takenBy: strTelegramId },
+                        { $set: { isTaken: false, takenBy: null } }
+                    )
+                );
+                cardsToRelease.forEach(id => {
+                    redisMulti.hDel(gameCardsKey, String(id));
+                    // Notify other clients about the released card
+                    socket.to(strGameId).emit("cardReleased", { 
+                        cardId: String(id), 
+                        telegramId: strTelegramId 
+                    });
+                });
+            }
+
+            // B) Acquire new cards
+            if (cardsToAcquire.length > 0) {
+                dbPromises.push(
+                    GameCard.updateMany(
+                        { gameId: strGameId, cardId: { $in: cardsToAcquire } },
+                        { $set: { isTaken: true, takenBy: strTelegramId } }
+                        // ❗️ IMPORTANT: We assume the card layout is already in the DB.
+                        // We are *only* updating the 'taken' status.
+                    )
+                );
+                cardsToAcquire.forEach(id => {
+                    redisMulti.hSet(gameCardsKey, String(id), strTelegramId);
+                    // Notify other clients about the *new* selection
+                    socket.to(strGameId).emit("otherCardSelected", { 
+                        telegramId: strTelegramId, 
+                        cardId: String(id) 
+                    });
+                });
+            }
+
+            // --- 7. Update User's Overall Selection State in Redis ---
+            // We store the *full* desired state
+            const selectionData = JSON.stringify({
+                telegramId: strTelegramId,
+                cardIds: desiredCardIds, // Store the full array
+                gameId: strGameId
+            });
+            redisMulti.hSet(userSelectionsKey, socket.id, selectionData);
+            redisMulti.hSet(userSelectionsByTelegramIdKey, strTelegramId, selectionData);
+            redisMulti.hSet(userLastRequestIdKey, strTelegramId, requestId);
+
+            // Execute all DB and Redis commands
+            await Promise.all([
+                ...dbPromises,
+                redisMulti.exec()
+            ]);
+
+            // --- 8. Broadcast Updates & Confirmations ---
+            
+            // Confirm the *full* new list of cards to the user
+            socket.emit("cardConfirmed", { 
+                cardIds: desiredCardIds, // Send the new confirmed array
+                requestId 
+            });
+
+            // Send the *full* map of all taken cards to the room
+            const [updatedSelections, numberOfPlayers] = await Promise.all([
+                redis.hGetAll(gameCardsKey),
+                redis.sCard(`gameSessions:${strGameId}`)
+            ]);
+
+            io.to(strGameId).emit("currentCardSelections", updatedSelections);
+            io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
+
+        } catch (err) {
+            console.error(`❌ cardSelected error for game ${strGameId}, user ${strTelegramId}:`, err);
+            socket.emit("cardError", { 
+                message: err.message || "An unexpected error occurred. Please try again.", 
+                requestId,
+                currentHeldCardIds: [] // Send empty array on error
+            });
+        } finally {
+            // --- 9. Release All Locks ---
+            await redis.del(userActionLockKey);
+            // We don't need card-level locks because we checked availability for the *array*
         }
-
-        const cardLock = await redis.set(cardLockKey, strTelegramId, "NX", "EX", 10);
-        if (!cardLock) {
-            return socket.emit("cardUnavailable", { cardId: strCardId, requestId });
-        }
-
-        // --- 6. Perform the Atomic Swap: Release Old Card, Claim New Card ---
-
-        // A) Release any previously held card(s) in the database.
-        const dbUpdatePromises = [];
-        dbUpdatePromises.push(
-            GameCard.updateOne(
-                { gameId: strGameId, cardId: { $ne: Number(strCardId) }, takenBy: strTelegramId },
-                { $set: { isTaken: false, takenBy: null } }
-            )
-        );
-
-        // B) Clean up Redis for the old card and notify clients.
-        if (previousCardIdToRelease && previousCardIdToRelease !== strCardId) {
-            dbUpdatePromises.push(
-                redis.hDel(gameCardsKey, previousCardIdToRelease)
-            );
-            socket.to(strGameId).emit("cardReleased", { cardId: previousCardIdToRelease, telegramId: strTelegramId });
-        }
-
-        // C) Claim the new card in both DB and Redis
-        const selectionData = JSON.stringify({
-            telegramId: strTelegramId,
-            cardId: strCardId,
-            card: cleanCard,
-            gameId: strGameId
-        });
-
-        dbUpdatePromises.push(
-            GameCard.updateOne(
-                { gameId: strGameId, cardId: Number(strCardId) },
-                { $set: { card: cleanCard, isTaken: true, takenBy: strTelegramId } },
-                { upsert: true }
-            ),
-            redis.hSet(gameCardsKey, strCardId, strTelegramId),
-            redis.hSet(userSelectionsKey, socket.id, selectionData),
-            redis.hSet(userSelectionsByTelegramIdKey, strTelegramId, selectionData),
-            redis.hSet(userLastRequestIdKey, strTelegramId, requestId)
-        );
-
-        await Promise.all(dbUpdatePromises);
-
-        // --- 7. Broadcast Updates & Confirmations ---
-        socket.emit("cardConfirmed", { cardId: strCardId, card: cleanCard, requestId });
-        socket.to(strGameId).emit("otherCardSelected", { telegramId: strTelegramId, cardId: strCardId });
-
-        const [updatedSelections, numberOfPlayers] = await Promise.all([
-            redis.hGetAll(gameCardsKey),
-            redis.sCard(`gameSessions:${strGameId}`)
-        ]);
-
-        io.to(strGameId).emit("currentCardSelections", updatedSelections);
-        io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
-
-    } catch (err) {
-        console.error(`❌ cardSelected error for game ${strGameId}, user ${strTelegramId}:`, err);
-        socket.emit("cardError", { message: "An unexpected error occurred. Please try again.", requestId });
-    } finally {
-        // --- 8. Release All Locks ---
-        await redis.del(userActionLockKey);
-        await redis.del(cardLockKey);
-    }
     });
+    // ⬆️ END REPLACEMENT HANDLER ⬆️
 
 
 
