@@ -172,10 +172,10 @@ const { v4: uuidv4 } = require("uuid");
     });
 
 
-  // ⬇️ REPLACEMENT "cardSelected" HANDLER (SUPPORTS MULTI-CARD + UPSERT) ⬇️
+// ⬇️ REPLACEMENT "cardSelected" HANDLER (SUPPORTS MULTI-CARD + SAVES CARD DATA) ⬇️
     socket.on("cardSelected", async (data) => {
         // --- 1. Data Sanitization & Key Preparation ---
-        const { telegramId, gameId, cardIds, requestId } = data;
+        const { telegramId, gameId, cardIds, cardsData, requestId } = data; // 🆕 Added cardsData
 
         const strTelegramId = String(telegramId);
         const strGameId = String(gameId);
@@ -255,11 +255,29 @@ const { v4: uuidv4 } = require("uuid");
             // ⭐️ THIS IS THE CORE FIX ⭐️
             if (cardsToAcquire.length > 0) {
                 cardsToAcquire.forEach(idToAcquire => {
-                    // For each new card, run an updateOne with upsert: true
+                    
+                    // 🆕 Get the card data from the map sent by frontend
+                    const cardLayout = cardsData ? cardsData[idToAcquire] : null;
+
+                    // 🆕 Validation: Don't upsert if card data is missing
+                    if (!cardLayout) {
+                        console.warn(`Missing card data for cardId ${idToAcquire}. Skipping upsert.`);
+                        return; // Skip this card
+                    }
+
+                    // Clean the card layout (like in your original code)
+                    const cleanCard = cardLayout.map(row => row.map(c => (c === "FREE" ? 0 : Number(c))));
+
                     dbPromises.push(
                         GameCard.updateOne(
                             { gameId: strGameId, cardId: idToAcquire },
-                            { $set: { isTaken: true, takenBy: strTelegramId, gameId: strGameId, cardId: idToAcquire } },
+                            { $set: { 
+                                isTaken: true, 
+                                takenBy: strTelegramId, 
+                                gameId: strGameId, 
+                                cardId: idToAcquire,
+                                card: cleanCard // ⭐️ HERE IS THE FIX ⭐️
+                            } },
                             { upsert: true } // This creates the card if it doesn't exist
                         )
                     );
