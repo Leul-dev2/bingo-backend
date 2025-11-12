@@ -172,10 +172,9 @@ const { v4: uuidv4 } = require("uuid");
     });
 
 
-   // ⬇️ REPLACEMENT "cardSelected" HANDLER (SUPPORTS MULTI-CARD) ⬇️
+  // ⬇️ REPLACEMENT "cardSelected" HANDLER (SUPPORTS MULTI-CARD + UPSERT) ⬇️
     socket.on("cardSelected", async (data) => {
         // --- 1. Data Sanitization & Key Preparation ---
-        // 🆕 MODIFIED: Expect 'cardIds' (array) instead of 'cardId'
         const { telegramId, gameId, cardIds, requestId } = data;
 
         const strTelegramId = String(telegramId);
@@ -186,8 +185,6 @@ const { v4: uuidv4 } = require("uuid");
         const userSelectionsByTelegramIdKey = `userSelectionsByTelegramId`;
         const userLastRequestIdKey = `userLastRequestId`;
 
-        // 🆕 VALIDATION: Ensure cardIds is a valid array of numbers
-        // This ensures it's an array, even if frontend sends null or single value
         const desiredCardIds = (Array.isArray(cardIds) ? cardIds : [cardIds])
                                 .map(Number)
                                 .filter(id => !isNaN(id) && id > 0);
@@ -198,7 +195,7 @@ const { v4: uuidv4 } = require("uuid");
             return socket.emit("cardError", {
                 message: "⏳ Your previous action is still processing. Please wait a moment.",
                 requestId,
-                currentHeldCardIds: [] // Send empty array on failure
+                currentHeldCardIds: [] 
             });
         }
 
@@ -216,7 +213,6 @@ const { v4: uuidv4 } = require("uuid");
             
             // --- 5. Check Availability of cards to ACQUIRE ---
             if (cardsToAcquire.length > 0) {
-                // Check if any of the cards we *want* are taken by *someone else*
                 const unavailableCards = await GameCard.find({
                     gameId: strGameId,
                     cardId: { $in: cardsToAcquire },
@@ -225,14 +221,12 @@ const { v4: uuidv4 } = require("uuid");
                 });
 
                 if (unavailableCards.length > 0) {
-                    // One of the new cards is taken. Abort the change.
-                    // Send back the user's *original* list of cards
                     socket.emit("cardUnavailable", { 
-                        cardId: unavailableCards[0].cardId, // The specific card that failed
-                        currentHeldCardIds: currentlyHeldCardIds, // The state *before* this failed request
+                        cardId: unavailableCards[0].cardId,
+                        currentHeldCardIds: currentlyHeldCardIds,
                         requestId 
                     });
-                    return; // Stop execution
+                    return; 
                 }
             }
 
@@ -250,7 +244,6 @@ const { v4: uuidv4 } = require("uuid");
                 );
                 cardsToRelease.forEach(id => {
                     redisMulti.hDel(gameCardsKey, String(id));
-                    // Notify other clients about the released card
                     socket.to(strGameId).emit("cardReleased", { 
                         cardId: String(id), 
                         telegramId: strTelegramId 
@@ -258,28 +251,28 @@ const { v4: uuidv4 } = require("uuid");
                 });
             }
 
-            // B) Acquire new cards
+            // B) Acquire new cards (using a loop to allow for UPSERT)
+            // ⭐️ THIS IS THE CORE FIX ⭐️
             if (cardsToAcquire.length > 0) {
-                dbPromises.push(
-                    GameCard.updateMany(
-                        { gameId: strGameId, cardId: { $in: cardsToAcquire } },
-                        { $set: { isTaken: true, takenBy: strTelegramId } }
-                        // ❗️ IMPORTANT: We assume the card layout is already in the DB.
-                        // We are *only* updating the 'taken' status.
-                    )
-                );
-                cardsToAcquire.forEach(id => {
-                    redisMulti.hSet(gameCardsKey, String(id), strTelegramId);
-                    // Notify other clients about the *new* selection
+                cardsToAcquire.forEach(idToAcquire => {
+                    // For each new card, run an updateOne with upsert: true
+                    dbPromises.push(
+                        GameCard.updateOne(
+                            { gameId: strGameId, cardId: idToAcquire },
+                            { $set: { isTaken: true, takenBy: strTelegramId, gameId: strGameId, cardId: idToAcquire } },
+                            { upsert: true } // This creates the card if it doesn't exist
+                        )
+                    );
+                    
+                    redisMulti.hSet(gameCardsKey, String(idToAcquire), strTelegramId);
                     socket.to(strGameId).emit("otherCardSelected", { 
                         telegramId: strTelegramId, 
-                        cardId: String(id) 
+                        cardId: String(idToAcquire) 
                     });
                 });
             }
 
             // --- 7. Update User's Overall Selection State in Redis ---
-            // We store the *full* desired state
             const selectionData = JSON.stringify({
                 telegramId: strTelegramId,
                 cardIds: desiredCardIds, // Store the full array
@@ -296,14 +289,11 @@ const { v4: uuidv4 } = require("uuid");
             ]);
 
             // --- 8. Broadcast Updates & Confirmations ---
-            
-            // Confirm the *full* new list of cards to the user
             socket.emit("cardConfirmed", { 
-                cardIds: desiredCardIds, // Send the new confirmed array
+                cardIds: desiredCardIds,
                 requestId 
             });
 
-            // Send the *full* map of all taken cards to the room
             const [updatedSelections, numberOfPlayers] = await Promise.all([
                 redis.hGetAll(gameCardsKey),
                 redis.sCard(`gameSessions:${strGameId}`)
@@ -317,12 +307,11 @@ const { v4: uuidv4 } = require("uuid");
             socket.emit("cardError", { 
                 message: err.message || "An unexpected error occurred. Please try again.", 
                 requestId,
-                currentHeldCardIds: [] // Send empty array on error
+                currentHeldCardIds: []
             });
         } finally {
             // --- 9. Release All Locks ---
             await redis.del(userActionLockKey);
-            // We don't need card-level locks because we checked availability for the *array*
         }
     });
     // ⬆️ END REPLACEMENT HANDLER ⬆️
