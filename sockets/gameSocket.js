@@ -1408,10 +1408,9 @@ async function fullGameCleanup(gameId, redis, state) {
                 );
 
                 // Emit release event for each card
-                for (const cardId of cardsToRelease) {
-                    io.to(gameId).emit("cardAvailable", { cardId: cardId, telegramId: strTelegramId }); // Also send who released it
-                }
-            }
+           io.to(gameId).emit("cardsReleased", { cardIds: cardsToRelease, telegramId: strTelegramId });
+           
+        }
             // --- END OF UPDATED BLOCK ---
 
 
