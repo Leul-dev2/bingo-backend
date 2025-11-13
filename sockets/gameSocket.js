@@ -1383,34 +1383,33 @@ async function fullGameCleanup(gameId, redis, state) {
 
 
             // --- UPDATED: Release ALL cards held by the player ---
-            const gameCardsKey = `gameCards:${gameId}`;
-            const allGameCards = await redis.hGetAll(gameCardsKey);
-            const cardsToRelease = [];
+           const gameCardsKey = `gameCards:${gameId}`; // Use the gameId from the job
+const allGameCards = await redis.hGetAll(gameCardsKey);
+const cardsToRelease = [];
 
-            // Find all cards owned by this player
-            for (const [cardId, ownerId] of Object.entries(allGameCards)) {
-                if (ownerId === strTelegramId) {
-                    cardsToRelease.push(cardId);
-                }
-            }
+// Find all cards owned by this player
+for (const [cardId, ownerId] of Object.entries(allGameCards)) {
+    if (ownerId === strTelegramId) { // Use the telegramId from the job
+        cardsToRelease.push(cardId);
+    }
+}
 
             // If they held any cards, release them all
             if (cardsToRelease.length > 0) {
-                console.log(`🧹 Releasing ${cardsToRelease.length} cards for ${strTelegramId}: ${cardsToRelease.join(', ')}`);
-                
+                console.log(`🧹 [Disconnect Worker] Releasing ${cardsToRelease.length} cards for ${strTelegramId}: ${cardsToRelease.join(', ')}`);
+
                 // Remove from Redis
                 await redis.hDel(gameCardsKey, ...cardsToRelease);
-                
+
                 // Update DB
                 await GameCard.updateMany(
                     { gameId: strGameId, cardId: { $in: cardsToRelease.map(Number) } },
                     { $set: { isTaken: false, takenBy: null } }
                 );
 
-                // Emit release event for each card
-           io.to(gameId).emit("cardsReleased", { cardIds: cardsToRelease, telegramId: strTelegramId });
-           
-        }
+                // Emit ONE event with the full array of released cards
+                io.to(gameId).emit("cardsReleased", { cardIds: cardsToRelease, telegramId: strTelegramId });
+            }
             // --- END OF UPDATED BLOCK ---
 
 
