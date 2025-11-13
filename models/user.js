@@ -3,11 +3,17 @@ const mongoose = require("mongoose");
 const userSchema = new mongoose.Schema({
     telegramId: { type: Number, required: true, unique: true },
     username: { type: String, default: "Unknown" },
-    accountNumber: { type: Number, unique: true, required: true },
     phoneNumber: { type: String, required: true },
     balance: { type: Number, default: 0 },
-    bonus_balance: {  type: Number, default: 0,},
     registeredAt: { type: Date, default: Date.now },
+     bonus_balance: { // ⭐ NEW: Bonus balance field
+    type: Number,
+    default: 0,
+  },
+   coin_balance: { // ⭐ NEW: Bonus balance field
+    type: Number,
+    default: 0,
+  },
     transferInProgress: {
         type: Object,
         default: null, 
@@ -16,5 +22,5 @@ const userSchema = new mongoose.Schema({
     reservedForGameId: { type: String, default: null }
 });
 
-userSchema.index({ telegramId: 1 }); 
+//userSchema.index({ telegramId: 1 }); 
 module.exports = mongoose.model("User", userSchema);
