@@ -1387,12 +1387,11 @@ async function fullGameCleanup(gameId, redis, state) {
             const allGameCards = await redis.hGetAll(gameCardsKey);
             const cardsToRelease = [];
 
-        for (const [cardId, ownerId] of Object.entries(allGameCards)) {
-            if (ownerId === strTelegramId) {
-                cardsToRelease.push(String(cardId)); // convert to string
-            }
-        }
-
+            for (const [cardId, ownerId] of Object.entries(allGameCards)) {
+                if (String(ownerId).trim() == strTelegramId) {  // <-- loose equality & trim
+                    cardsToRelease.push(cardId);
+                }
+             }
 
 
             // If they held any cards, release them all
