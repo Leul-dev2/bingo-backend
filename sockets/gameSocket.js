@@ -1383,16 +1383,17 @@ async function fullGameCleanup(gameId, redis, state) {
 
 
             // --- UPDATED: Release ALL cards held by the player ---
-           const gameCardsKey = `gameCards:${gameId}`; // Use the gameId from the job
-const allGameCards = await redis.hGetAll(gameCardsKey);
-const cardsToRelease = [];
+            const gameCardsKey = `gameCards:${gameId}`; // Use the gameId from the job
+            const allGameCards = await redis.hGetAll(gameCardsKey);
+            const cardsToRelease = [];
 
-// Find all cards owned by this player
-for (const [cardId, ownerId] of Object.entries(allGameCards)) {
-    if (ownerId === strTelegramId) { // Use the telegramId from the job
-        cardsToRelease.push(cardId);
-    }
-}
+        for (const [cardId, ownerId] of Object.entries(allGameCards)) {
+            if (ownerId === strTelegramId) {
+                cardsToRelease.push(String(cardId)); // convert to string
+            }
+        }
+
+
 
             // If they held any cards, release them all
             if (cardsToRelease.length > 0) {
