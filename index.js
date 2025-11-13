@@ -8,9 +8,7 @@ const http = require("http");
 const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 
-    app.use(cors({
-    origin: 'http://localhost:5173'
-    }));
+   
 
 
 
@@ -33,6 +31,11 @@ const GameHistory = require('./models/GameHistory');
 
 
 const app = express();
+
+ app.use(cors({
+    origin: 'http://localhost:5173'
+    }));
+    
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: { origin: "*", methods: ["GET", "POST"] },
