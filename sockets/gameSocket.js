@@ -1382,31 +1382,45 @@ async function fullGameCleanup(gameId, redis, state) {
             ]);
 
 
-            // --- UPDATED: Release ALL cards held by the player ---
-            const gameCardsKey = `gameCards:${gameId}`; // Use the gameId from the job
-            const allGameCards = await redis.hGetAll(gameCardsKey);
-    
+           // --- RELEASE ALL PLAYER CARDS ---
+const gameCardsKey = `gameCards:${gameId}`;
+const strTg = String(telegramId).trim();
 
-          const cardsToRelease = Object.entries(allGameCards)
-                .filter(([_, ownerId]) => String(ownerId).trim() == String(strTelegramId).trim())
-                .map(([cardId]) => cardId);
+// Step 1: Fetch cards before release
+let allGameCards = await redis.hGetAll(gameCardsKey);
 
-                if (cardsToRelease.length > 0) {
-                    console.log(`🧹 Releasing ${cardsToRelease.length} cards for ${strTelegramId}: ${cardsToRelease.join(', ')}`);
+// Step 2: Find all belonging to the player
+let cardsToRelease = Object.entries(allGameCards)
+    .filter(([_, ownerId]) => String(ownerId).trim() == strTg)
+    .map(([cardId]) => cardId);
 
-                    // Remove from Redis
-                    await redis.hDel(gameCardsKey, ...cardsToRelease);
+            // Step 3: Release all those cards
+            if (cardsToRelease.length > 0) {
+                console.log(`🧹 Releasing ${cardsToRelease.length} cards for ${strTg}: ${cardsToRelease.join(', ')}`);
 
-                    // Update DB
-                    await GameCard.updateMany(
-                        { gameId: strGameId, cardId: { $in: cardsToRelease.map(Number) } },
-                        { $set: { isTaken: false, takenBy: null } }
-                    );
+                await redis.hDel(gameCardsKey, ...cardsToRelease);
 
-                    // Notify all clients
-                    io.to(gameId).emit("cardsReleased", { cardIds: cardsToRelease, telegramId: strTelegramId });
+                await GameCard.updateMany(
+                    { gameId: strGameId, cardId: { $in: cardsToRelease.map(Number) } },
+                    { $set: { isTaken: false, takenBy: null } }
+                );
+
+                // Step 4: Double-check Redis (handle race condition)
+                const verifyGameCards = await redis.hGetAll(gameCardsKey);
+                const leftovers = Object.entries(verifyGameCards)
+                    .filter(([_, ownerId]) => String(ownerId).trim() == strTg)
+                    .map(([cardId]) => cardId);
+
+                if (leftovers.length > 0) {
+                    console.log(`⚠️ Found leftover cards after release, deleting again: ${leftovers.join(', ')}`);
+                    await redis.hDel(gameCardsKey, ...leftovers);
                 }
 
+                io.to(gameId).emit("cardsReleased", {
+                    cardIds: [...cardsToRelease, ...leftovers],
+                    telegramId: strTg,
+                });
+            }
 
 
             // --- Remove userSelections entries by both socket.id and telegramId after usage ---
