@@ -8,6 +8,11 @@ const http = require("http");
 const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 
+    app.use(cors({
+    origin: 'http://localhost:5173'
+    }));
+
+
 
 const connectDB = require("./config/db");
 const userRoutes = require("./routes/userRoutes");
