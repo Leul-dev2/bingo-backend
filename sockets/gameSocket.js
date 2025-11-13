@@ -1385,32 +1385,28 @@ async function fullGameCleanup(gameId, redis, state) {
             // --- UPDATED: Release ALL cards held by the player ---
             const gameCardsKey = `gameCards:${gameId}`; // Use the gameId from the job
             const allGameCards = await redis.hGetAll(gameCardsKey);
-            const cardsToRelease = [];
+    
 
-            for (const [cardId, ownerId] of Object.entries(allGameCards)) {
-                if (String(ownerId).trim() == strTelegramId) {  // <-- loose equality & trim
-                    cardsToRelease.push(cardId);
+          const cardsToRelease = Object.entries(allGameCards)
+                .filter(([_, ownerId]) => String(ownerId).trim() == String(strTelegramId).trim())
+                .map(([cardId]) => cardId);
+
+                if (cardsToRelease.length > 0) {
+                    console.log(`🧹 Releasing ${cardsToRelease.length} cards for ${strTelegramId}: ${cardsToRelease.join(', ')}`);
+
+                    // Remove from Redis
+                    await redis.hDel(gameCardsKey, ...cardsToRelease);
+
+                    // Update DB
+                    await GameCard.updateMany(
+                        { gameId: strGameId, cardId: { $in: cardsToRelease.map(Number) } },
+                        { $set: { isTaken: false, takenBy: null } }
+                    );
+
+                    // Notify all clients
+                    io.to(gameId).emit("cardsReleased", { cardIds: cardsToRelease, telegramId: strTelegramId });
                 }
-             }
 
-
-            // If they held any cards, release them all
-            if (cardsToRelease.length > 0) {
-                console.log(`🧹 [Disconnect Worker] Releasing ${cardsToRelease.length} cards for ${strTelegramId}: ${cardsToRelease.join(', ')}`);
-
-                // Remove from Redis
-                await redis.hDel(gameCardsKey, ...cardsToRelease);
-
-                // Update DB
-                await GameCard.updateMany(
-                    { gameId: strGameId, cardId: { $in: cardsToRelease.map(Number) } },
-                    { $set: { isTaken: false, takenBy: null } }
-                );
-
-                // Emit ONE event with the full array of released cards
-                io.to(gameId).emit("cardsReleased", { cardIds: cardsToRelease, telegramId: strTelegramId });
-            }
-            // --- END OF UPDATED BLOCK ---
 
 
             // --- Remove userSelections entries by both socket.id and telegramId after usage ---
