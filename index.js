@@ -47,7 +47,8 @@ app.use(express.urlencoded({ extended: true }));
 // 3. Fix: Configure CORS for Express
 // (Remove any other app.use(cors()) lines)
 app.use(cors({
-    origin: ['http://localhost:5173', 'http://frontendbingo.netlify.app'] // Add your production URL
+    origin: ['http://localhost:5173', 
+        'https://frontendbingo.netlify.app'] // Add your production URL
 }));
 
 // 📌 Routes
