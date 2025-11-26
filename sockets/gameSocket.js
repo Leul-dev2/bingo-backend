@@ -759,226 +759,234 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
 }
 
 // The core logic for player deductions and game start
-    async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, redis, state) {
-        // 1. Pre-Check & Setup (Outside Transaction)
-        const session = await mongoose.startSession();
+  async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, redis, state) {
+    // 1. Pre-Check & Setup (Outside Transaction)
+    const session = await mongoose.startSession();
 
-    
-        // 🟢 MODIFIED: Fetching stake amount separately from GameControl (minimal read)
-        const gameControlMeta = await GameControl.findOne({ GameSessionId: strGameSessionId }).select('stakeAmount -_id');
-        const stakeAmount = gameControlMeta?.stakeAmount || 0;
-        
-        // 🟢 MODIFIED: Getting connected players from the dedicated PlayerSession collection
-        const connectedPlayerSessions = await PlayerSession.find
-        ({ GameSessionId: strGameSessionId, status: 'connected' }).select('telegramId cardIds').lean(); // --- UPDATED ---: We already selected cardIds
+    // Fetching stake amount separately from GameControl (minimal read)
+    const gameControlMeta = await GameControl.findOne({ GameSessionId: strGameSessionId }).select('stakeAmount -_id');
+    const stakeAmount = gameControlMeta?.stakeAmount || 0;
 
-        // --- UPDATED ---: Check player count based on sessions
-        if (connectedPlayerSessions.length < MIN_PLAYERS_TO_START) {
-            console.log("🛑 Not enough connected players to start after countdown.");
-            io.to(strGameId).emit("gameNotStarted", { message: "Not enough players to start." });
-            await fullGameCleanup(strGameId, redis, state);
-            await session.endSession();
-            return;
-        }
+    // Getting connected players from the dedicated PlayerSession collection
+    const connectedPlayerSessions = await PlayerSession.find({ GameSessionId: strGameSessionId, status: 'connected' })
+        .select('telegramId cardIds')
+        .lean();
 
-        let successfullyDeductedPlayers = []; // --- UPDATED ---: Will store just IDs for post-commit tasks
-        let finalPlayerObjects = [];
-        let totalPot = 0;
-        let finalTotalCards = 0; // --- NEW ---: Track total cards, not just players
+    // Check player count based on sessions
+    if (connectedPlayerSessions.length < MIN_PLAYERS_TO_START) {
+        console.log("🛑 Not enough connected players to start after countdown.");
+        io.to(strGameId).emit("gameNotStarted", { message: "Not enough players to start." });
+        await fullGameCleanup(strGameId, redis, state);
+        await session.endSession();
+        return;
+    }
 
-        let prizeAmount = 0;
-        let houseProfit = 0;
-        let isHouseCutFree = false;
-        
-        try {
-            await session.withTransaction(async () => {
-                
-                // A. STAKE DEDUCTION & LEDGER ENTRIES (The critical financial loop)
-                // --- UPDATED ---: Loop over the full session object, not just the ID
-                for (const playerSession of connectedPlayerSessions) {
-                    
-                    const playerTelegramId = playerSession.telegramId;
-                    
-                    // --- NEW ---: Get card count and calculate total stake
-                    const numCards = (playerSession.cardIds || []).length;
-                    if (numCards === 0) {
-                        console.log(`User ${playerTelegramId} has no cards. Skipping.`);
-                        continue; // Safety check
-                    }
-                    const stakeToDeduct = stakeAmount * numCards;
-                    
-                    // Fetch the user document within the transaction
-                    const user = await User.findOne({ telegramId: playerTelegramId }).session(session);
-                    if (!user) continue;
+    let successfullyDeductedPlayers = [];
+    let finalPlayerObjects = [];
+    let totalPot = 0;
+    let finalTotalCards = 0;
 
-                    let deductionSuccessful = false;
-                    let balanceField = null;
-                    
-                    // Only proceed if the user's stake is still reserved for THIS game
-                    if (user.reservedForGameId === strGameId) {
-                        
-                        // --- UPDATED ---: Check against total 'stakeToDeduct'
-                        // 1. Prioritize Bonus Balance Deduction
-                        if (user.bonus_balance >= stakeToDeduct) {
-                            user.bonus_balance -= stakeToDeduct;
-                            balanceField = 'bonus_balance';
-                            deductionSuccessful = true;
-                        } 
-                        // 2. Fallback to Main Balance Deduction
-                        else if (user.balance >= stakeToDeduct) {
-                            user.balance -= stakeToDeduct;
-                            balanceField = 'balance';
-                            deductionSuccessful = true;
-                        }
-                    }
-                    
-                    if (deductionSuccessful) {
-                        // Update user fields
-                        user.reservedForGameId = undefined; // Clear reservation field
-                        await user.save({ session }); // CRITICAL: Commit balance change within transaction
-                        
-                        // --- UPDATED ---: Log the total 'stakeToDeduct'
-                        // Create Ledger Entry (Audit)
-                        await Ledger.create([{
-                            gameSessionId: strGameSessionId,
-                            amount: -stakeToDeduct, // Log the full amount
-                            transactionType: balanceField === 'bonus_balance' ? 'bonus_stake_deduction' : 'stake_deduction',
-                            telegramId: playerTelegramId,
-                            description: `Stake deduction for ${numCards} card(s) in game ${strGameSessionId}`
-                        }], { session });
+    let prizeAmount = 0;
+    let houseProfit = 0;
+    let isHouseCutFree = false;
 
-                        successfullyDeductedPlayers.push(playerTelegramId); // Store just the ID for the post-commit tasks
-                        // This list will be saved to GameControl for the final record
-                        finalPlayerObjects.push({ telegramId: playerTelegramId, status: 'connected' }); 
-                        
-                        // --- UPDATED ---: Add total deduction to pot
-                        totalPot += stakeToDeduct;
-                        finalTotalCards += numCards; // --- NEW ---: Add this player's card count
-                    } else {
-                        // If a player who was connected failed the final balance check:
-                        // Clear reservation field so they can join a new lobby immediately.
-                        await User.updateOne({ telegramId: playerTelegramId }, { $unset: { reservedForGameId: "" } }, { session });
-                        console.log(`🛑 User ${playerTelegramId} failed final balance check for ${stakeToDeduct}. Skipping.`);
-                    }
+    try {
+        await session.withTransaction(async () => {
+
+            // A. STAKE DEDUCTION & LEDGER ENTRIES (The critical financial loop)
+            for (const playerSession of connectedPlayerSessions) {
+
+                const playerTelegramId = playerSession.telegramId;
+
+                const numCards = (playerSession.cardIds || []).length;
+                if (numCards === 0) {
+                    console.log(`User ${playerTelegramId} has no cards. Skipping.`);
+                    continue; 
                 }
+                const stakeToDeduct = stakeAmount * numCards;
 
-                // B. FINAL VALIDATION & GAME CONTROL ACTIVATION (The atomic commitment)
-                
-                // --- UPDATED ---: Check count of *players* who paid, not cards
-                if (successfullyDeductedPlayers.length < MIN_PLAYERS_TO_START) {
-                    // Throwing an error here automatically aborts the transaction, 
-                    // rolling back all balance deductions and ledger entries from step A.
-                    throw new Error("MIN_PLAYERS_NOT_MET_AFTER_DEDUCTION"); 
-                }
+                // Fetch the user document within the transaction
+                const user = await User.findOne({ telegramId: playerTelegramId }).session(session);
+                if (!user) continue;
 
+                // 🟢 🟢 🟢 START OF MODIFIED SECTION: SPLIT PAYMENT LOGIC 🟢 🟢 🟢
                 
-                const today = new Date();
-                today.setHours(0, 0, 0, 0); 
+                let deductionSuccessful = false;
+                let deductedFromBonus = 0;
+                let deductedFromMain = 0;
 
-                const stats = await GlobalGameStats.findOneAndUpdate(
-                
-                    { date: today }, 
-                    { $inc: { gamesPlayed: 1 } },
-                    { 
-                        new: true,      
-                        upsert: true,   
-                        session: session
-                    } 
-                ).select('gamesPlayed date'); 
+                // Check total funds available (Bonus + Main)
+                const currentBonus = user.bonus_balance || 0;
+                const currentMain = user.balance || 0;
+                const totalAvailable = currentBonus + currentMain;
 
-                const currentGameNumber = stats.gamesPlayed;
-                
-            if (currentGameNumber % 7 === 0) {
+                // Only proceed if user is reserved AND has enough TOTAL funds
+                if (user.reservedForGameId === strGameId && totalAvailable >= stakeToDeduct) {
                     
-                    houseProfit = 0;
-                    prizeAmount = totalPot;
-                    isHouseCutFree = true;
-                    console.log(`🎉 Game ${currentGameNumber} (${strGameSessionId}) is HOUSE CUT FREE!`);
+                    let remainingCost = stakeToDeduct;
+
+                    // Step 1: Deduct from Bonus First
+                    if (currentBonus > 0) {
+                        deductedFromBonus = Math.min(currentBonus, remainingCost);
+                        user.bonus_balance -= deductedFromBonus;
+                        remainingCost -= deductedFromBonus;
+                    }
+
+                    // Step 2: Deduct Remainder from Main Balance
+                    if (remainingCost > 0) {
+                        deductedFromMain = remainingCost;
+                        user.balance -= deductedFromMain;
+                    }
+
+                    deductionSuccessful = true;
+                }
+                // 🟢 🟢 🟢 END OF MODIFIED SECTION 🟢 🟢 🟢
+
+                if (deductionSuccessful) {
+                    // Update user fields
+                    user.reservedForGameId = undefined; // Clear reservation field
+                    await user.save({ session }); // CRITICAL: Commit balance change within transaction
+
+                    // Determine Transaction Type for Ledger
+                    // If we touched the main balance at all, usually classified as standard deduction, 
+                    // or you can add a new type 'mixed_deduction' if your schema allows.
+                    // Here we default to 'stake_deduction' if main was used, 'bonus...' if only bonus was used.
+                    const transType = (deductedFromMain > 0) ? 'stake_deduction' : 'bonus_stake_deduction';
+
+                    // Create Ledger Entry (Audit)
+                    await Ledger.create([{
+                        gameSessionId: strGameSessionId,
+                        amount: -stakeToDeduct, // Log the full amount
+                        transactionType: transType,
+                        telegramId: playerTelegramId,
+                        // Updated description to show the split
+                        description: `Stake for ${numCards} cards (Bonus: ${deductedFromBonus}, Main: ${deductedFromMain})`
+                    }], { session });
+
+                    successfullyDeductedPlayers.push(playerTelegramId);
+                    finalPlayerObjects.push({ telegramId: playerTelegramId, status: 'connected' });
+
+                    totalPot += stakeToDeduct;
+                    finalTotalCards += numCards; 
                 } else {
-                
-                    houseProfit = totalPot * HOUSE_CUT_PERCENTAGE;
-                    prizeAmount = totalPot - houseProfit;
+                    // If a player who was connected failed the final balance check:
+                    await User.updateOne({ telegramId: playerTelegramId }, { $unset: { reservedForGameId: "" } }, { session });
+                    console.log(`🛑 User ${playerTelegramId} failed final balance check. Needed ${stakeToDeduct}, had ${totalAvailable}.`);
                 }
-
-                // --- UPDATED ---: Save the 'finalTotalCards' count
-                // Activate the GameControl document, updating the players array with the *final, paid* list
-                const updatedGame = await GameControl.findOneAndUpdate(
-                    { GameSessionId: strGameSessionId, isActive: false, endedAt: null },
-                    { $set: { isActive: true, totalCards: finalTotalCards, prizeAmount, houseProfit, isHouseCutFree, players: finalPlayerObjects } },
-                    { new: true, session } // CRITICAL: Use { session }
-                );
-
-                if (!updatedGame) {
-                    // This means the document was already activated or ended by another process. Abort.
-                    throw new Error("GAME_CONTROL_ACTIVATION_FAILED");
-                }
-
-                console.log("GameControl Document Successfully Activated 🚀🚀🚀:", updatedGame);
-                const gameCardsKey = `gameCards:${strGameId}`;
-                // C. CONFIRM CARDS
-                const allSelectedCards = await redis.hGetAll(gameCardsKey);
-                await redis.del(gameCardsKey);
-                await GameCard.updateMany(
-                    { gameId: strGameId, isTaken: true, takenBy: { $in: successfullyDeductedPlayers } }, // successfullyDeductedPlayers is now an array of IDs
-                    { $set: { GameSessionId: strGameSessionId } },
-                    { session }
-                );
-                io.to(strGameId).emit("gameCardResetOngameStart");
-                // The transaction is implicitly committed here.
-            });
-
-            // 2. POST-COMMIT ACTIONS (Fast I/O & Emitting)
-            
-            // Update Redis balances (Cache refresh) and game active status
-            const postCommitTasks = [
-                syncGameIsActive(strGameId, true, redis),
-            // redis.del(getActiveDrawLockKey(strGameId)),
-                // Update Redis balances for all successful players
-                ...successfullyDeductedPlayers.map(id =>  // This works as it's an array of IDs
-                    User.findOne({ telegramId: id }).select('balance bonus_balance')
-                        .then(user => user && Promise.all([
-                            redis.set(`userBalance:${id}`, user.balance.toString(), "EX", 60),
-                            redis.set(`userBonusBalance:${id}`, user.bonus_balance.toString(), "EX", 60)
-                        ]))
-                )
-            ];
-            await Promise.all(postCommitTasks);
-            
-            delete state.activeDrawLocks[strGameId];
-            
-            // 3. Emit to Clients and Start Drawing
-            const successfulCount = successfullyDeductedPlayers.length;
-    
-            // --- UPDATED ---: Send 'finalTotalCards' as cardCount
-            io.to(strGameId).emit("gameDetails", { 
-                winAmount: prizeAmount, 
-                playersCount: successfulCount, 
-                cardCount: finalTotalCards, // --- NEW ---
-                stakeAmount, 
-                totalDrawingLength: 75, 
-                isHouseCutFree: isHouseCutFree 
-            });
-            io.to(strGameId).emit("gameStart", { gameId: strGameId });
-            await startDrawing(strGameId, strGameSessionId, io, state, redis);
-
-        } catch (error) {
-            // Handle Errors and Rollback
-            
-            if (error.message.includes("MIN_PLAYERS_NOT_MET") || error.message.includes("ACTIVATION_FAILED")) {
-                console.log(`Aborted game start for ${strGameId}. Stakes were automatically rolled back.`);
-            } else {
-                console.error(`❌ CRITICAL FAILURE during game start for ${strGameId}:`, error);
             }
+
+            // B. FINAL VALIDATION & GAME CONTROL ACTIVATION (The atomic commitment)
+
+            if (successfullyDeductedPlayers.length < MIN_PLAYERS_TO_START) {
+                // Throwing an error here automatically aborts the transaction
+                throw new Error("MIN_PLAYERS_NOT_MET_AFTER_DEDUCTION");
+            }
+
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            const stats = await GlobalGameStats.findOneAndUpdate(
+                { date: today },
+                { $inc: { gamesPlayed: 1 } },
+                {
+                    new: true,
+                    upsert: true,
+                    session: session
+                }
+            ).select('gamesPlayed date');
+
+            const currentGameNumber = stats.gamesPlayed;
+
+            if (currentGameNumber % 7 === 0) {
+                houseProfit = 0;
+                prizeAmount = totalPot;
+                isHouseCutFree = true;
+                console.log(`🎉 Game ${currentGameNumber} (${strGameSessionId}) is HOUSE CUT FREE!`);
+            } else {
+                houseProfit = totalPot * HOUSE_CUT_PERCENTAGE;
+                prizeAmount = totalPot - houseProfit;
+            }
+
+            // Activate the GameControl document
+            const updatedGame = await GameControl.findOneAndUpdate(
+                { GameSessionId: strGameSessionId, isActive: false, endedAt: null },
+                { $set: { isActive: true, totalCards: finalTotalCards, prizeAmount, houseProfit, isHouseCutFree, players: finalPlayerObjects } },
+                { new: true, session }
+            );
+
+            if (!updatedGame) {
+                throw new Error("GAME_CONTROL_ACTIVATION_FAILED");
+            }
+
+            console.log("GameControl Document Successfully Activated 🚀🚀🚀:", updatedGame);
+            const gameCardsKey = `gameCards:${strGameId}`;
             
-            io.to(strGameId).emit("gameNotStarted", { message: "Game aborted. All stakes refunded." });
-            await fullGameCleanup(strGameId, redis, state); 
+            // C. CONFIRM CARDS
+            // Note: Redis operations are usually not part of the Mongo transaction, 
+            // but we fetch here to update Mongo. 
+            // Ensure card data is consistent.
             
-        } finally {
-            // 🧹 Always remove the temporary lock
-            await redis.del(`gameStarting:${strGameId}`);
-            await session.endSession();
+            await redis.del(gameCardsKey);
+            await GameCard.updateMany(
+                { gameId: strGameId, isTaken: true, takenBy: { $in: successfullyDeductedPlayers } }, 
+                { $set: { GameSessionId: strGameSessionId } },
+                { session }
+            );
+            
+            io.to(strGameId).emit("gameCardResetOngameStart");
+            // The transaction is implicitly committed here.
+        });
+
+        // 2. POST-COMMIT ACTIONS (Fast I/O & Emitting)
+
+        // Update Redis balances (Cache refresh) and game active status
+        const postCommitTasks = [
+            syncGameIsActive(strGameId, true, redis),
+            // Update Redis balances for all successful players
+            ...successfullyDeductedPlayers.map(id => 
+                User.findOne({ telegramId: id }).select('balance bonus_balance')
+                    .then(user => user && Promise.all([
+                        redis.set(`userBalance:${id}`, user.balance.toString(), "EX", 60),
+                        redis.set(`userBonusBalance:${id}`, user.bonus_balance.toString(), "EX", 60)
+                    ]))
+            )
+        ];
+        await Promise.all(postCommitTasks);
+
+        delete state.activeDrawLocks[strGameId];
+
+        // 3. Emit to Clients and Start Drawing
+        const successfulCount = successfullyDeductedPlayers.length;
+
+        io.to(strGameId).emit("gameDetails", {
+            winAmount: prizeAmount,
+            playersCount: successfulCount,
+            cardCount: finalTotalCards,
+            stakeAmount,
+            totalDrawingLength: 75,
+            isHouseCutFree: isHouseCutFree
+        });
+        io.to(strGameId).emit("gameStart", { gameId: strGameId });
+        await startDrawing(strGameId, strGameSessionId, io, state, redis);
+
+    } catch (error) {
+        // Handle Errors and Rollback
+
+        if (error.message.includes("MIN_PLAYERS_NOT_MET") || error.message.includes("ACTIVATION_FAILED")) {
+            console.log(`Aborted game start for ${strGameId}. Stakes were automatically rolled back.`);
+        } else {
+            console.error(`❌ CRITICAL FAILURE during game start for ${strGameId}:`, error);
         }
-        }
+
+        io.to(strGameId).emit("gameNotStarted", { message: "Game aborted. All stakes refunded." });
+        await fullGameCleanup(strGameId, redis, state);
+
+    } finally {
+        // 🧹 Always remove the temporary lock
+        await redis.del(`gameStarting:${strGameId}`);
+        await session.endSession();
+    }
+}
 
 
 
