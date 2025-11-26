@@ -402,54 +402,81 @@ const { v4: uuidv4 } = require("uuid");
 
 
 
-        socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
-            console.log(`📉 unselectCardOnLeave called for Card: ${cardId}, User: ${telegramId}`);
+    socket.on("unselectCardOnLeave", async ({ gameId, telegramId }) => {
+            console.log("unselectCardOnLeave is called for", telegramId);
 
-        const strCardId = String(cardId);
-        const strTelegramId = String(telegramId);
-        const strGameId = String(gameId);
-        const gameCardsKey = `gameCards:${strGameId}`;
+            try {
+                const strGameId = String(gameId);
+                // ✅ COPYING playerLeave LOGIC: Trim the ID
+                const strTelegramId = String(telegramId).trim(); 
+                const gameCardsKey = `gameCards:${strGameId}`;
 
-        try {
-            // 1. Verify Ownership in Redis (Prevent unselecting someone else's card)
-            const currentCardOwner = await redis.hGet(gameCardsKey, strCardId);
+                // --- 1. Find ALL cards owned by this user ---
+                const allGameCards = await redis.hGetAll(gameCardsKey);
+                
+                // ✅ COPYING playerLeave LOGIC: Robust filter with trim()
+                let cardsToRelease = Object.entries(allGameCards)
+                    .filter(([_, ownerId]) => String(ownerId).trim() == strTelegramId)
+                    .map(([cardId]) => cardId);
 
-            // Check if the card belongs to the requester (String comparison to be safe)
-            if (String(currentCardOwner).trim() === strTelegramId.trim()) {
+                // --- 2. Release Cards ---
+                if (cardsToRelease.length > 0) {
+                    console.log(`🍔 releasing ${cardsToRelease.length} cards for ${strTelegramId}`);
 
-                // 2. Remove from Redis (Immediate availability)
-                await redis.hDel(gameCardsKey, strCardId);
+                    // A) Remove from Redis Hash
+                    await redis.hDel(gameCardsKey, ...cardsToRelease);
 
-                // 3. Update MongoDB (Persistent storage)
-                // Using findOneAndUpdate to target the specific card
-                await GameCard.findOneAndUpdate(
-                    { gameId: strGameId, cardId: Number(strCardId) }, 
-                    { $set: { isTaken: false, takenBy: null } }
-                );
+                    // B) Update MongoDB
+                    await GameCard.updateMany(
+                        { gameId: strGameId, cardId: { $in: cardsToRelease.map(Number) } },
+                        { $set: { isTaken: false, takenBy: null } }
+                    );
 
-                // 4. Double-Check Logic (Mirroring your playerLeave robustness)
-                // In high-traffic, sometimes a key lingers. We check one last time.
-                const verifyOwner = await redis.hGet(gameCardsKey, strCardId);
-                if (String(verifyOwner).trim() === strTelegramId.trim()) {
-                    console.log(`⚠️ Ghost card found after delete, forcing removal: ${strCardId}`);
-                    await redis.hDel(gameCardsKey, strCardId);
+                    // ✅ COPYING playerLeave LOGIC: Double-Check for Leftovers (Race Condition Fix)
+                    const verifyGameCards = await redis.hGetAll(gameCardsKey);
+                    const leftovers = Object.entries(verifyGameCards)
+                        .filter(([_, ownerId]) => String(ownerId).trim() == strTelegramId)
+                        .map(([cardId]) => cardId);
+
+                    if (leftovers.length > 0) {
+                        console.log(`⚠️ Found leftover cards after release, deleting again: ${leftovers.join(', ')}`);
+                        await redis.hDel(gameCardsKey, ...leftovers);
+                        // Add leftovers to the array so frontend gets notified
+                        cardsToRelease.push(...leftovers);
+                    }
+
+                    // C) Notify Frontend
+                    socket.to(strGameId).emit("cardsReleased", { 
+                        cardIds: cardsToRelease, 
+                        telegramId: strTelegramId 
+                    });
+                    
+                    console.log(`🧹 Released cards: ${cardsToRelease.join(', ')}`);
                 }
 
-                // 5. Emit to Room that card is free
-                io.to(strGameId).emit("cardAvailable", { cardId: strCardId });
-                console.log(`✅ Card ${strCardId} successfully released by ${strTelegramId}`);
+                // --- 3. Clean up Session Keys & SETS ---
+                await Promise.all([
+                    redis.hDel("userSelections", socket.id),
+                    redis.hDel("userSelections", strTelegramId),
+                    redis.hDel("userSelectionsByTelegramId", strTelegramId),
+                    redis.del(`activeSocket:${strTelegramId}:${socket.id}`),
+                    
+                    // ✅ COPYING playerLeave LOGIC: Remove from BOTH sets
+                    redis.sRem(`gameSessions:${strGameId}`, strTelegramId), 
+                    redis.sRem(`gameRooms:${strGameId}`, strTelegramId) 
+                ]);
 
-                // 🟢 NOTE: We do NOT delete "userSelections", "activeSocket", etc.
-                // The user is still in the game, they just dropped one card.
+                // --- 4. Update Player Count ---
+                const playerCount = await redis.sCard(`gameRooms:${strGameId}`); // Changed to gameRooms to match playerLeave
+                io.to(strGameId).emit("playerCountUpdate", { gameId: strGameId, playerCount });
+                
+                // --- 5. Check Empty (Like playerLeave) ---
+                await checkAndResetIfEmpty(strGameId, null, socket, io, redis, state);
 
-            } else {
-                console.log(`🛑 Failed to unselect: User ${strTelegramId} does not own card ${strCardId} (Owner: ${currentCardOwner})`);
+            } catch (err) {
+                console.error("unselectCardOnLeave error:", err);
             }
-
-        } catch (err) {
-            console.error("❌ unselectCardOnLeave error:", err);
-        }
-    });
+        });
 
 
 
