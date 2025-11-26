@@ -448,7 +448,7 @@ const { v4: uuidv4 } = require("uuid");
                     }
 
                     // C) Notify Frontend
-                    socket.to(strGameId).emit("cardsReleased", { 
+                    io.to(strGameId).emit("cardsReleased", { 
                         cardIds: cardsToRelease, 
                         telegramId: strTelegramId 
                     });
