@@ -402,38 +402,54 @@ const { v4: uuidv4 } = require("uuid");
 
 
 
-                socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
-                    console.log("unselectCardOnLeave is called");
-                    console.log("unslected datas ", gameId, telegramId, cardId );
+        socket.on("unselectCardOnLeave", async ({ gameId, telegramId, cardId }) => {
+            console.log(`📉 unselectCardOnLeave called for Card: ${cardId}, User: ${telegramId}`);
 
-                    try {
-                    const strCardId = String(cardId);
-                    const strTelegramId = String(telegramId);
+        const strCardId = String(cardId);
+        const strTelegramId = String(telegramId);
+        const strGameId = String(gameId);
+        const gameCardsKey = `gameCards:${strGameId}`;
 
-                    const currentCardOwner = await redis.hGet(`gameCards:${gameId}`, strCardId);
-                    console.log("🍔🍔🍔 cardowner", currentCardOwner);
+        try {
+            // 1. Verify Ownership in Redis (Prevent unselecting someone else's card)
+            const currentCardOwner = await redis.hGet(gameCardsKey, strCardId);
 
-                    if (currentCardOwner === strTelegramId) {
-                        await redis.hDel(`gameCards:${gameId}`, strCardId);
-                        await GameCard.findOneAndUpdate(
-                        { gameId, cardId: Number(strCardId) },
-                        { isTaken: false, takenBy: null }
-                        );
+            // Check if the card belongs to the requester (String comparison to be safe)
+            if (String(currentCardOwner).trim() === strTelegramId.trim()) {
 
-                    await Promise.all([
-                        redis.hDel("userSelections", socket.id),
-                        redis.hDel("userSelections", strTelegramId), // <-- This line
-                        redis.hDel("userSelectionsByTelegramId", strTelegramId), // ✅ Add this (already in disconnect)
-                        redis.del(`activeSocket:${strTelegramId}:${socket.id}`),
-                    ]);
-                        socket.to(gameId).emit("cardAvailable", { cardId: strCardId });
+                // 2. Remove from Redis (Immediate availability)
+                await redis.hDel(gameCardsKey, strCardId);
 
-                        console.log(`🧹🔥🔥🔥🔥 Card ${strCardId} released by ${strTelegramId}`);
-                    }
-                    } catch (err) {
-                    console.error("unselectCardOnLeave error:", err);
-                    }
-       });
+                // 3. Update MongoDB (Persistent storage)
+                // Using findOneAndUpdate to target the specific card
+                await GameCard.findOneAndUpdate(
+                    { gameId: strGameId, cardId: Number(strCardId) }, 
+                    { $set: { isTaken: false, takenBy: null } }
+                );
+
+                // 4. Double-Check Logic (Mirroring your playerLeave robustness)
+                // In high-traffic, sometimes a key lingers. We check one last time.
+                const verifyOwner = await redis.hGet(gameCardsKey, strCardId);
+                if (String(verifyOwner).trim() === strTelegramId.trim()) {
+                    console.log(`⚠️ Ghost card found after delete, forcing removal: ${strCardId}`);
+                    await redis.hDel(gameCardsKey, strCardId);
+                }
+
+                // 5. Emit to Room that card is free
+                io.to(strGameId).emit("cardAvailable", { cardId: strCardId });
+                console.log(`✅ Card ${strCardId} successfully released by ${strTelegramId}`);
+
+                // 🟢 NOTE: We do NOT delete "userSelections", "activeSocket", etc.
+                // The user is still in the game, they just dropped one card.
+
+            } else {
+                console.log(`🛑 Failed to unselect: User ${strTelegramId} does not own card ${strCardId} (Owner: ${currentCardOwner})`);
+            }
+
+        } catch (err) {
+            console.error("❌ unselectCardOnLeave error:", err);
+        }
+    });
 
 
 
