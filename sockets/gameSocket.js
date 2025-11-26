@@ -407,19 +407,20 @@ const { v4: uuidv4 } = require("uuid");
 
             try {
                 const strGameId = String(gameId);
-                // ✅ COPYING playerLeave LOGIC: Trim the ID
+                // ✅ CRITICAL FIX 1: Trim the ID (Just like playerLeave)
                 const strTelegramId = String(telegramId).trim(); 
                 const gameCardsKey = `gameCards:${strGameId}`;
 
                 // --- 1. Find ALL cards owned by this user ---
                 const allGameCards = await redis.hGetAll(gameCardsKey);
                 
-                // ✅ COPYING playerLeave LOGIC: Robust filter with trim()
+                // ✅ CRITICAL FIX 2: Use robust filtering with trim()
+                // This catches the cards that strict equality (===) misses
                 let cardsToRelease = Object.entries(allGameCards)
                     .filter(([_, ownerId]) => String(ownerId).trim() == strTelegramId)
                     .map(([cardId]) => cardId);
 
-                // --- 2. Release Cards ---
+                // --- 2. Release Cards (If any exist) ---
                 if (cardsToRelease.length > 0) {
                     console.log(`🍔 releasing ${cardsToRelease.length} cards for ${strTelegramId}`);
 
@@ -432,7 +433,9 @@ const { v4: uuidv4 } = require("uuid");
                         { $set: { isTaken: false, takenBy: null } }
                     );
 
-                    // ✅ COPYING playerLeave LOGIC: Double-Check for Leftovers (Race Condition Fix)
+                    // ✅ CRITICAL FIX 3: Double-Check (The "Leftover" Check)
+                    // Sometimes high-concurrency causes the first delete to miss a key. 
+                    // We check again immediately.
                     const verifyGameCards = await redis.hGetAll(gameCardsKey);
                     const leftovers = Object.entries(verifyGameCards)
                         .filter(([_, ownerId]) => String(ownerId).trim() == strTelegramId)
@@ -441,7 +444,6 @@ const { v4: uuidv4 } = require("uuid");
                     if (leftovers.length > 0) {
                         console.log(`⚠️ Found leftover cards after release, deleting again: ${leftovers.join(', ')}`);
                         await redis.hDel(gameCardsKey, ...leftovers);
-                        // Add leftovers to the array so frontend gets notified
                         cardsToRelease.push(...leftovers);
                     }
 
@@ -451,27 +453,27 @@ const { v4: uuidv4 } = require("uuid");
                         telegramId: strTelegramId 
                     });
                     
-                    console.log(`🧹 Released cards: ${cardsToRelease.join(', ')}`);
+                    console.log(`🧹🔥🔥🔥🔥 Released cards from Redis: ${cardsToRelease.join(', ')}`);
+                } else {
+                    console.log(`ℹ️ No cards found in Redis for ${strTelegramId} to release.`);
                 }
 
                 // --- 3. Clean up Session Keys & SETS ---
+                // Removing from SETS is required to fix the "Player Count"
                 await Promise.all([
                     redis.hDel("userSelections", socket.id),
                     redis.hDel("userSelections", strTelegramId),
                     redis.hDel("userSelectionsByTelegramId", strTelegramId),
                     redis.del(`activeSocket:${strTelegramId}:${socket.id}`),
                     
-                    // ✅ COPYING playerLeave LOGIC: Remove from BOTH sets
+                    // ✅ CRITICAL FIX 4: Remove from gameRooms/gameSessions (Just like playerLeave)
                     redis.sRem(`gameSessions:${strGameId}`, strTelegramId), 
                     redis.sRem(`gameRooms:${strGameId}`, strTelegramId) 
                 ]);
-
-                // --- 4. Update Player Count ---
-                const playerCount = await redis.sCard(`gameRooms:${strGameId}`); // Changed to gameRooms to match playerLeave
-                io.to(strGameId).emit("playerCountUpdate", { gameId: strGameId, playerCount });
                 
-                // --- 5. Check Empty (Like playerLeave) ---
-                await checkAndResetIfEmpty(strGameId, null, socket, io, redis, state);
+                // Emit updated player count so the frontend updates immediately
+                const playerCount = await redis.sCard(`gameRooms:${strGameId}`);
+                io.to(strGameId).emit("playerCountUpdate", { gameId: strGameId, playerCount });
 
             } catch (err) {
                 console.error("unselectCardOnLeave error:", err);
