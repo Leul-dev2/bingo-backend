@@ -209,57 +209,6 @@ const { v4: uuidv4 } = require("uuid");
         }
 
         try {
-           // Sync this logic with your gameRoutes.js defaults.
-        let stakeAmount = Number(strGameId);
-        if (isNaN(stakeAmount) || stakeAmount <= 0) stakeAmount = 10; // Fallback matches routes
-
-        // Calculate how many cards the user WANTS to hold after this transaction
-        // (We calculate this before acquiring locks to save resources)
-        const allGameCardsPreCheck = await redis.hGetAll(gameCardsKey);
-        for (const [cId, ownerId] of Object.entries(allGameCardsPreCheck)) {
-            if (ownerId === strTelegramId) myOldCardIds.push(cId);
-        }
-        
-        // Calculate the net resulting card count
-        // Current held (old) - Releasing (old not in new) + Adding (new not in old)
-        // Actually, simpler: The new 'cardIds' array IS the desired final state.
-        const desiredCardCount = cardIds.length; 
-        const requiredBalance = stakeAmount * desiredCardCount;
-
-        // Fetch User Balance (Optimize: Use Redis cache if available, otherwise Mongo)
-        // For strict accuracy, we check Mongo here, or use the cached Redis keys you set earlier
-        let userBalance = 0;
-        let userBonus = 0;
-
-        // OPTION A: Fast (Redis) - Requires you to ensure `userBalance:{id}` is set on login
-        const [cachedBal, cachedBonus] = await redis.mGet([
-             `userBalance:${strTelegramId}`, 
-             `userBonusBalance:${strTelegramId}`
-        ]);
-
-        if (cachedBal !== null) {
-            userBalance = Number(cachedBal);
-            userBonus = Number(cachedBonus || 0);
-        } else {
-            // OPTION B: Reliable (Mongo) - Fallback if Redis is empty
-            const userDoc = await User.findOne({ telegramId: strTelegramId }).select('balance bonus_balance');
-            if (userDoc) {
-                userBalance = userDoc.balance || 0;
-                userBonus = userDoc.bonus_balance || 0;
-                // Update cache for next time
-                await redis.set(`userBalance:${strTelegramId}`, userBalance, 'EX', 60);
-                await redis.set(`userBonusBalance:${strTelegramId}`, userBonus, 'EX', 60);
-            }
-        }
-
-        const totalAvailable = userBalance + userBonus;
-
-        if (totalAvailable < requiredBalance) {
-             throw new Error(`Insufficient funds. You need ${requiredBalance} but have ${totalAvailable}.`);
-        }
-  
-
-
             // --- 3. Validate Input ---
             if (!Array.isArray(cardIds) || cardIds.length > 2) {
                 throw new Error("Invalid card selection. Must be an array with 0-2 cards.");
