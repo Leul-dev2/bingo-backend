@@ -848,7 +848,7 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
             // A. PREPARE CALCULATIONS & BULK OPERATIONS
           // A. PREPARE CALCULATIONS & BULK OPERATIONS
                     for (const playerSession of connectedPlayerSessions) {
-                        const playerTelegramId = playerSession.telegramId;
+                        const playerTelegramId = String(playerSession.telegramId);
                         const numCards = (playerSession.cardIds || []).length;
                         
                         // 1. Check Cards First
