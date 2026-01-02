@@ -828,6 +828,8 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
     const allTelegramIds = connectedPlayerSessions.map(p => p.telegramId);
     const users = await User.find({ telegramId: { $in: allTelegramIds } }).session(session);
 
+   
+
     let successfullyDeductedPlayers = [];
     let finalPlayerObjects = [];
     let totalPot = 0;
@@ -847,13 +849,29 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
             for (const playerSession of connectedPlayerSessions) {
                 const playerTelegramId = playerSession.telegramId;
                 const numCards = (playerSession.cardIds || []).length;
-                if (numCards === 0) continue;
+                // DEBUG LOG 1: Check Cards
+                if (numCards === 0) {
+                    console.log(`⚠️ Skipping ${playerTelegramId}: Zero cards found in PlayerSession.`);
+                    continue; 
+                }
 
                 const stakeToDeduct = stakeAmount * numCards;
+
+                // DEBUG LOG 3: The Final Condition
+                if (user.reservedForGameId !== strGameId) {
+                    console.log(`⚠️ Skipping ${playerTelegramId}: Reservation mismatch. DB has '${user.reservedForGameId}', expected '${strGameId}'`);
+                }
+                if (totalAvailable < stakeToDeduct) {
+                    console.log(`⚠️ Skipping ${playerTelegramId}: Low balance. Has ${totalAvailable}, needs ${stakeToDeduct}`);
+                }
                 
                 // Find the user from our pre-fetched array
                 const user = users.find(u => u.telegramId === playerTelegramId);
-                if (!user) continue;
+                 // DEBUG LOG 2: Check User and Reservation
+                    if (!user) {
+                        console.log(`⚠️ Skipping ${playerTelegramId}: User document not found in DB.`);
+                        continue;
+                    }
 
                 const currentBonus = user.bonus_balance || 0;
                 const currentMain = user.balance || 0;
