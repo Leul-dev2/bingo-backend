@@ -846,94 +846,90 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
         await session.withTransaction(async () => {
             
             // A. PREPARE CALCULATIONS & BULK OPERATIONS
-            for (const playerSession of connectedPlayerSessions) {
-                const playerTelegramId = playerSession.telegramId;
-                const numCards = (playerSession.cardIds || []).length;
-                // DEBUG LOG 1: Check Cards
-                if (numCards === 0) {
-                    console.log(`⚠️ Skipping ${playerTelegramId}: Zero cards found in PlayerSession.`);
-                    continue; 
-                }
+          // A. PREPARE CALCULATIONS & BULK OPERATIONS
+                    for (const playerSession of connectedPlayerSessions) {
+                        const playerTelegramId = playerSession.telegramId;
+                        const numCards = (playerSession.cardIds || []).length;
+                        
+                        // 1. Check Cards First
+                        if (numCards === 0) {
+                            console.log(`⚠️ Skipping ${playerTelegramId}: Zero cards found in PlayerSession.`);
+                            continue; 
+                        }
 
-                const stakeToDeduct = stakeAmount * numCards;
+                        // 2. FIND the user from the pre-fetched array FIRST
+                        const user = users.find(u => u.telegramId === playerTelegramId);
 
-                // DEBUG LOG 3: The Final Condition
-                if (user.reservedForGameId !== strGameId) {
-                    console.log(`⚠️ Skipping ${playerTelegramId}: Reservation mismatch. DB has '${user.reservedForGameId}', expected '${strGameId}'`);
-                }
-                if (totalAvailable < stakeToDeduct) {
-                    console.log(`⚠️ Skipping ${playerTelegramId}: Low balance. Has ${totalAvailable}, needs ${stakeToDeduct}`);
-                }
-                
-                // Find the user from our pre-fetched array
-                const user = users.find(u => u.telegramId === playerTelegramId);
-                 // DEBUG LOG 2: Check User and Reservation
-                    if (!user) {
-                        console.log(`⚠️ Skipping ${playerTelegramId}: User document not found in DB.`);
-                        continue;
-                    }
+                        // 3. Safety Check: If user doesn't exist, skip logs and logic
+                        if (!user) {
+                            console.log(`⚠️ Skipping ${playerTelegramId}: User document not found in DB.`);
+                            continue;
+                        }
 
-                const currentBonus = user.bonus_balance || 0;
-                const currentMain = user.balance || 0;
-                const totalAvailable = currentBonus + currentMain;
+                        // 4. NOW it is safe to define these variables
+                        const currentBonus = user.bonus_balance || 0;
+                        const currentMain = user.balance || 0;
+                        const totalAvailable = currentBonus + currentMain;
+                        const stakeToDeduct = stakeAmount * numCards;
 
-                // Validation logic from your original code
-                if (user.reservedForGameId === strGameId && totalAvailable >= stakeToDeduct) {
-                    let remainingCost = stakeToDeduct;
-                    let deductedFromBonus = 0;
-                    let deductedFromMain = 0;
+                        // 5. Run Debug Logs (Now that variables are initialized)
+                        if (user.reservedForGameId !== strGameId) {
+                            console.log(`⚠️ Skipping ${playerTelegramId}: Reservation mismatch. DB has '${user.reservedForGameId}', expected '${strGameId}'`);
+                        }
+                        if (totalAvailable < stakeToDeduct) {
+                            console.log(`⚠️ Skipping ${playerTelegramId}: Low balance. Has ${totalAvailable}, needs ${stakeToDeduct}`);
+                        }
+                        
+                        // 6. Final Validation & Bulk Op Preparation
+                        if (user.reservedForGameId === strGameId && totalAvailable >= stakeToDeduct) {
+                            let remainingCost = stakeToDeduct;
+                            let deductedFromBonus = 0;
+                            let deductedFromMain = 0;
 
-                    // Split Payment Logic
-                    if (currentBonus > 0) {
-                        deductedFromBonus = Math.min(currentBonus, remainingCost);
-                        remainingCost -= deductedFromBonus;
-                    }
-                    if (remainingCost > 0) {
-                        deductedFromMain = remainingCost;
-                    }
-
-                    // 1. Queue User Balance Update
-                    userBulkOps.push({
-                        updateOne: {
-                            filter: { telegramId: playerTelegramId },
-                            update: { 
-                                $inc: { 
-                                    balance: -deductedFromMain, 
-                                    bonus_balance: -deductedFromBonus 
-                                },
-                                $unset: { reservedForGameId: "" }
+                            if (currentBonus > 0) {
+                                deductedFromBonus = Math.min(currentBonus, remainingCost);
+                                remainingCost -= deductedFromBonus;
                             }
-                        }
-                    });
-
-                    // 2. Queue Ledger Entry
-                    const transType = (deductedFromMain > 0) ? 'stake_deduction' : 'bonus_stake_deduction';
-                    ledgerBulkOps.push({
-                        insertOne: {
-                            document: {
-                                gameSessionId: strGameSessionId,
-                                amount: -stakeToDeduct,
-                                transactionType: transType,
-                                telegramId: playerTelegramId,
-                                description: `Stake for ${numCards} cards (Bonus: ${deductedFromBonus}, Main: ${deductedFromMain})`
+                            if (remainingCost > 0) {
+                                deductedFromMain = remainingCost;
                             }
-                        }
-                    });
 
-                    successfullyDeductedPlayers.push(playerTelegramId);
-                    finalPlayerObjects.push({ telegramId: playerTelegramId, status: 'connected' });
-                    totalPot += stakeToDeduct;
-                    finalTotalCards += numCards;
-                } else {
-                    // Cleanup reservation for failed players
-                    userBulkOps.push({
-                        updateOne: {
-                            filter: { telegramId: playerTelegramId },
-                            update: { $unset: { reservedForGameId: "" } }
+                            userBulkOps.push({
+                                updateOne: {
+                                    filter: { telegramId: playerTelegramId },
+                                    update: { 
+                                        $inc: { balance: -deductedFromMain, bonus_balance: -deductedFromBonus },
+                                        $unset: { reservedForGameId: "" }
+                                    }
+                                }
+                            });
+
+                            const transType = (deductedFromMain > 0) ? 'stake_deduction' : 'bonus_stake_deduction';
+                            ledgerBulkOps.push({
+                                insertOne: {
+                                    document: {
+                                        gameSessionId: strGameSessionId,
+                                        amount: -stakeToDeduct,
+                                        transactionType: transType,
+                                        telegramId: playerTelegramId,
+                                        description: `Stake for ${numCards} cards (Bonus: ${deductedFromBonus}, Main: ${deductedFromMain})`
+                                    }
+                                }
+                            });
+
+                            successfullyDeductedPlayers.push(playerTelegramId);
+                            finalPlayerObjects.push({ telegramId: playerTelegramId, status: 'connected' });
+                            totalPot += stakeToDeduct;
+                            finalTotalCards += numCards;
+                        } else {
+                            userBulkOps.push({
+                                updateOne: {
+                                    filter: { telegramId: playerTelegramId },
+                                    update: { $unset: { reservedForGameId: "" } }
+                                }
+                            });
                         }
-                    });
-                }
-            }
+                    }
 
             // B. EXECUTE ALL DATABASE WRITES IN 2 CALLS (Instead of 200+)
             if (successfullyDeductedPlayers.length < MIN_PLAYERS_TO_START) {
