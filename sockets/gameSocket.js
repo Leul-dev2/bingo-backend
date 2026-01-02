@@ -825,7 +825,7 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
     }
 
     // --- Optimization: Fetch all Users in ONE query ---
-    const allTelegramIds = connectedPlayerSessions.map(p => p.telegramId);
+    const allTelegramIds = connectedPlayerSessions.map(p => Number(p.telegramId));
     const users = await User.find({ telegramId: { $in: allTelegramIds } }).session(session);
 
    
@@ -848,7 +848,7 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
             // A. PREPARE CALCULATIONS & BULK OPERATIONS
           // A. PREPARE CALCULATIONS & BULK OPERATIONS
                     for (const playerSession of connectedPlayerSessions) {
-                        const playerTelegramId = String(playerSession.telegramId);
+                        const playerTelegramId = Number(playerSession.telegramId);
                         const numCards = (playerSession.cardIds || []).length;
                         
                         // 1. Check Cards First
