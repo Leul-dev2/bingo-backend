@@ -1308,12 +1308,6 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
 
         // --- 4️⃣ Atomic Financial Commit & State Transition (CRITICAL) ---
         try {
-            // Pass the necessary IO and Redis clients for post-commit cleanup (not inside the transaction)
-            await processWinnerAtomicCommit(winnerData, winnerUser, io, redis, state); 
-            
-            // Release the winner lock immediately after the atomic commit succeeds
-            await redis.del(winnerLockKey); 
-
         // --- 5️⃣ DEFERRED PROCESS (Winner & Loser History) ---
         (async () => {
             try {
@@ -1375,10 +1369,18 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
                     { $set: { status: 'winner' } }
                 );
 
+                console.log(`player sessions stored 🔥🔥🚒`)
+
             } catch (err) {
                 console.error("❌ Error in Deferred History Process:", err);
             }
         })();
+
+          // Pass the necessary IO and Redis clients for post-commit cleanup (not inside the transaction)
+            await processWinnerAtomicCommit(winnerData, winnerUser, io, redis, state); 
+            
+            // Release the winner lock immediately after the atomic commit succeeds
+            await redis.del(winnerLockKey); 
 
         } catch (error) {
             console.error("🔥 processWinner execution error:", error);
