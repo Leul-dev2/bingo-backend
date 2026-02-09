@@ -1314,62 +1314,71 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
             // Release the winner lock immediately after the atomic commit succeeds
             await redis.del(winnerLockKey); 
 
-            // --- 5️⃣ DEFERRED PROCESS (Loser History & Final Redis/State Cleanup) ---
-            (async () => {
-                // 🟢 CORRECTION 2: Use the definitive list of paid participants from GameControl (source of truth)
-                // This correctly identifies everyone who paid, even if they disconnected.
-                const paidParticipants = (gameControl.players || []).map(p => p.telegramId); 
-                const loserIds = paidParticipants
-                    .filter(id => id !== Number(telegramId));
-                console.log(`🏠🏠🏠 loser ids ${loserIds}`);
+        // --- 5️⃣ DEFERRED PROCESS (Winner & Loser History) ---
+        (async () => {
+            try {
+                // 1. Fetch ALL players associated with this game session from PlayerSession
+                const allSessions = await PlayerSession.find({ GameSessionId: strGameSessionId }).lean();
                 
-                // A. Batch process losers for history
-                if (loserIds.length > 0) {
-                    const [loserUsers, loserCards] = await Promise.all([
-                        // IMPORTANT: Only fetch users that were active participants
-                        User.find({ telegramId: { $in: loserIds } }, 'telegramId username').lean(),
-                        // Cards belong to the specific game session (Correction 3: use GameSessionId for more accurate lookup)
-                        GameCard.find({ GameSessionId: strGameSessionId, takenBy: { $in: loserIds } }, 'takenBy cardId').lean()
-                    ]);
-                    
-                    const userMap = new Map(loserUsers.map(u => [u.telegramId, u]));
-                    const cardMap = new Map();
-                    for (const card of loserCards) {
-                        if (!cardMap.has(card.takenBy)) {
-                            cardMap.set(card.takenBy, []);
-                        }
-                        cardMap.get(card.takenBy).push(card.cardId);
-                    }
+                if (!allSessions || allSessions.length === 0) {
+                    console.error(`❌ No PlayerSessions found for ${strGameSessionId}. History cannot be stored.`);
+                    return;
+                }
 
-                    const loserDocs = loserIds.map(id => ({
+                const historyEntries = [];
+                const strWinnerId = String(telegramId); // Ensure type consistency
+
+                // 2. Separate Winner and Losers from the session data
+                for (const session of allSessions) {
+                    const isWinner = session.telegramId === strWinnerId;
+                    
+                    historyEntries.push({
                         sessionId: strGameSessionId,
                         gameId: strGameId,
-                        username: userMap.get(id)?.username || "Unknown",
-                        telegramId: id,
-                        eventType: "lose",
-                        winAmount: 0,
+                        // We'll try to find the username. If PlayerSession doesn't have it, 
+                        // you might need to fetch it from User model or include it in PlayerSession schema.
+                        username: "Player", 
+                        telegramId: session.telegramId,
+                        eventType: isWinner ? "win" : "lose",
+                        winAmount: isWinner ? prizeAmount : 0,
                         stake: stakeAmount,
-                        cartelaIds: cardMap.get(id) || [],
+                        // Use the cardIds directly from the PlayerSession record!
+                        cartelaIds: session.cardIds || [], 
                         callNumberLength,
                         createdAt: new Date()
-                    }));
-
-                    await GameHistory.insertMany(loserDocs);
+                    });
                 }
-                
-                // B. Cache winner info for short-term display
-                await redis.set(`winnerInfo:${strGameSessionId}`, JSON.stringify({
-                    winnerName: winnerUser.username || "Unknown",
-                    prizeAmount,
-                    playerCount,
-                    boardNumber: cartelaId,
-                    winnerPattern,
-                    telegramId,
-                    gameId: strGameId,
-                    GameSessionId: strGameSessionId
-                }), { EX: 300 });
 
-            })(); // End Deferred Process
+                // 3. Optional: If you need usernames, do a quick lookup for all participants
+                const userIds = allSessions.map(s => s.telegramId);
+                const users = await User.find({ telegramId: { $in: userIds } }, 'telegramId username').lean();
+                const userMap = new Map(users.map(u => [u.telegramId, u.username]));
+
+                // Attach usernames to history entries
+                historyEntries.forEach(entry => {
+                    entry.username = userMap.get(entry.telegramId) || "Unknown";
+                });
+
+                // 4. Save to GameHistory
+                if (historyEntries.length > 0) {
+                    await GameHistory.insertMany(historyEntries);
+                    console.log(`✅ Game History Saved: 1 winner and ${historyEntries.length - 1} losers.`);
+                }
+
+                // 5. Update PlayerSession statuses (Cleanup/Finalize)
+                await PlayerSession.updateMany(
+                    { GameSessionId: strGameSessionId, telegramId: { $ne: strWinnerId } },
+                    { $set: { status: 'loser' } }
+                );
+                await PlayerSession.updateOne(
+                    { GameSessionId: strGameSessionId, telegramId: strWinnerId },
+                    { $set: { status: 'winner' } }
+                );
+
+            } catch (err) {
+                console.error("❌ Error in Deferred History Process:", err);
+            }
+        })();
 
         } catch (error) {
             console.error("🔥 processWinner execution error:", error);
