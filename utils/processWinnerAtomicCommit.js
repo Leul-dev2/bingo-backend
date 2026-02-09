@@ -40,10 +40,10 @@ async function processWinnerAtomicCommit(winnerData, winnerUser, io, redis, stat
             }], { session });
             
             // D. Create Winner GameHistory (Must be in transaction to ensure integrity)
-            await GameHistory.create([{
-                sessionId: strGameSessionId, gameId: strGameId, username: winnerUser.username || "Unknown", telegramId, 
-                eventType: "win", winAmount: prizeAmount, stake: stakeAmount, cartelaId, callNumberLength
-            }], { session });
+            // await GameHistory.create([{
+            //     sessionId: strGameSessionId, gameId: strGameId, username: winnerUser.username || "Unknown", telegramId, 
+            //     eventType: "win", winAmount: prizeAmount, stake: stakeAmount, cartelaId, callNumberLength
+            // }], { session });
 
 
             // 2. END OLD GAME (The Active document becomes the Historical document)

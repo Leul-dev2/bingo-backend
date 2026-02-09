@@ -1309,72 +1309,28 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
         // --- 4️⃣ Atomic Financial Commit & State Transition (CRITICAL) ---
         try {
         // --- 5️⃣ DEFERRED PROCESS (Winner & Loser History) ---
-        (async () => {
-            try {
-                // 1. Fetch ALL players associated with this game session from PlayerSession
-                const allSessions = await PlayerSession.find({ GameSessionId: strGameSessionId }).lean();
-                
-                if (!allSessions || allSessions.length === 0) {
-                    console.error(`❌ No PlayerSessions found for ${strGameSessionId}. History cannot be stored.`);
-                    return;
-                }
-
-                const historyEntries = [];
-                const strWinnerId = String(telegramId); // Ensure type consistency
-
-                // 2. Separate Winner and Losers from the session data
-                for (const session of allSessions) {
-                    const isWinner = session.telegramId === strWinnerId;
-                    
-                    historyEntries.push({
-                        sessionId: strGameSessionId,
-                        gameId: strGameId,
-                        // We'll try to find the username. If PlayerSession doesn't have it, 
-                        // you might need to fetch it from User model or include it in PlayerSession schema.
-                        username: "Player", 
-                        telegramId: session.telegramId,
-                        eventType: isWinner ? "win" : "lose",
-                        winAmount: isWinner ? prizeAmount : 0,
-                        stake: stakeAmount,
-                        // Use the cardIds directly from the PlayerSession record!
-                        cartelaIds: session.cardIds || [], 
+       // --- 5️⃣ PUSH TO QUEUE (Instant & Non-blocking) ---
+            (async () => {
+                try {
+                    const historyJob = {
+                        type: 'PROCESS_GAME_HISTORY',
+                        strGameSessionId,
+                        strGameId,
+                        winnerId: String(telegramId), // Keep as string for consistency
+                        prizeAmount,
+                        stakeAmount,
                         callNumberLength,
-                        createdAt: new Date()
-                    });
+                        firedAt: new Date()
+                    };
+
+                    // LPUSH is atomic and takes microseconds
+                    await redis.lPush('game-task-queue', JSON.stringify(historyJob));
+                    
+                    console.log(`🚀 Task queued for Session: ${strGameSessionId}`);
+                } catch (err) {
+                    console.error("❌ Failed to queue history job:", err);
                 }
-
-                // 3. Optional: If you need usernames, do a quick lookup for all participants
-                const userIds = allSessions.map(s => s.telegramId);
-                const users = await User.find({ telegramId: { $in: userIds } }, 'telegramId username').lean();
-                const userMap = new Map(users.map(u => [u.telegramId, u.username]));
-
-                // Attach usernames to history entries
-                historyEntries.forEach(entry => {
-                    entry.username = userMap.get(entry.telegramId) || "Unknown";
-                });
-
-                // 4. Save to GameHistory
-                if (historyEntries.length > 0) {
-                    await GameHistory.insertMany(historyEntries);
-                    console.log(`✅ Game History Saved: 1 winner and ${historyEntries.length - 1} losers.`);
-                }
-
-                // 5. Update PlayerSession statuses (Cleanup/Finalize)
-                await PlayerSession.updateMany(
-                    { GameSessionId: strGameSessionId, telegramId: { $ne: strWinnerId } },
-                    { $set: { status: 'loser' } }
-                );
-                await PlayerSession.updateOne(
-                    { GameSessionId: strGameSessionId, telegramId: strWinnerId },
-                    { $set: { status: 'winner' } }
-                );
-
-                console.log(`player sessions stored 🔥🔥🚒`)
-
-            } catch (err) {
-                console.error("❌ Error in Deferred History Process:", err);
-            }
-        })();
+            })();
 
           // Pass the necessary IO and Redis clients for post-commit cleanup (not inside the transaction)
             await processWinnerAtomicCommit(winnerData, winnerUser, io, redis, state); 
