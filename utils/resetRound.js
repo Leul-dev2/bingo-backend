@@ -86,7 +86,7 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
 
     console.log(`🔄 Round reset complete for game: ${strGameId}`);
     io.to(strGameId).emit("roundEnded", { gameId: strGameId });
-    socket.emit("gameEnd");
+    // socket.emit("gameEnd");
     console.log("📖📖 game End is emitted");
 }
 
