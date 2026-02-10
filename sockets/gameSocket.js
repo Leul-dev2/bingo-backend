@@ -66,6 +66,16 @@ const { v4: uuidv4 } = require("uuid");
 };
 
 
+   async function fullGameCleanup(gameId, redis, state) {
+        console.log("fullGameCleanup 🔥🔥🔥");
+        delete state.activeDrawLocks[gameId];
+        await redis.del(getActiveDrawLockKey(gameId));
+        await syncGameIsActive(gameId, false, redis);
+        if (state.countdownIntervals[gameId]) { clearInterval(state.countdownIntervals[gameId]); delete state.countdownIntervals[gameId]; }
+     }
+
+
+ 
   const subClient = redis.duplicate();
 
 // We create an async block to handle the connection
@@ -1131,14 +1141,7 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
     }
 
     // Helper to perform a full cleanup of game state
-    async function fullGameCleanup(gameId, redis, state) {
-        console.log("fullGameCleanup 🔥🔥🔥");
-        delete state.activeDrawLocks[gameId];
-        await redis.del(getActiveDrawLockKey(gameId));
-        await syncGameIsActive(gameId, false, redis);
-        if (state.countdownIntervals[gameId]) { clearInterval(state.countdownIntervals[gameId]); delete state.countdownIntervals[gameId]; }
-    }
-
+ 
 
 
 
