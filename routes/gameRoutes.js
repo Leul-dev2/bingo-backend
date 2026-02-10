@@ -39,7 +39,7 @@ const DEFAULT_CREATED_BY = 'System';
               if (!control.allowNewGames) {
                 return res.status(403).json({
                     success: false,
-                    message: "New game creation is currently disabled for maintenance."
+                    message: "Currently disabled for maintenance."
                 });
                 }
 
