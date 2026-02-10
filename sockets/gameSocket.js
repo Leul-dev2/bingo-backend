@@ -1559,6 +1559,37 @@ const safeJsonParse = (rawPayload, key, socketId) => {
             console.error(`❌ CRITICAL ERROR in disconnect handler for socket ${socket.id}:`, e);
         }
     });
+
+
+
+    // Create a separate redis client for subscribing
+const subClient = redis.duplicate();
+subClient.connect().then(() => {
+    subClient.subscribe('ADMIN_COMMANDS', (message) => {
+        const action = JSON.parse(message);
+
+        if (action.type === 'FORCE_TERMINATE') {
+            console.log(`🚫 Admin termination for Game: ${action.gameId}`);
+
+            // 1. Send notice to everyone in the room
+            io.to(action.gameId).emit('force_game_end', {
+                message: "The game has been ended by an admin."
+            });
+
+            // 2. Force all sockets in that room to disconnect/leave
+            const roomSockets = io.sockets.adapter.rooms.get(action.gameId);
+            if (roomSockets) {
+                for (const socketId of roomSockets) {
+                    const socket = io.sockets.sockets.get(socketId);
+                    if (socket) {
+                        socket.leave(action.gameId);
+                        // Optional: socket.disconnect() if you want them totally out
+                    }
+                }
+            }
+        }
+    });
+  });
   });
 };
 
