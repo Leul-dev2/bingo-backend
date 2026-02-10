@@ -31,7 +31,7 @@ const { // <-- Add this line
 } = require("../utils/redisKeys"); // <-- Make sure the path is correct
 const { Socket } = require("socket.io");
 const pendingDisconnectTimeouts = new Map(); // Key: `${telegramId}:${gameId}`, Value: setTimeout ID
-const ACTIVE_DISCONNECT_GRACE_PERIOD_MS = 2 * 1000; // For card selection lobby (10 seconds)
+const ACTIVE_DISCONNECT_GRACE_PERIOD_MS = 1 * 1000; // For card selection lobby (10 seconds)
 const JOIN_GAME_GRACE_PERIOD_MS = 2 * 1000; // For initial join/live game phase (5 seconds)
 const ACTIVE_SOCKET_TTL_SECONDS = 60 * 3;
 
@@ -65,15 +65,15 @@ const { v4: uuidv4 } = require("uuid");
   gameReadyToStart: {},
 };
   io.on("connection", (socket) => {
-      console.log("🟢 New client connected");
-      console.log("Client connected with socket ID:", socket.id);
-      console.log("Connected sockets 🟢🟢🟩:", io.sockets.sockets.size);
+    //   console.log("🟢 New client connected");
+    //   console.log("Client connected with socket ID:", socket.id);
+    //   console.log("Connected sockets 🟢🟢🟩:", io.sockets.sockets.size);
 
 
-    setInterval(() => {
-    const used = process.memoryUsage();
-    console.log("Heap 🚀🗑️🚀:", (used.heapUsed / 1024 / 1024).toFixed(2), "MB");
-    }, 60000);
+    // setInterval(() => {
+    // const used = process.memoryUsage();
+    // console.log("Heap 🚀🗑️🚀:", (used.heapUsed / 1024 / 1024).toFixed(2), "MB");
+    // }, 60000);
 
 
     // User joins a game lobby phase
