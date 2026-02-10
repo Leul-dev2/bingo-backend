@@ -1573,38 +1573,35 @@ const safeJsonParse = (rawPayload, key, socketId) => {
         await subClient.connect();
         console.log("👂 Redis Subscriber connected: Listening for ADMIN_COMMANDS");
         
-        await subClient.subscribe('ADMIN_COMMANDS',  async (message) => {
-            console.log("📩 Received Admin Message:", message);
-            const action = JSON.parse(message);
+ await subClient.subscribe('ADMIN_COMMANDS', async (message) => {
+    const action = JSON.parse(message);
 
-         if (action.type === 'FORCE_TERMINATE') {
-    const strGameId = String(action.gameId);
-    console.log(`🚫 Admin termination for Game: ${strGameId}`);
+    if (action.type === 'FORCE_TERMINATE') {
+        // Ensure gameId is treated as a string for Socket.io room consistency
+        const targetRoom = String(action.gameId);
+        
+        console.log(`🚫 Termination signal for Room: ${targetRoom}`);
 
-    // 1. Stop the loop immediately
-    if (state.drawIntervals[strGameId]) {
-        clearInterval(state.drawIntervals[strGameId]);
-        delete state.drawIntervals[strGameId];
-    }
+        // 1. STOP THE DRAWING TIMER IMMEDIATELY
+        if (state.drawIntervals[targetRoom]) {
+            clearInterval(state.drawIntervals[targetRoom]);
+            delete state.drawIntervals[targetRoom];
+        }
 
-        // 2. Notify Frontend FIRST
-        // We use a slight delay for the cleanup to ensure the message gets out
-        io.to(strGameId).emit('force_game_end', {
+        // 2. EMIT FIRST
+        io.to(targetRoom).emit('force_game_end', {
             message: "The game session has been terminated by an administrator."
         });
 
-        // 3. Wait 500ms before kicking them out of the room/cleaning up
+        // 3. DELAY THE KICK & CLEANUP
+        // This gives the frontend 1 second to receive the message and show the alert
         setTimeout(async () => {
-            try {
-                await fullGameCleanup(strGameId, redis, state);
-                io.in(strGameId).socketsLeave(strGameId);
-                console.log(`🧹 Cleanup finished for game ${strGameId}`);
-            } catch (err) {
-                console.error("Cleanup error:", err);
-            }
-        }, 500); 
-}
-        });
+            await fullGameCleanup(targetRoom, redis, state);
+            io.in(targetRoom).socketsLeave(targetRoom);
+            console.log(`🧹 Cleanup complete for ${targetRoom}`);
+        }, 1000); 
+    }
+  });
     } catch (err) {
         console.error("❌ Redis Subscriber failed:", err);
     }
