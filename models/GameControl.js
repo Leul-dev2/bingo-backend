@@ -23,7 +23,7 @@ gameControlSchema.index(
     { gameId: 1 }, 
     { 
         unique: true, 
-        // Enforces uniqueness for ANY document that hasn't ended (isActive: true OR isActive: false)
+        // Enforces uniqueness for ANY document that hasn't ended (isActive: true OR isActive: false))
         partialFilterExpression: { endedAt: { $eq: null } }, 
         name: "unique_current_session"
     }
