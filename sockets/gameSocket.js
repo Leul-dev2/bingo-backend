@@ -1573,7 +1573,7 @@ const safeJsonParse = (rawPayload, key, socketId) => {
         await subClient.connect();
         console.log("👂 Redis Subscriber connected: Listening for ADMIN_COMMANDS");
         
-        await subClient.subscribe('ADMIN_COMMANDS', (message) => {
+        await subClient.subscribe('ADMIN_COMMANDS',  async (message) => {
             console.log("📩 Received Admin Message:", message);
             const action = JSON.parse(message);
 
