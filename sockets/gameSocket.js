@@ -1577,16 +1577,28 @@ const safeJsonParse = (rawPayload, key, socketId) => {
             console.log("📩 Received Admin Message:", message);
             const action = JSON.parse(message);
 
-            if (action.type === 'FORCE_TERMINATE') {
-                console.log(`🚫 Admin termination for Game: ${action.gameId}`);
+          if (action.type === 'FORCE_TERMINATE') {
+                const strGameId = String(action.gameId);
+                console.log(`🚫 Admin termination for Game: ${strGameId}`);
 
-                // 1. Notify Frontend
-                io.to(action.gameId).emit('force_game_end', {
+                // 1. STOP THE DRAWING LOOP (The Missing Step)
+                if (state.drawIntervals[strGameId]) {
+                    clearInterval(state.drawIntervals[strGameId]);
+                    delete state.drawIntervals[strGameId];
+                    console.log(`🛑 Drawing interval cleared for game ${strGameId}`);
+                }
+
+                // 2. Perform Full Cleanup (Locks, Redis Keys, etc.)
+                // This calls your existing helper function
+                await fullGameCleanup(strGameId, redis, state);
+
+                // 3. Notify Frontend
+                io.to(strGameId).emit('force_game_end', {
                     message: "The game session has been terminated by an administrator."
                 });
 
-                // 2. Clean up the socket room
-                io.in(action.gameId).socketsLeave(action.gameId);
+                // 4. Clean up the socket room
+                io.in(strGameId).socketsLeave(strGameId);
             }
         });
     } catch (err) {
