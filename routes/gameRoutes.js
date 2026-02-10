@@ -24,7 +24,7 @@ const DEFAULT_CREATED_BY = 'System';
         const router = express.Router();
 
         router.post("/start", async (req, res) => {
-            const { gameId, telegramId, cardIds } = req.body;
+            const { gameId, telegramId, cardIds, username } = req.body;
             const strGameId = String(gameId);
             const control = await SystemControl.getSingleton();
 
@@ -157,7 +157,7 @@ const DEFAULT_CREATED_BY = 'System';
                     const playerSession = await PlayerSession.findOneAndUpdate(
                         { GameSessionId: lobbyDoc.GameSessionId, telegramId: Number(telegramId) },
                         { 
-                            $set: { cardIds: cardIds, status: 'connected' }, // This was already correct
+                            $set: { username: username || `User ${telegramId}`, cardIds: cardIds, status: 'connected' }, // This was already correct
                             $setOnInsert: { joinedAt: new Date() } 
                         },
                         { new: true, upsert: true, session }
