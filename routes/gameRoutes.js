@@ -3,7 +3,7 @@ const User = require("../models/user");
 const GameControl = require('../models/GameControl');
 const GameCard = require("../models/GameCard");
 const PlayerSession = require("../models/PlayerSession");
-const allowNewGame = require("../models/SystemControl")
+const SystemControl = require("../models/SystemControl")
 const { v4: uuidv4 } = require('uuid');
 const mongoose = require('mongoose');
 
@@ -35,7 +35,7 @@ const DEFAULT_CREATED_BY = 'System';
                 let lobbyDoc;
                 let responseBody;
                 let statusCode = 200;
-                
+
               if (!control.allowNewGames) {
                 return res.status(403).json({
                     success: false,
