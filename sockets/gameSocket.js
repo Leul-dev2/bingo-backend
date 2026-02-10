@@ -1563,33 +1563,36 @@ const safeJsonParse = (rawPayload, key, socketId) => {
 
 
     // Create a separate redis client for subscribing
-const subClient = redis.duplicate();
-subClient.connect().then(() => {
-    subClient.subscribe('ADMIN_COMMANDS', (message) => {
-        const action = JSON.parse(message);
+// Inside your module.exports = (io, redis) => { ... }
 
-        if (action.type === 'FORCE_TERMINATE') {
-            console.log(`🚫 Admin termination for Game: ${action.gameId}`);
+ const subClient = redis.duplicate();
 
-            // 1. Send notice to everyone in the room
-            io.to(action.gameId).emit('force_game_end', {
-                message: "The game has been ended by an admin."
-            });
+// We create an async block to handle the connection
+(async () => {
+    try {
+        await subClient.connect();
+        console.log("👂 Redis Subscriber connected: Listening for ADMIN_COMMANDS");
+        
+        await subClient.subscribe('ADMIN_COMMANDS', (message) => {
+            console.log("📩 Received Admin Message:", message);
+            const action = JSON.parse(message);
 
-            // 2. Force all sockets in that room to disconnect/leave
-            const roomSockets = io.sockets.adapter.rooms.get(action.gameId);
-            if (roomSockets) {
-                for (const socketId of roomSockets) {
-                    const socket = io.sockets.sockets.get(socketId);
-                    if (socket) {
-                        socket.leave(action.gameId);
-                        // Optional: socket.disconnect() if you want them totally out
-                    }
-                }
+            if (action.type === 'FORCE_TERMINATE') {
+                console.log(`🚫 Admin termination for Game: ${action.gameId}`);
+
+                // 1. Notify Frontend
+                io.to(action.gameId).emit('force_game_end', {
+                    message: "The game session has been terminated by an administrator."
+                });
+
+                // 2. Clean up the socket room
+                io.in(action.gameId).socketsLeave(action.gameId);
             }
-        }
-    });
-  });
+        });
+    } catch (err) {
+        console.error("❌ Redis Subscriber failed:", err);
+    }
+ })();
   });
 };
 
