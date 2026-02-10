@@ -14,6 +14,9 @@ const playerSessionSchema = new mongoose.Schema({
         required: true,
         index: true 
     },
+
+    username: { type: String, required: false },
+    
     // The card the player took for this session
     cardIds: { 
         type: [Number], 
