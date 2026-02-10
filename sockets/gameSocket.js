@@ -1308,8 +1308,6 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
 
         // --- 4️⃣ Atomic Financial Commit & State Transition (CRITICAL) ---
         try {
-        // --- 5️⃣ DEFERRED PROCESS (Winner & Loser History) ---
-       // --- 5️⃣ PUSH TO QUEUE (Instant & Non-blocking) ---
             (async () => {
                 try {
                     const historyJob = {

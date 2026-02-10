@@ -3,7 +3,7 @@ const User = require("../models/user");
 const GameControl = require('../models/GameControl');
 const GameCard = require("../models/GameCard");
 const PlayerSession = require("../models/PlayerSession");
-// const redis = require("../utils/redisClient"); // ❌ Correctly removed local import
+const allowNewGame = require("../models/SystemControl")
 const { v4: uuidv4 } = require('uuid');
 const mongoose = require('mongoose');
 
@@ -26,6 +26,7 @@ const DEFAULT_CREATED_BY = 'System';
         router.post("/start", async (req, res) => {
             const { gameId, telegramId, cardIds } = req.body;
             const strGameId = String(gameId);
+            const control = await SystemControl.getSingleton();
 
             // 1. Start the MongoDB Session for Transaction
             const session = await mongoose.startSession();
@@ -34,6 +35,13 @@ const DEFAULT_CREATED_BY = 'System';
                 let lobbyDoc;
                 let responseBody;
                 let statusCode = 200;
+                
+              if (!control.allowNewGames) {
+                return res.status(403).json({
+                    success: false,
+                    message: "New game creation is currently disabled for maintenance."
+                });
+                }
 
                 // 🔐 Step 1: Block joins during "game starting" phase
                 const gameStartingKey = `gameStarting:${strGameId}`;
