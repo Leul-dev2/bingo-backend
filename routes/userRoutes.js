@@ -37,6 +37,7 @@ router.get("/getUser", async (req, res) => {
     return res.json({
       balance: user.balance,
       bonus_balance: user.bonus_balance,
+      username: user.username,
       source: "db"
     });
   } catch (error) {
