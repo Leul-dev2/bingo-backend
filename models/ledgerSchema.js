@@ -9,7 +9,7 @@ const ledgerSchema = new mongoose.Schema({
         required: true 
     },
     description: { type: String },
-    telegramId: { type: Number, index: true },
+    telegramId: { type: String, required: true, index: true },
     createdAt: { type: Date, default: Date.now },
 });
 
