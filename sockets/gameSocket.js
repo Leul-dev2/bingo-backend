@@ -968,7 +968,7 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
                                             gameSessionId: strGameSessionId,
                                             amount: -stakeToDeduct,
                                             transactionType: transType,
-                                            telegramId: playerTelegramId,
+                                            telegramId: String(playerTelegramId),
                                             description: `Stake for ${numCards} cards (Bonus: ${deductedFromBonus}, Main: ${deductedFromMain})`
                                         }
                                     }
@@ -1076,7 +1076,7 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
             try {
                 // 1. Find the original deduction record from the ledger
                 const deductionRecord = await Ledger.findOne({
-                    telegramId: playerId,
+                    telegramId: String(playerId),
                     gameSessionId: strGameSessionId,
                     transactionType: { $in: ['stake_deduction', 'bonus_stake_deduction'] }
                 });
@@ -1126,7 +1126,7 @@ async function prepareNewGame(gameId, gameSessionId, redis, state) {
                         gameSessionId: strGameSessionId,
                         amount: amountToRefund, // --- FIX ---
                         transactionType: refundTransactionType,
-                        telegramId: playerId,
+                        telegramId: String(playerId),
                         description: `Stake refund for cancelled game session ${strGameSessionId}`
                     });
                     console.log(`✅ Successfully refunded ${amountToRefund} to ${wasBonus ? 'bonus' : 'main'} balance for player ${playerId}.`);
