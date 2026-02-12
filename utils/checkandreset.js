@@ -4,7 +4,7 @@ const GameControl = require("../models/GameControl");
 const resetRound = require("./resetRound");
 const { getGameRoomsKey, getGamePlayersKey } = require("./redisKeys"); // <-- ADD THIS LINE
 
-async function checkAndResetIfEmpty(gameId, GameSessionId, socket, io, redis, state) {
+async function checkAndResetIfEmpty(gameId, GameSessionId, telegramId, socket, io, redis, state) {
     const strGameId = String(gameId); // Ensure gameId is always a string for Redis keys
     const strGameSessionId = String(GameSessionId);
     // Use the helper functions for Redis keys
