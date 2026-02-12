@@ -19,9 +19,9 @@ async function checkAndResetIfEmpty(gameId, GameSessionId, telegramId, socket, i
                         strGameSessionId,
                         strGameId,
                         winnerId: String(telegramId), // Keep as string for consistency
-                        prizeAmount,
-                        stakeAmount,
-                        callNumberLength,
+                        prizeAmount : 0, // Default to 0 if not set
+                        stakeAmount : strGameId,
+                        callNumberLength : 0,
                         firedAt: new Date()
                     };
 
