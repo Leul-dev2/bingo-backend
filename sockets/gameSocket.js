@@ -2,7 +2,7 @@ const User = require("../models/user");
 const GameControl = require("../models/GameControl");
 const GameHistory = require("../models/GameHistory")
 const Ledger = require("../models/Ledger");
-const pushHistoryForAllPlayers = require("./utils/pushHistoryForAllPlayers");
+const pushHistoryForAllPlayers = require("../utils/pushHistoryForAllPlayers");
 const resetGame = require("../utils/resetGame");
 const checkAndResetIfEmpty = require("../utils/checkandreset");
 //const redis = require("../utils/redisClient");
@@ -1359,7 +1359,7 @@ const { v4: uuidv4 } = require("uuid");
 
         // --- 4️⃣ Atomic Financial Commit & State Transition (CRITICAL) ---
         try {
-            
+
             await pushHistoryForAllPlayers(strGameSessionId, strGameId, redis, telegramId, {
             prizeAmount,
             stakeAmount,
