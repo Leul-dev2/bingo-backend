@@ -1,41 +1,54 @@
 // utils/pushHistoryForAllPlayers.js
 const Ledger = require("../models/Ledger");
 
-/**
- * Queues a single job to process all players' history for a session.
- * Prevents duplicate jobs using a Redis lock.
- * 
- * @param {string} strGameSessionId - The game session ID
- * @param {string} strGameId - The game ID
- * @param {object} redis - Redis client instance
- */
+
 async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
-    if (!strGameSessionId || !strGameId) {
-        console.warn(`⚠️ Missing gameSessionId or gameId. Skipping history push.`);
+    console.log(`🔍🚀 Pushing history for all players in session ${strGameSessionId}...`);
+
+    // Get all players who have any ledger entry for this game
+    const playerIds = await Ledger.distinct("telegramId", { gameSessionId: strGameSessionId });
+    
+    if (!playerIds.length) {
+        console.log(`⚠️ No ledger entries found for session ${strGameSessionId}. Skipping.`);
         return;
     }
 
-    const lockKey = `historyQueued:${strGameSessionId}`;
+    const historyJobs = [];
 
-    // Attempt to set a Redis key for this session (NX = only if not exists, EX = expire in 10 min)
-    const lockAcquired = await redis.set(lockKey, "1", { NX: true, EX: 600 });
-    if (!lockAcquired) {
-        console.log(`⚠️ History already queued for session ${strGameSessionId}. Skipping push.`);
-        return;
+    for (const telegramId of playerIds) {
+        // Sum stakes for this player
+        const stakeAgg = await Ledger.aggregate([
+            { $match: { gameSessionId: strGameSessionId, telegramId, transactionType: "stake_deduction" } },
+            { $group: { _id: "$telegramId", totalStake: { $sum: "$amount" } } }
+        ]);
+        const totalStake = stakeAgg[0]?.totalStake || 0;
+
+        // Sum winnings (winner only)
+        const winAgg = await Ledger.aggregate([
+            { $match: { gameSessionId: strGameSessionId, telegramId, transactionType: "player_winnings" } },
+            { $group: { _id: "$telegramId", totalWin: { $sum: "$amount" } } }
+        ]);
+        const totalWin = winAgg[0]?.totalWin || 0;
+
+        const historyJob = {
+            type: 'PROCESS_GAME_HISTORY',
+            strGameSessionId,
+            strGameId,
+            winnerId: totalWin > 0 ? String(telegramId) : null, // mark winner
+            prizeAmount: totalWin,
+            stakeAmount: Math.abs(totalStake), // stake deduction is negative
+            callNumberLength: 0, // optional: if you store in ledger, use it
+            firedAt: new Date()
+        };
+
+        historyJobs.push(historyJob);
     }
 
-    console.log(`🔍🚀 Queuing history for session ${strGameSessionId}...`);
-
-    // Single job for the entire session
-    const historyJob = {
-        type: 'PROCESS_GAME_HISTORY',
-        strGameSessionId,
-        strGameId,
-        firedAt: new Date()
-    };
-
-    await redis.lPush('game-task-queue', JSON.stringify(historyJob));
-    console.log(`✅ History job queued for session ${strGameSessionId}`);
+    if (historyJobs.length) {
+        // Push all jobs at once for atomicity
+        await redisClient.lPush('game-task-queue', historyJobs.map(j => JSON.stringify(j)));
+        console.log(`🚀 Queued history for ${historyJobs.length} players in session ${strGameSessionId}`);
+    }
 }
 
 module.exports = pushHistoryForAllPlayers;
