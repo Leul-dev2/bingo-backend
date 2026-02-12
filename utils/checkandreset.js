@@ -10,6 +10,29 @@ async function checkAndResetIfEmpty(gameId, GameSessionId, socket, io, redis, st
     // Use the helper functions for Redis keys
     const gameRoomsRedisKey = getGameRoomsKey(strGameId);
     const gamePlayersRedisKey = getGamePlayersKey(strGameId);
+    console.log(`🔍 Check and reset game ${strGameId}`);
+
+     (async () => {
+                  try {
+                    const historyJob = {
+                        type: 'PROCESS_GAME_HISTORY',
+                        strGameSessionId,
+                        strGameId,
+                        winnerId: String(telegramId), // Keep as string for consistency
+                        prizeAmount,
+                        stakeAmount,
+                        callNumberLength,
+                        firedAt: new Date()
+                    };
+
+                    // LPUSH is atomic and takes microseconds
+                    await redis.lPush('game-task-queue', JSON.stringify(historyJob));
+                    
+                    console.log(`🚀 Task queued for Session: ${strGameSessionId}`);
+                    } catch (err) {
+                        console.error("❌ Failed to queue history job:", err);
+                    }
+                    })();
 
     // Get current players in the active game room (those who have a selected card and are playing)
     const currentPlayersInRoom = (await redis.sCard(gameRoomsRedisKey)) || 0;
