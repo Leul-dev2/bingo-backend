@@ -1,7 +1,8 @@
 const User = require("../models/user");
 const GameControl = require("../models/GameControl");
 const GameHistory = require("../models/GameHistory")
-const Ledger = require("../models/ledgerSchema");
+const Ledger = require("../models/Ledger");
+const pushHistoryForAllPlayers = require("./utils/pushHistoryForAllPlayers");
 const resetGame = require("../utils/resetGame");
 const checkAndResetIfEmpty = require("../utils/checkandreset");
 //const redis = require("../utils/redisClient");
@@ -1171,30 +1172,10 @@ const { v4: uuidv4 } = require("uuid");
                 // --- STOP CONDITION: NO PLAYERS ---
                 if (currentPlayersInRoom === 0) {
                     console.log(`🛑 No players left. Stopping drawing and initiating round reset.`);
+                    await pushHistoryForAllPlayers(strGameSessionId, strGameId, redis);
                     // Clean up the recurring timer
                     clearInterval(state.drawIntervals[strGameId]);
                     delete state.drawIntervals[strGameId];
-                       (async () => {
-                            try {
-                                const historyJob = {
-                                    type: 'PROCESS_GAME_HISTORY',
-                                    strGameSessionId : GameSessionId,
-                                    strGameId,
-                                    winnerId: String(telegramId), // Keep as string for consistency
-                                    prizeAmount : 0,
-                                    stakeAmount: 0,
-                                    callNumberLength : 0,
-                                    firedAt: new Date()
-                                };
-            
-                                // LPUSH is atomic and takes microseconds
-                                await redis.lPush('game-task-queue', JSON.stringify(historyJob));
-                                
-                                console.log(`🚀 Task queued for Session: ${GameSessionId}`);
-                            } catch (err) {
-                                console.error("❌ Failed to queue history job:", err);
-                            }
-                        })();
                     await resetRound(strGameId, GameSessionId, socket, io, state, redis);
                     io.to(strGameId).emit("gameEnded", { message: "Game ended due to all players leaving the room." });
                     return;
@@ -1214,30 +1195,10 @@ const { v4: uuidv4 } = require("uuid");
                 // --- STOP CONDITION: ALL NUMBERS DRAWN ---
                 if (gameData.index >= gameData.numbers.length) {
                     console.log(`🎯 All numbers drawn for game ${strGameId}`);
+                    await pushHistoryForAllPlayers(strGameSessionId, strGameId, redis);
                     clearInterval(state.drawIntervals[strGameId]);
                     delete state.drawIntervals[strGameId];
                     io.to(strGameId).emit("allNumbersDrawn", { gameId: strGameId });
-                     (async () => {
-                            try {
-                                const historyJob = {
-                                    type: 'PROCESS_GAME_HISTORY',
-                                    strGameSessionId : GameSessionId,
-                                    strGameId,
-                                    winnerId: String(telegramId), // Keep as string for consistency
-                                    prizeAmount : 0,
-                                    stakeAmount: 0,
-                                    callNumberLength : 0,
-                                    firedAt: new Date()
-                                };
-            
-                                // LPUSH is atomic and takes microseconds
-                                await redis.lPush('game-task-queue', JSON.stringify(historyJob));
-                                
-                                console.log(`🚀 Task queued for Session: ${GameSessionId}`);
-                            } catch (err) {
-                                console.error("❌ Failed to queue history job:", err);
-                            }
-                        })();
                     await resetRound(strGameId, GameSessionId, socket, io, state, redis);
                     return;
                 }
@@ -1469,17 +1430,17 @@ const { v4: uuidv4 } = require("uuid");
             ]);
 
 
-           // --- RELEASE ALL PLAYER CARDS ---
-const gameCardsKey = `gameCards:${gameId}`;
-const strTg = String(telegramId).trim();
+                // --- RELEASE ALL PLAYER CARDS ---
+        const gameCardsKey = `gameCards:${gameId}`;
+        const strTg = String(telegramId).trim();
 
-// Step 1: Fetch cards before release
-let allGameCards = await redis.hGetAll(gameCardsKey);
+        // Step 1: Fetch cards before release
+        let allGameCards = await redis.hGetAll(gameCardsKey);
 
-// Step 2: Find all belonging to the player
-let cardsToRelease = Object.entries(allGameCards)
-    .filter(([_, ownerId]) => String(ownerId).trim() == strTg)
-    .map(([cardId]) => cardId);
+        // Step 2: Find all belonging to the player
+        let cardsToRelease = Object.entries(allGameCards)
+            .filter(([_, ownerId]) => String(ownerId).trim() == strTg)
+            .map(([cardId]) => cardId);
 
             // Step 3: Release all those cards
             if (cardsToRelease.length > 0) {
@@ -1524,30 +1485,6 @@ let cardsToRelease = Object.entries(allGameCards)
             // Emit updated player count
             const playerCount = await redis.sCard(`gameRooms:${gameId}`) || 0;
             io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
-            
-                      (async () => {
-                            try {
-                                const historyJob = {
-                                    type: 'PROCESS_GAME_HISTORY',
-                                    strGameSessionId : GameSessionId,
-                                    strGameId,
-                                    winnerId: String(telegramId), // Keep as string for consistency
-                                    prizeAmount : 0,
-                                    stakeAmount: 0,
-                                    callNumberLength : 0,
-                                    firedAt: new Date()
-                                };
-            
-                                // LPUSH is atomic and takes microseconds
-                                await redis.lPush('game-task-queue', JSON.stringify(historyJob));
-                                
-                                console.log(`🚀 Task queued for Session: ${GameSessionId}`);
-                            } catch (err) {
-                                console.error("❌ Failed to queue history job:", err);
-                            }
-                        })();
-            
-
             await checkAndResetIfEmpty(gameId, GameSessionId, telegramId,  socket, io, redis, state);
 
             if (callback) callback();
