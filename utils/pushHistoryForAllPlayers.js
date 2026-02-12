@@ -1,49 +1,54 @@
-// utils/pushHistoryForAllPlayers.js
-const Ledger = require("../models/Ledger");
+async function handleGameOutcome(job) {
+    const { strGameSessionId, strGameId } = job;
 
-async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
-    console.log(`🔍🚀 Pushing history for all players in session ${strGameSessionId}...`);
-
-    // Get all distinct player IDs from the Ledger for this session
-    const playerIds = await Ledger.distinct("telegramId", { gameSessionId: strGameSessionId });
-    
-    if (!playerIds.length) {
-        console.log(`⚠️ No ledger entries found for session ${strGameSessionId}. Skipping history push.`);
+    // Redis lock for session
+    const lockKey = `processing:${strGameSessionId}`;
+    const lockAcquired = await redis.set(lockKey, "1", { NX: true, EX: 60 });
+    if (!lockAcquired) {
+        console.log(`⚠️ Session ${strGameSessionId} is already being processed. Skipping job.`);
         return;
     }
 
-    for (const telegramId of playerIds) {
-        // Aggregate total stake for this player from Ledger
-        const stakeAgg = await Ledger.aggregate([
-            { $match: { gameSessionId: strGameSessionId, telegramId, transactionType: "stake_deduction" } },
-            { $group: { _id: "$telegramId", total: { $sum: "$amount" } } }
+    try {
+        console.log(`🚀 Processing session ${strGameSessionId}...`);
+
+        // Get all players from Ledger
+        const ledgerPlayers = await Ledger.aggregate([
+            { $match: { gameSessionId: strGameSessionId, transactionType: { $in: ["stake_deduction","player_winnings"] } } },
+            { $group: { 
+                _id: "$telegramId",
+                totalStake: { $sum: { $cond: [{ $eq: ["$transactionType","stake_deduction"] }, "$amount", 0] } },
+                totalWin: { $sum: { $cond: [{ $eq: ["$transactionType","player_winnings"] }, "$amount", 0] } }
+            }}
         ]);
 
-        const totalStake = stakeAgg[0]?.total || 0;
+        if (!ledgerPlayers.length) {
+            console.log(`⚠️ No ledger entries for session ${strGameSessionId}. Skipping.`);
+            return;
+        }
 
-        // Optionally, you can also sum winnings from Ledger if needed
-        const winAgg = await Ledger.aggregate([
-            { $match: { gameSessionId: strGameSessionId, telegramId, transactionType: "player_winnings" } },
-            { $group: { _id: "$telegramId", totalWin: { $sum: "$amount" } } }
-        ]);
+        const telegramIds = ledgerPlayers.map(p => Number(p._id));
+        const users = await User.find({ telegramId: { $in: telegramIds } }, 'telegramId username').lean();
+        const userMap = new Map(users.map(u => [String(u.telegramId), u.username]));
 
-        const totalWin = winAgg[0]?.totalWin || 0;
+        const historyEntries = ledgerPlayers.map(player => ({
+            sessionId: strGameSessionId,
+            gameId: strGameId,
+            telegramId: player._id,
+            username: userMap.get(String(player._id)) || "Player",
+            eventType: player.totalWin > 0 ? "win" : "lose",
+            winAmount: player.totalWin,
+            stake: Math.abs(player.totalStake),
+            cartelaIds: [],
+            callNumberLength: 0,
+            createdAt: new Date()
+        }));
 
-        const historyJob = {
-            type: 'PROCESS_GAME_HISTORY',
-            strGameSessionId,
-            strGameId,
-            winnerId: totalWin > 0 ? String(telegramId) : null, // mark winner if they have winnings
-            prizeAmount: totalWin,
-            stakeAmount: totalStake,
-            callNumberLength: 0, // or derive from your game logic if stored in Ledger
-            firedAt: new Date()
-        };
+        await GameHistory.insertMany(historyEntries);
 
-        await redis.lPush('game-task-queue', JSON.stringify(historyJob));
+        console.log(`✅ Session ${strGameSessionId} processed. ${historyEntries.length} records saved.`);
+
+    } finally {
+        await redis.del(lockKey);
     }
-
-    console.log(`🚀 Queued history for ${playerIds.length} players in session ${strGameSessionId}`);
 }
-
-module.exports = pushHistoryForAllPlayers;
