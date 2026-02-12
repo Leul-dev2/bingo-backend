@@ -26,9 +26,9 @@ async function checkAndResetIfEmpty(gameId, GameSessionId, telegramId, socket, i
 
     // Scenario 1: No players currently in the active game room (round ended due to abandonment)
     if (currentPlayersInRoom === 0) {
-        console.log(`🛑 All players left game room ${strGameId}. Triggering round reset.`);
+       // console.log(`🛑 All players left game room ${strGameId}. Triggering round reset.`);
         // 🔥 STEP 1 — Get ALL players who participated from Ledger
-        await resetRound(strGameId, GameSessionId, socket, io, state, redis);
+        //await resetRound(strGameId, GameSessionId, socket, io, state, redis);
     }
 
     // Scenario 2: No players left in the entire game instance (full game abandonment)
