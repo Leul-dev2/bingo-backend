@@ -3,7 +3,7 @@ const resetGame = require("./resetGame");
 const GameControl = require("../models/GameControl");
 const resetRound = require("./resetRound");
 const Ledger = require("../models/Ledger");
-const pushHistoryForAllPlayers = require("./pushHistoryForAllPlayers");
+
 
 const { getGameRoomsKey, getGamePlayersKey } = require("./redisKeys"); // <-- ADD THIS LINE
 
@@ -28,15 +28,12 @@ async function checkAndResetIfEmpty(gameId, GameSessionId, telegramId, socket, i
     if (currentPlayersInRoom === 0) {
         console.log(`🛑 All players left game room ${strGameId}. Triggering round reset.`);
         // 🔥 STEP 1 — Get ALL players who participated from Ledger
-        await pushHistoryForAllPlayers(strGameSessionId, strGameId, redis);
-
         await resetRound(strGameId, GameSessionId, socket, io, state, redis);
     }
 
     // Scenario 2: No players left in the entire game instance (full game abandonment)
     if (totalPlayersOverall === 0) {
         console.log(`🧹 No players left in game instance ${strGameId}. Resetting full game...`);
-         await pushHistoryForAllPlayers(strGameSessionId, strGameId, redis);
         // Reset DB first (isActive, totalCards, prizeAmount, players array)
         try {
             await GameControl.findOneAndUpdate(

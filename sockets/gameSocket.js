@@ -1172,7 +1172,6 @@ const { v4: uuidv4 } = require("uuid");
                 // --- STOP CONDITION: NO PLAYERS ---
                 if (currentPlayersInRoom === 0) {
                     console.log(`🛑 No players left. Stopping drawing and initiating round reset.`);
-                    await pushHistoryForAllPlayers(strGameSessionId, strGameId, redis);
                     // Clean up the recurring timer
                     clearInterval(state.drawIntervals[strGameId]);
                     delete state.drawIntervals[strGameId];
@@ -1195,7 +1194,6 @@ const { v4: uuidv4 } = require("uuid");
                 // --- STOP CONDITION: ALL NUMBERS DRAWN ---
                 if (gameData.index >= gameData.numbers.length) {
                     console.log(`🎯 All numbers drawn for game ${strGameId}`);
-                    await pushHistoryForAllPlayers(strGameSessionId, strGameId, redis);
                     clearInterval(state.drawIntervals[strGameId]);
                     delete state.drawIntervals[strGameId];
                     io.to(strGameId).emit("allNumbersDrawn", { gameId: strGameId });
