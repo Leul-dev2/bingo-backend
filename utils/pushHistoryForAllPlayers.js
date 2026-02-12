@@ -3,6 +3,7 @@ const PlayerSession = require("../models/PlayerSession");
 const Ledger = require("../models/Ledger");
 
 async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
+    console.log(`🔍🚀🔥 Pushing history for all players in session ${strGameSessionId}...`);
     const sessions = await PlayerSession.find({ GameSessionId: strGameSessionId }).lean();
     if (!sessions.length) return;
 
