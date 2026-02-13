@@ -1414,13 +1414,18 @@ const { v4: uuidv4 } = require("uuid");
                 console.log(`⚠️ No balance reservation lock found for player ${telegramId}.`);
             }
 
-            // --- Remove the player from the PlayerSession document ---
-            await PlayerSession.updateOne({
+        await PlayerSession.updateOne(
+            {
                 GameSessionId: GameSessionId,
                 telegramId: strTelegramId,
-                status: 'disconnected',
-            });
-            console.log(`✅ PlayerSession record for ${telegramId} updated to disconnected status.`);
+            },
+            {
+                $set: { status: 'disconnected' }
+            }
+        );
+
+        console.log(`✅ PlayerSession record for ${strTelegramId} updated to disconnected status.`);
+
 
             // --- Remove from Redis sets and hashes ---
             await Promise.all([
