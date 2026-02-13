@@ -1357,29 +1357,7 @@ const { v4: uuidv4 } = require("uuid");
 
             // --- 4️⃣ Atomic Financial Commit & State Transition (CRITICAL) ---
             try {
-                (async () => {
-                    try {
-                        const historyJob = {
-                            type: 'PROCESS_GAME_HISTORY',
-                            strGameSessionId,
-                            strGameId,
-                            telegramId: telegramId,
-                            winnerId: String(telegramId), // Keep as string for consistency
-                            prizeAmount,
-                            stakeAmount,
-                            callNumberLength,
-                            firedAt: new Date()
-                        };
-
-                    // LPUSH is atomic and takes microseconds
-                    await redis.lPush('game-task-queue', JSON.stringify(historyJob));
-                    
-                    console.log(`🚀 Task queued for Session: ${strGameSessionId}`);
-                } catch (err) {
-                    console.error("❌ Failed to queue history job:", err);
-                }
-            })();
-
+             await pushHistoryForAllPlayers(strGameSessionId, strGameId, redis);
           // Pass the necessary IO and Redis clients for post-commit cleanup (not inside the transaction)
             await processWinnerAtomicCommit(winnerData, winnerUser, io, redis, state); 
             
