@@ -4,7 +4,7 @@ const GameCard = require("../models/GameCard");
 const User = require("../models/user");
 const GameHistory = require("../models/GameHistory")
 const Ledger = require("../models/Ledger");
-const redis = require("./redisClient");
+//const redis = require("./redisClient");
 const postCommitCleanup = require("./postCommitCleanup");
 const { v4: uuidv4 } = require("uuid");
 
