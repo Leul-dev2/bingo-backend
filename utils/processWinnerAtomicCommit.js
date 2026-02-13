@@ -14,7 +14,7 @@ const DEFAULT_GAME_TOTAL_CARDS = 1;
 // REFINED SIGNATURE: Removed unused 'gameControl', Added required 'state'
 async function processWinnerAtomicCommit(winnerData, winnerUser, io, redis, state) {
     const { telegramId, strGameId, strGameSessionId, prizeAmount, houseProfit, stakeAmount, cartelaId, callNumberLength } = winnerData;
-    
+    const strTelegramId = String(telegramId);
     // Start the transaction session
     const session = await mongoose.startSession();
     
@@ -24,14 +24,14 @@ async function processWinnerAtomicCommit(winnerData, winnerUser, io, redis, stat
             // 1. FINANCIAL COMMIT: Payout and Ledger (ACTIVE -> ENDED)
             // A. Update Winner's Balance
             await User.updateOne(
-                { telegramId }, 
+                { strTelegramId }, 
                 { $inc: { balance: prizeAmount } }, 
                 { session } // CRITICAL: Must use session
             );
             
             // B. Create Winner Ledger Entry
             await Ledger.create([{
-                gameSessionId: strGameSessionId, amount: prizeAmount, transactionType: 'player_winnings', telegramId
+                gameSessionId: strGameSessionId, amount: prizeAmount, transactionType: 'player_winnings', strTelegramId
             }], { session });
 
             // C. Create House Ledger Entry
@@ -91,7 +91,7 @@ async function processWinnerAtomicCommit(winnerData, winnerUser, io, redis, stat
         // --- Post-Commit: Redis updates and Broadcast (Fast I/O) ---
         
         // A. Update winner's balance in Redis cache
-        await redis.incrByFloat(`userBalance:${telegramId}`, prizeAmount); 
+        await redis.incrByFloat(`userBalance:${strTelegramId}`, prizeAmount); 
         
         // B. Perform all Redis/State cleanup
         await postCommitCleanup(strGameId, strGameSessionId, io, redis, state);
