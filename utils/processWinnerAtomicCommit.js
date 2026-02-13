@@ -24,14 +24,14 @@ async function processWinnerAtomicCommit(winnerData, winnerUser, io, redis, stat
             // 1. FINANCIAL COMMIT: Payout and Ledger (ACTIVE -> ENDED)
             // A. Update Winner's Balance
             await User.updateOne(
-                { strTelegramId }, 
+                { telegramId: strTelegramId }, 
                 { $inc: { balance: prizeAmount } }, 
                 { session } // CRITICAL: Must use session
             );
             
             // B. Create Winner Ledger Entry
             await Ledger.create([{
-                gameSessionId: strGameSessionId, amount: prizeAmount, transactionType: 'player_winnings', strTelegramId
+                gameSessionId: strGameSessionId, amount: prizeAmount, transactionType: 'player_winnings', telegramId: strTelegramId
             }], { session });
 
             // C. Create House Ledger Entry
