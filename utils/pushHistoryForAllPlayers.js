@@ -50,7 +50,6 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
             type: "PROCESS_GAME_HISTORY",
             strGameSessionId,
             strGameId,
-            telegramId: tId,
             winnerId: totalWin > 0 ? String(tId) : null,
             prizeAmount: totalWin,
             stakeAmount: Math.abs(totalStake),
