@@ -1,54 +1,62 @@
-// utils/pushHistoryForAllPlayers.js
+const PlayerSession = require("../models/PlayerSession");
 const Ledger = require("../models/Ledger");
 
-
 async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
-    console.log(`🔍🚀 Pushing history for all players in session ${strGameSessionId}...`);
+    console.log(`🔍🚀 Pushing history for session ${strGameSessionId}...`);
 
-    // Get all players who have any ledger entry for this game
-    const playerIds = await Ledger.distinct("telegramId", { gameSessionId: strGameSessionId });
-    
-    if (!playerIds.length) {
-        console.log(`⚠️ No ledger entries found for session ${strGameSessionId}. Skipping.`);
+    const sessions = await PlayerSession.find({
+        GameSessionId: strGameSessionId
+    }).lean();
+
+    if (!sessions.length) {
+        console.log("⚠️ No players found.");
         return;
     }
 
-    const historyJobs = [];
+    const jobs = [];
 
-    for (const telegramId of playerIds) {
-        // Sum stakes for this player
-        const stakeAgg = await Ledger.aggregate([
-            { $match: { gameSessionId: strGameSessionId, telegramId, transactionType: "stake_deduction" } },
-            { $group: { _id: "$telegramId", totalStake: { $sum: "$amount" } } }
+    for (const player of sessions) {
+
+        // Get financial data from Ledger
+        const ledger = await Ledger.aggregate([
+            { $match: { gameSessionId: strGameSessionId, telegramId: player.telegramId } },
+            {
+                $group: {
+                    _id: "$telegramId",
+                    totalStake: {
+                        $sum: {
+                            $cond: [{ $eq: ["$transactionType", "stake_deduction"] }, "$amount", 0]
+                        }
+                    },
+                    totalWin: {
+                        $sum: {
+                            $cond: [{ $eq: ["$transactionType", "player_winnings"] }, "$amount", 0]
+                        }
+                    }
+                }
+            }
         ]);
-        const totalStake = stakeAgg[0]?.totalStake || 0;
 
-        // Sum winnings (winner only)
-        const winAgg = await Ledger.aggregate([
-            { $match: { gameSessionId: strGameSessionId, telegramId, transactionType: "player_winnings" } },
-            { $group: { _id: "$telegramId", totalWin: { $sum: "$amount" } } }
-        ]);
-        const totalWin = winAgg[0]?.totalWin || 0;
+        const totalStake = ledger[0]?.totalStake || 0;
+        const totalWin = ledger[0]?.totalWin || 0;
 
-        const historyJob = {
-            type: 'PROCESS_GAME_HISTORY',
+        jobs.push({
+            type: "PROCESS_GAME_HISTORY",
             strGameSessionId,
             strGameId,
-            winnerId: totalWin > 0 ? String(telegramId) : null, // mark winner
+            telegramId: player.telegramId,
+            winnerId: totalWin > 0 ? String(player.telegramId) : null,
             prizeAmount: totalWin,
-            stakeAmount: Math.abs(totalStake), // stake deduction is negative
-            callNumberLength: 0, // optional: if you store in ledger, use it
+            stakeAmount: Math.abs(totalStake),
+            cartelaIds: player.cardIds || [],
+            callNumberLength: player.callNumberLength || 0,
             firedAt: new Date()
-        };
-
-        historyJobs.push(historyJob);
+        });
     }
 
-    if (historyJobs.length) {
-        // Push all jobs at once for atomicity
-        await redis.lPush('game-task-queue', historyJobs.map(j => JSON.stringify(j)));
-        console.log(`🚀 Queued history for ${historyJobs.length} players in session ${strGameSessionId}`);
-    }
+    await redis.lPush("game-task-queue", jobs.map(j => JSON.stringify(j)));
+
+    console.log(`✅ Queued history for ${jobs.length} players`);
 }
 
 module.exports = pushHistoryForAllPlayers;
