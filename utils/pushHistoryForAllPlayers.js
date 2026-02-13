@@ -41,7 +41,7 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
             console.error(`❌ Found a session record without a telegramId! ID: ${player._id}`);
             continue; 
         }
-
+        console.log(`📞📞📞📞Processing player ${tId} with session ID ${player._id}`);
         const playerLedger = ledgerMap.get(String(tId)) || { totalStake: 0, totalWin: 0 };
         const totalStake = playerLedger.totalStake || 0;
         const totalWin = playerLedger.totalWin || 0;
