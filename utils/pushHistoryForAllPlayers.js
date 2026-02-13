@@ -46,7 +46,7 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
 
     if (historyJobs.length) {
         // Push all jobs at once for atomicity
-        await redisClient.lPush('game-task-queue', historyJobs.map(j => JSON.stringify(j)));
+        await redis.lPush('game-task-queue', historyJobs.map(j => JSON.stringify(j)));
         console.log(`🚀 Queued history for ${historyJobs.length} players in session ${strGameSessionId}`);
     }
 }
