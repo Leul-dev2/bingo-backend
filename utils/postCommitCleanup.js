@@ -25,10 +25,10 @@ async function postCommitCleanup(gameId, GameSessionId, io, redis, state) {
     
     try {
         // --- MONGODB CLEANUP: Delete all PlayerSession records for the finished game ---
-        const deleteResult = await PlayerSession.deleteMany({ 
-            GameSessionId: strGameSessionId 
-        });
-        console.log(`✅ MongoDB cleanup: Deleted ${deleteResult.deletedCount} PlayerSession records for session ${strGameSessionId}.`);
+        // const deleteResult = await PlayerSession.deleteMany({ 
+        //     GameSessionId: strGameSessionId 
+        // });
+       // console.log(`✅ MongoDB cleanup: Deleted ${deleteResult.deletedCount} PlayerSession records for session ${strGameSessionId}.`);
         // -------------------------------------------------------------------------------
 
         // Redis Cleanup
