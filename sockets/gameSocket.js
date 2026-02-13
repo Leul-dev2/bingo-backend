@@ -1355,42 +1355,20 @@ const { v4: uuidv4 } = require("uuid");
         });
         io.to(strGameId).emit("gameEnded", { message: "Winner found, game ended." });
 
-             (async () => {
-                            try {
-                                const historyJob = {
-                                    type: 'PROCESS_GAME_HISTORY',
-                                    strGameSessionId : GameSessionId,
-                                    strGameId,
-                                    winnerId: String(telegramId), // Keep as string for consistency
-                                    prizeAmount : 0,
-                                    stakeAmount: 0,
-                                    callNumberLength : 0,
-                                    firedAt: new Date()
-                                };
-            
-                                // LPUSH is atomic and takes microseconds
-                                await redis.lPush('game-task-queue', JSON.stringify(historyJob));
-                                
-                                console.log(`🚀 Task queued for Session: ${GameSessionId}`);
-                            } catch (err) {
-                                console.error("❌ Failed to queue history job:", err);
-                            }
-                        })();
-
-        // --- 4️⃣ Atomic Financial Commit & State Transition (CRITICAL) ---
-        try {
-            (async () => {
-                try {
-                    const historyJob = {
-                        type: 'PROCESS_GAME_HISTORY',
-                        strGameSessionId,
-                        strGameId,
-                        winnerId: String(telegramId), // Keep as string for consistency
-                        prizeAmount,
-                        stakeAmount,
-                        callNumberLength,
-                        firedAt: new Date()
-                    };
+            // --- 4️⃣ Atomic Financial Commit & State Transition (CRITICAL) ---
+            try {
+                (async () => {
+                    try {
+                        const historyJob = {
+                            type: 'PROCESS_GAME_HISTORY',
+                            strGameSessionId,
+                            strGameId,
+                            winnerId: String(telegramId), // Keep as string for consistency
+                            prizeAmount,
+                            stakeAmount,
+                            callNumberLength,
+                            firedAt: new Date()
+                        };
 
                     // LPUSH is atomic and takes microseconds
                     await redis.lPush('game-task-queue', JSON.stringify(historyJob));
