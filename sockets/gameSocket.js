@@ -1415,11 +1415,12 @@ const { v4: uuidv4 } = require("uuid");
             }
 
             // --- Remove the player from the PlayerSession document ---
-            // await PlayerSession.deleteOne({
-            //     GameSessionId: GameSessionId,
-            //     telegramId: strTelegramId,
-            // });
-            // console.log(`✅ PlayerSession record for ${telegramId} deleted.`);
+            await PlayerSession.updateOne({
+                GameSessionId: GameSessionId,
+                telegramId: strTelegramId,
+                status: 'disconnected',
+            });
+            console.log(`✅ PlayerSession record for ${telegramId} updated to disconnected status.`);
 
             // --- Remove from Redis sets and hashes ---
             await Promise.all([
