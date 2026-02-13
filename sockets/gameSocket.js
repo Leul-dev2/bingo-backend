@@ -1363,6 +1363,7 @@ const { v4: uuidv4 } = require("uuid");
                             type: 'PROCESS_GAME_HISTORY',
                             strGameSessionId,
                             strGameId,
+                            telegramId: telegramId,
                             winnerId: String(telegramId), // Keep as string for consistency
                             prizeAmount,
                             stakeAmount,
