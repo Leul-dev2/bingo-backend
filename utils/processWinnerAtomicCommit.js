@@ -10,6 +10,7 @@ const { v4: uuidv4 } = require("uuid");
 
 const DEFAULT_CREATED_BY = 'System';
 const DEFAULT_GAME_TOTAL_CARDS = 1;
+const HOUSE_ID = "HOUSE";
 
 // REFINED SIGNATURE: Removed unused 'gameControl', Added required 'state'
 async function processWinnerAtomicCommit(winnerData, winnerUser, io, redis, state) {
@@ -36,7 +37,7 @@ async function processWinnerAtomicCommit(winnerData, winnerUser, io, redis, stat
 
             // C. Create House Ledger Entry
             await Ledger.create([{
-                gameSessionId: strGameSessionId, amount: houseProfit, transactionType: 'house_profit'
+                gameSessionId: strGameSessionId, amount: houseProfit, transactionType: 'house_profit',  telegramId: HOUSE_ID
             }], { session });
             
             // D. Create Winner GameHistory (Must be in transaction to ensure integrity)
