@@ -13,6 +13,9 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
         return;
     }
 
+    const winnerEntry = allLedgerData.find(item => item.totalWin > 0);
+    const winnerTelegramId = winnerEntry ? String(winnerEntry._id) : null;
+
     // 2. Optimization: Fetch ALL ledger entries for this session in ONE go
     const allLedgerData = await Ledger.aggregate([
         { $match: { gameSessionId: strGameSessionId } },
@@ -47,10 +50,7 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
         const totalStake = playerLedger.totalStake || 0;
         const totalWin = playerLedger.totalWin || 0;
         let determinedWinnerId = null;
-            
-        if (playerLedger.totalWin > 0) {
-            determinedWinnerId = String(tId);
-        }
+      
 
         console.log(`Player ${tId} - Total Stake: ${totalStake}, Total Win: ${totalWin}, Winner ID: ${determinedWinnerId}`);
         jobs.push({
@@ -58,7 +58,7 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
             strGameSessionId,
             strGameId,
             telegramId: tId,
-            winnerId: determinedWinnerId || null, // Mark the winner
+            winnerId: winnerTelegramId || null, // Mark the winner
             prizeAmount: totalWin || 0,
             stakeAmount: Math.abs(totalStake),
             cartelaIds: player.cardIds || [],
