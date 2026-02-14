@@ -47,6 +47,7 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
         const winnerId = playerLedger.transactionType === "player_winnings" ? String(tId) : null;
         const totalWin = playerLedger.totalWin || 0;
 
+        console.log(`Player ${tId} - Total Stake: ${totalStake}, Total Win: ${totalWin}, Winner ID: ${winnerId}`);
         jobs.push({
             type: "PROCESS_GAME_HISTORY",
             strGameSessionId,
