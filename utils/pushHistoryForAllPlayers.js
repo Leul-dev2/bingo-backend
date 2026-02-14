@@ -13,8 +13,7 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
         return;
     }
 
-    const winnerEntry = allLedgerData.find(item => item.totalWin > 0);
-    const winnerTelegramId = winnerEntry ? String(winnerEntry._id) : null;
+  
 
     // 2. Optimization: Fetch ALL ledger entries for this session in ONE go
     const allLedgerData = await Ledger.aggregate([
@@ -31,6 +30,9 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
             }
         }
     ]);
+
+    const winnerEntry = allLedgerData.find(item => item.totalWin > 0);
+    const winnerTelegramId = winnerEntry ? String(winnerEntry._id) : null;
 
     // Create a map for O(1) lookup: { "12345": { totalStake: 10, totalWin: 50 } }
     const ledgerMap = new Map(allLedgerData.map(item => [String(item._id), item]));
