@@ -31,8 +31,12 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
         }
     ]);
 
-    const winnerEntry = allLedgerData.find(item => item.totalWin > 0);
-    const winnerTelegramId = winnerEntry ? String(winnerEntry._id) : null;
+  const winnerLedger = await Ledger.findOne({
+    gameSessionId: strGameSessionId,
+    transactionType: "player_winnings"
+  }).lean();
+
+ const winnerTelegramId = winnerLedger ? winnerLedger.telegramId : null;
 
     // Create a map for O(1) lookup: { "12345": { totalStake: 10, totalWin: 50 } }
     const ledgerMap = new Map(allLedgerData.map(item => [String(item._id), item]));
