@@ -1,5 +1,6 @@
 const PlayerSession = require("../models/PlayerSession");
 const Ledger = require("../models/Ledger");
+const e = require("cors");
 
 async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
     console.log(`🔍🚀 Fetching players for session ${strGameSessionId}...`);
@@ -44,16 +45,20 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
         console.log(`📞📞📞📞Processing player ${tId} with session ID ${player._id}`);
         const playerLedger = ledgerMap.get(String(tId)) || { totalStake: 0, totalWin: 0 };
         const totalStake = playerLedger.totalStake || 0;
-        const winnerId = playerLedger.transactionType === "player_winnings" ? String(tId) : null;
         const totalWin = playerLedger.totalWin || 0;
+        let determinedWinnerId = null;
+            
+        if (playerLedger.totalWin > 0) {
+            determinedWinnerId = String(tId);
+        }
 
-        console.log(`Player ${tId} - Total Stake: ${totalStake}, Total Win: ${totalWin}, Winner ID: ${winnerId}`);
+        console.log(`Player ${tId} - Total Stake: ${totalStake}, Total Win: ${totalWin}, Winner ID: ${determinedWinnerId}`);
         jobs.push({
             type: "PROCESS_GAME_HISTORY",
             strGameSessionId,
             strGameId,
             telegramId: tId,
-            winnerId: winnerId || null, // Mark the winner
+            winnerId: determinedWinnerId || null, // Mark the winner
             prizeAmount: totalWin || 0,
             stakeAmount: Math.abs(totalStake),
             cartelaIds: player.cardIds || [],
