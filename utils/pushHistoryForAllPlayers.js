@@ -52,7 +52,7 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
             strGameId,
             telegramId: tId,
             winnerId: winnerId || null, // Mark the winner
-            prizeAmount: totalWin,
+            prizeAmount: totalWin || 0,
             stakeAmount: Math.abs(totalStake),
             cartelaIds: player.cardIds || [],
             callNumberLength: player.callNumberLength || 0,
