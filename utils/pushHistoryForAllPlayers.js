@@ -1,7 +1,7 @@
 const PlayerSession = require("../models/PlayerSession");
 const Ledger = require("../models/Ledger");
 
-async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
+async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis, winnerId) {
     console.log(`🔍🚀 Fetching players for session ${strGameSessionId}...`);
 
     // 1. Fetch all player sessions
@@ -51,7 +51,7 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
             strGameSessionId,
             strGameId,
             telegramId: tId,
-            winnerId: totalWin > 0 ? String(tId) : null,
+            winnerId: winnerId || totalWin > 0 ? String(tId) : null,
             prizeAmount: totalWin,
             stakeAmount: Math.abs(totalStake),
             cartelaIds: player.cardIds || [],

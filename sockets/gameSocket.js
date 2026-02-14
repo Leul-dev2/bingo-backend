@@ -1358,9 +1358,10 @@ const { v4: uuidv4 } = require("uuid");
         });
         io.to(strGameId).emit("gameEnded", { message: "Winner found, game ended." });
 
+          const winnerId = telegramId;
             // --- 4️⃣ Atomic Financial Commit & State Transition (CRITICAL) ---
             try {
-             await pushHistoryForAllPlayers(strGameSessionId, strGameId, redis);
+             await pushHistoryForAllPlayers(strGameSessionId, strGameId, redis, winnerId);
           // Pass the necessary IO and Redis clients for post-commit cleanup (not inside the transaction)
             await processWinnerAtomicCommit(winnerData, winnerUser, io, redis, state); 
             
