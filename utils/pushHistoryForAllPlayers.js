@@ -55,10 +55,10 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
         const playerLedger = ledgerMap.get(String(tId)) || { totalStake: 0, totalWin: 0 };
         const totalStake = playerLedger.totalStake || 0;
         const totalWin = playerLedger.totalWin || 0;
-        let determinedWinnerId = null;
+      
       
 
-        console.log(`Player ${tId} - Total Stake: ${totalStake}, Total Win: ${totalWin}, Winner ID: ${determinedWinnerId}`);
+        console.log(`Player ${tId} - Total Stake: ${totalStake}, Total Win: ${totalWin}, Winner-ID: ${winnerTelegramId}`);
         jobs.push({
             type: "PROCESS_GAME_HISTORY",
             strGameSessionId,
