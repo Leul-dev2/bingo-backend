@@ -1,7 +1,7 @@
 const PlayerSession = require("../models/PlayerSession");
 const Ledger = require("../models/Ledger");
 
-async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis, winnerId) {
+async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
     console.log(`🔍🚀 Fetching players for session ${strGameSessionId}...`);
 
     // 1. Fetch all player sessions
@@ -44,14 +44,14 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis, winn
         console.log(`📞📞📞📞Processing player ${tId} with session ID ${player._id}`);
         const playerLedger = ledgerMap.get(String(tId)) || { totalStake: 0, totalWin: 0 };
         const totalStake = playerLedger.totalStake || 0;
-        const totalWin = playerLedger.totalWin || 0;
+        const winnerId = playerLedger.transactionType === "player_winnings" ? String(tId) : null;
 
         jobs.push({
             type: "PROCESS_GAME_HISTORY",
             strGameSessionId,
             strGameId,
             telegramId: tId,
-            winnerId: winnerId || totalWin > 0 ? String(tId) : null,
+            winnerId: winnerId || null, // Mark the winner
             prizeAmount: totalWin,
             stakeAmount: Math.abs(totalStake),
             cartelaIds: player.cardIds || [],

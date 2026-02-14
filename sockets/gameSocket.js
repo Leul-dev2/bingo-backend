@@ -1361,7 +1361,7 @@ const { v4: uuidv4 } = require("uuid");
           const winnerId = telegramId;
             // --- 4️⃣ Atomic Financial Commit & State Transition (CRITICAL) ---
             try {
-             await pushHistoryForAllPlayers(strGameSessionId, strGameId, redis, winnerId);
+             await pushHistoryForAllPlayers(strGameSessionId, strGameId, redis);
           // Pass the necessary IO and Redis clients for post-commit cleanup (not inside the transaction)
             await processWinnerAtomicCommit(winnerData, winnerUser, io, redis, state); 
             
