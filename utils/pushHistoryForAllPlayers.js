@@ -30,6 +30,10 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
             }
         }
     ]);
+    
+
+    console.log("ALL LEDGER DATA:", allLedgerData);
+
 
   const winnerLedger = await Ledger.findOne({
     gameSessionId: strGameSessionId,
@@ -40,6 +44,9 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
 
     // Create a map for O(1) lookup: { "12345": { totalStake: 10, totalWin: 50 } }
     const ledgerMap = new Map(allLedgerData.map(item => [String(item._id), item]));
+
+    console.log("Ledger Map Keys:", [...ledgerMap.keys()]);
+
 
     const jobs = [];
 
