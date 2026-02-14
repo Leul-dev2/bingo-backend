@@ -869,6 +869,9 @@ const { v4: uuidv4 } = require("uuid");
         const gameControlMeta = await GameControl.findOne({ GameSessionId: strGameSessionId }).select('stakeAmount -_id');
         const stakeAmount = gameControlMeta?.stakeAmount || 0;
 
+        // add 1 sec delay to ensure all playerSessions are updated to 'connected' after reconnections
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
         const connectedPlayerSessions = await PlayerSession.find({ 
             GameSessionId: strGameSessionId, 
             status: 'connected' 
