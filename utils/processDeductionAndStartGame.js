@@ -7,7 +7,7 @@
  const PlayerSession = require("../models/PlayerSession");
  const { syncGameIsActive } = require("./syncGameIsActive");
  const HOUSE_CUT_PERCENTAGE = 0.20;
-   
+ const MIN_PLAYERS_TO_START = 2;
     
      // The core logic for player deductions and game start
     async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, redis, state) {
