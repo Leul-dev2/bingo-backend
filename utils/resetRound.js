@@ -1,7 +1,7 @@
 // File: ../utils/resetRound.js
 const GameControl = require("../models/GameControl");
 const GameCard = require("../models/GameCard");
-const pushHistoryForAllPlayers = require("./pushHistoryForAllPlayers");
+const { pushHistoryForAllPlayers } = require("./pushHistoryForAllPlayers");
 const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLockKey, getGameActiveKey, getGameSessionsKey, getGamePlayersKey, getActivePlayers } = require("./redisKeys");
 
 async function resetRound(gameId, GameSessionId, socket, io, state, redis) {

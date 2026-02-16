@@ -81,7 +81,7 @@ const subClient = redis.duplicate();
      JoinedGameHandler(socket, io, redis);
      GameCountHandler(socket, io, redis, state);
      checkWinnerHandler(socket, io, redis, state);
-     playerLeaveHandler(socket, io, redis);
+     playerLeaveHandler(socket, io, redis, state);
      disconnectHandler(socket, io, redis);
   });
 };

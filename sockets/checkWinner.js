@@ -1,6 +1,6 @@
 const GameCard = require("../models/GameCard");
 const { checkBingoPattern } = require("../utils/BingoPatterns"); 
-const ProcessWinner = require("../utils/ProcessWinner");
+const { ProcessWinner } = require("../utils/ProcessWinner");
  
  
  module.exports = function CheckWinnerHandler(socket, io, redis, state) {

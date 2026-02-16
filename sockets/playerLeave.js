@@ -5,7 +5,7 @@ const { getGameRoomsKey } = require("../utils/redisKeys");
 const { checkAndResetIfEmpty } = require("../utils/checkandreset");
  
  
- module.exports = function playerLeaveHandler(socket, io, redis) { 
+ module.exports = function playerLeaveHandler(socket, io, redis, state) { 
  // ✅ Handle playerLeave event
     socket.on("playerLeave", async ({ gameId, GameSessionId, telegramId }, callback) => {
         const strTelegramId = String(telegramId);
