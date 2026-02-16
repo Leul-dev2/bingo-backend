@@ -4,6 +4,7 @@
 
 // Get my cards (fast & safe) by value
 async function findFieldsByValue(redis, hashKey, targetOwnerId, options = {}) {
+  console.log(`🔍 🔍 Searching for fields in ${hashKey} with value:`, targetOwnerId);
   const { batchSize = 100 } = options;
   const matches = [];
   let cursor = '0';

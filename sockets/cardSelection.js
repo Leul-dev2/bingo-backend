@@ -37,8 +37,9 @@
             }
             const newCardIdSet = new Set(cardIds.map(String));
 
+            console.log(`User ${strTelegramId} is attempting to select cards:`, gameCardsKey, cardIds);
             const myOldCardIds = await findFieldsByValue(redis, gameCardsKey, strTelegramId);
-            console.log("Backend sees user owns: 🎴🎴🎴🃏", myOldCardIds);
+            console.log("🎴🃏 Backend sees user owns:", myOldCardIds);
             const myOldCardIdSet = new Set(myOldCardIds);
 
             // --- 5. Determine Cards to Add and Release ---
