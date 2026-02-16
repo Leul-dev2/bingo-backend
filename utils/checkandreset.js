@@ -61,4 +61,4 @@ async function checkAndResetIfEmpty(gameId, GameSessionId, telegramId, socket, i
     }
 }
 
-module.exports = checkAndResetIfEmpty;
+module.exports = { checkAndResetIfEmpty };

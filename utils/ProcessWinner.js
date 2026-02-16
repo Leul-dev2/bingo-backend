@@ -5,7 +5,7 @@ const { processWinnerAtomicCommit } = require("./processWinnerAtomicCommit");
 const { pushHistoryForAllPlayers } = require("./pushHistoryForAllPlayers"); 
 
   
-  async function processWinner({ telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis, cardData, drawnNumbersRaw, winnerLockKey }) {
+  async function ProcessWinner({ telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis, cardData, drawnNumbersRaw, winnerLockKey }) {
         const strGameId = String(gameId);
         const strGameSessionId = String(GameSessionId);
 
@@ -77,4 +77,4 @@ const { pushHistoryForAllPlayers } = require("./pushHistoryForAllPlayers");
     }
 
 
-    module.exports = { processWinner };
+    module.exports = { ProcessWinner };

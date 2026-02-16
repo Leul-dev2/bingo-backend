@@ -3,7 +3,7 @@ const { checkBingoPattern } = require("../utils/BingoPatterns");
 const ProcessWinner = require("../utils/ProcessWinner");
  
  
- module.exports = function CheckWinnerHandler(socket, io, redis, state, processWinner) {
+ module.exports = function CheckWinnerHandler(socket, io, redis, state) {
     socket.on("checkWinner", async ({ telegramId, gameId, GameSessionId, cartelaId, selectedNumbers }) => {
         console.time(`⏳checkWinner_${telegramId}`);
 
@@ -50,7 +50,7 @@ const ProcessWinner = require("../utils/ProcessWinner");
         if (!lockAcquired) return; // Someone else won and acquired the lock first
 
         // --- 6️⃣ Call optimized winner processor, passing cached data ---
-        await processWinner({
+        await ProcessWinner({
           telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis, cardData, drawnNumbersRaw, winnerLockKey
         });
 
