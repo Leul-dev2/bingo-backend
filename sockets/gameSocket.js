@@ -17,7 +17,7 @@ const processWinnerAtomicCommit = require('../utils/processWinnerAtomicCommit');
 const PlayerSession = require("../models/PlayerSession");
 const GlobalGameStats = require('../models/GlobalGameStats');
 const { findFieldsByValue } = require("../utils/redisHelpers");
-const JoinedGameHandler = require("./JoinedGame"); 
+const JoinedLobbyHandler = require("./JoinedLobby"); 
 const cardSelectionHandler = require("./cardSelection");
 const {pendingDisconnectTimeouts, ACTIVE_DISCONNECT_GRACE_PERIOD_MS, JOIN_GAME_GRACE_PERIOD_MS, ACTIVE_SOCKET_TTL_SECONDS} = require("../utils/timeUtils"); 
 const mongoose = require('mongoose');
@@ -136,7 +136,7 @@ const { v4: uuidv4 } = require("uuid");
 
 
     // User joins a game lobby phase
-     JoinedGameHandler(socket, io, redis);
+     JoinedLobbyHandler(socket, io, redis);
      cardSelectionHandler(socket, io, redis);
 
 

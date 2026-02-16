@@ -2,7 +2,7 @@ const { pendingDisconnectTimeouts, ACTIVE_SOCKET_TTL_SECONDS } = require("../uti
 
 
 
-module.exports = function JoinedGameHandler(socket, io, redis) {
+module.exports = function JoinedLobbyHandler(socket, io, redis) {
      socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
         console.log("userJoined invoked");
         const strGameId = String(gameId);
