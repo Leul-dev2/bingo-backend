@@ -5,7 +5,6 @@
  const { processDeductionsAndStartGame } = require("../utils/processDeductionAndStartGame");
  const { fullGameCleanup } = require("../utils/fullGameCleanup");
  const PlayerSession = require("../models/PlayerSession");
-
  
  const MIN_PLAYERS_TO_START = 2;
 

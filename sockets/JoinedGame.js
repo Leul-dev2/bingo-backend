@@ -1,7 +1,7 @@
- const { pendingDisconnectTimeouts } = require("../utils/timeUtils");
- const GameControl = require("../models/GameControl");
- const PlayerSession = require("../models/PlayerSession");
- const { getGameDrawsKey } = require("../utils/redisKeys"); 
+const { pendingDisconnectTimeouts } = require("../utils/timeUtils");
+const GameControl = require("../models/GameControl");
+const PlayerSession = require("../models/PlayerSession");
+const { getGameDrawsKey } = require("../utils/redisKeys"); 
  
 
    module.exports = function JoinedGameHandler(socket, io, redis) {
