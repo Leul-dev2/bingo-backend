@@ -4,7 +4,7 @@
 
 // Get my cards (fast & safe) by value
 async function findFieldsByValue(redis, hashKey, targetOwnerId, options = {}) {
-  console.log(`🔍 🔍 Searching for fields in ${hashKey} with value:`, targetOwnerId);
+  console.log(`🔍 Searching ${hashKey} for ID: ${targetOwnerId}`);
   const { batchSize = 100 } = options;
   const matches = [];
   let cursor = '0';
@@ -18,18 +18,31 @@ async function findFieldsByValue(redis, hashKey, targetOwnerId, options = {}) {
     });
 
     cursor = scanResult.cursor;
-    const entries = scanResult.entries || [];
+    
+    // Some libraries return scanResult.entries, others just scanResult[1]
+    const entries = scanResult.entries || scanResult[1] || [];
 
-    for (let i = 0; i < entries.length; i += 2) {
-      const field = entries[i];
-      const value = entries[i + 1];
-
-      if (String(value).trim() === targetStr) {
-        matches.push(field);
+    // Handle standard flat array: [field, value, field, value]
+    if (Array.isArray(entries) && typeof entries[0] === 'string') {
+      for (let i = 0; i < entries.length; i += 2) {
+        const value = entries[i + 1];
+        if (value && String(value).trim() === targetStr) {
+          matches.push(entries[i]);
+        }
+      }
+    } 
+    // Handle array of objects: [{field: '8', value: '...'}, ...]
+    else {
+      for (const item of entries) {
+        if (item.value && String(item.value).trim() === targetStr) {
+          matches.push(item.field);
+        }
       }
     }
   } while (cursor !== '0');
 
+  console.log(`✅ Found matches:`, matches);
+  console.log("DEBUG: Raw scan result entries:", JSON.stringify(scanResult.entries).slice(0, 100));
   return matches;
 }
 
