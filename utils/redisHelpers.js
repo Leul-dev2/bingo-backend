@@ -16,6 +16,8 @@ async function findFieldsByValue(redis, hashKey, targetOwnerId, options = {}) {
       MATCH: '*',
       COUNT: batchSize
     });
+    console.log("DEBUG: Raw scan result entries:", JSON.stringify(scanResult.entries).slice(0, 100));
+
 
     cursor = scanResult.cursor;
     
@@ -42,7 +44,6 @@ async function findFieldsByValue(redis, hashKey, targetOwnerId, options = {}) {
   } while (cursor !== '0');
 
   console.log(`✅ Found matches:`, matches);
-  console.log("DEBUG: Raw scan result entries:", JSON.stringify(scanResult.entries).slice(0, 100));
   return matches;
 }
 
