@@ -86,4 +86,4 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
     }
 }
 
-module.exports = pushHistoryForAllPlayers;
+module.exports = { pushHistoryForAllPlayers };

@@ -118,4 +118,4 @@ async function processWinnerAtomicCommit(winnerData, winnerUser, io, redis, stat
 }
 
 
-module.exports = processWinnerAtomicCommit;
+module.exports = { processWinnerAtomicCommit };
