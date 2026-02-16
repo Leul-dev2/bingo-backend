@@ -55,16 +55,13 @@ async function getFullHashAsObject(redis, hashKey, options = {}) {
   let cursor = '0';
 
   do {
-    const scanResult = await redis.hScan(hashKey, cursor, {
-      MATCH: '*',
-      COUNT: batchSize
-    });
-
+    const scanResult = await redis.hScan(hashKey, cursor, { MATCH: '*', COUNT: batchSize });
     cursor = scanResult.cursor;
     const entries = scanResult.entries || [];
 
-    for (let i = 0; i < entries.length; i += 2) {
-      result[entries[i]] = entries[i + 1];
+    // ✅ Update this loop to handle objects too
+    for (const item of entries) {
+      result[item.field] = item.value;
     }
   } while (cursor !== '0');
 

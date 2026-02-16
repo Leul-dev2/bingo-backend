@@ -149,13 +149,13 @@
                 requestId
             });
 
-            for (const cardId of cardsToRelease) {
-                socket.to(strGameId).emit("cardReleased", { telegramId: strTelegramId, cardId: cardId });
-            }
-            for (const cardId of cardsToAdd) {
-                socket.to(strGameId).emit("otherCardSelected", { telegramId: strTelegramId, cardId: cardId });
-            }
-
+          if (cardsToRelease.length > 0 || cardsToAdd.length > 0) {
+                io.to(strGameId).emit("cardsUpdated", {
+                    released: cardsToRelease,
+                    selected: cardsToAdd,
+                    ownerId: strTelegramId
+                });
+           }
            
             const numberOfPlayers = await redis.sCard(`gameSessions:${strGameId}`);
             io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
