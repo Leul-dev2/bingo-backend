@@ -137,6 +137,7 @@ const { v4: uuidv4 } = require("uuid");
 
     // User joins a game lobby phase
      JoinedGameHandler(socket, io, redis);
+     cardSelectionHandler(socket, io, redis);
 
 
 
