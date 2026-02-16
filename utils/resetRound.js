@@ -92,4 +92,4 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
     console.log("📖📖 game End is emitted");
 }
 
-module.exports = resetRound;
+module.exports = { resetRound };

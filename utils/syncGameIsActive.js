@@ -54,4 +54,4 @@ async function syncGameIsActive(gameId, isActive, redis) {
     }
 }
 
-module.exports = syncGameIsActive;
+module.exports = { syncGameIsActive };
