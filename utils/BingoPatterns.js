@@ -90,4 +90,4 @@ function checkBingoPattern(card, drawnNumbers, markedNumbers) {
   return pattern;
 }
 
-module.exports = checkBingoPattern;
+module.exports = { checkBingoPattern };
