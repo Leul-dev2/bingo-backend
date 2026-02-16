@@ -16,6 +16,9 @@ const deleteCardsByTelegramId = require('../utils/deleteCardsByTelegramId');
 const processWinnerAtomicCommit = require('../utils/processWinnerAtomicCommit');
 const PlayerSession = require("../models/PlayerSession");
 const GlobalGameStats = require('../models/GlobalGameStats');
+const { findFieldsByValue } = require("../utils/redisHelpers");
+const JoinedGameHandler = require("./JoinedGame"); 
+const {pendingDisconnectTimeouts, ACTIVE_DISCONNECT_GRACE_PERIOD_MS, JOIN_GAME_GRACE_PERIOD_MS, ACTIVE_SOCKET_TTL_SECONDS} = require("../utils/timeUtils"); 
 const mongoose = require('mongoose');
 
 const { // <-- Add this line
@@ -31,10 +34,7 @@ const { // <-- Add this line
     // Add any other specific key getters you defined in redisKeys.js
 } = require("../utils/redisKeys"); // <-- Make sure the path is correct
 const { Socket } = require("socket.io");
-const pendingDisconnectTimeouts = new Map(); // Key: `${telegramId}:${gameId}`, Value: setTimeout ID
-const ACTIVE_DISCONNECT_GRACE_PERIOD_MS = 1 * 1000; // For card selection lobby (10 seconds)
-const JOIN_GAME_GRACE_PERIOD_MS = 2 * 1000; // For initial join/live game phase (5 seconds)
-const ACTIVE_SOCKET_TTL_SECONDS = 60 * 3;
+
 
 
 module.exports = function registerGameSocket(io, redis) {
@@ -135,108 +135,7 @@ const { v4: uuidv4 } = require("uuid");
 
 
     // User joins a game lobby phase
-    socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
-        console.log("userJoined invoked");
-        const strGameId = String(gameId);
-        const strTelegramId = String(telegramId);
-
-        try {
-            const userSelectionKey = `userSelections`; // Stores selection per socket.id
-            const userOverallSelectionKey = `userSelectionsByTelegramId`; // Stores the user's *overall* selected card by telegramId
-            const gameCardsKey = `gameCards:${strGameId}`;
-            const sessionKey = `gameSessions:${strGameId}`; // Card selection lobby (unique players)
-            const gamePlayersKey = `gamePlayers:${strGameId}`; // Overall game players (unique players across all game states)
-
-            console.log(`Backend: Processing userJoinedGame for Telegram ID: ${strTelegramId}, Game ID: ${strGameId}`);
-
-            // --- Step 1: Handle Disconnect Grace Period Timer Cancellation ---
-            const timeoutKey = `${strTelegramId}:${strGameId}`;
-            if (pendingDisconnectTimeouts.has(timeoutKey)) {
-                clearTimeout(pendingDisconnectTimeouts.get(timeoutKey));
-                pendingDisconnectTimeouts.delete(timeoutKey);
-                console.log(`✅ User ${strTelegramId} reconnected to game ${strGameId} within grace period. Cancelled full disconnect cleanup.`);
-            } else {
-                console.log(`🆕 User ${strTelegramId} joining game ${strGameId}. No pending disconnect timeout found (or it already expired).`);
-            }
-
-            // --- IMPORTANT: Clean up any residual 'joinGame' phase info for this socket ---
-            // This handles the transition from 'joinGame' phase to 'lobby' phase for the same socket
-            await redis.hDel(`joinGameSocketsInfo`, socket.id);
-            console.log(`🧹 Cleaned up residual 'joinGameSocketsInfo' for socket ${socket.id} as it's now in 'lobby' phase.`);
-
-
-            // --- Step 2: Determine Current Card State for Reconnecting Player ---
-            let currentHeldCardId = null;
-            let currentHeldCard = null;
-
-            const userOverallSelectionRaw = await redis.hGet(userOverallSelectionKey, strTelegramId);
-            if (userOverallSelectionRaw) {
-                const overallSelection = JSON.parse(userOverallSelectionRaw);
-                if (String(overallSelection.gameId) === strGameId && overallSelection.cardId !== null) {
-                    const cardOwner = await redis.hGet(gameCardsKey, String(overallSelection.cardId));
-                    if (cardOwner === strTelegramId) {
-                        currentHeldCardId = overallSelection.cardId;
-                        currentHeldCard = overallSelection.card;
-                        console.log(`✅ User ${strTelegramId} reconnected with previously held card ${currentHeldCardId} for game ${strGameId}.`);
-                    } else {
-                        console.log(`⚠️ User ${strTelegramId} overall selection for card ${overallSelection.cardId} in game ${strGameId} is no longer valid (card not taken by them in gameCards). Cleaning up stale entry.`);
-                        await redis.hDel(userOverallSelectionKey, strTelegramId);
-                    }
-                } else {
-                    console.log(`ℹ️ User ${strTelegramId} had overall selection, but for a different game or no card. No card restored for game ${strGameId}.`);
-                }
-            } else {
-                console.log(`ℹ️ No overall persisted selection found for ${strTelegramId}. User will join without a pre-selected card.`);
-            }
-
-            // --- Step 3: Set up new socket and persist its specific selection state ---
-            await redis.set(`activeSocket:${strTelegramId}:${socket.id}`, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
-            socket.join(strGameId);
-
-            await redis.hSet(userSelectionKey, socket.id, JSON.stringify({
-                telegramId: strTelegramId,
-                gameId: strGameId,
-                cardId: currentHeldCardId,
-                card: currentHeldCard,
-                phase: 'lobby' // Indicate this socket belongs to the 'lobby' phase
-            }));
-            console.log(`Backend: Socket ${socket.id} for ${strTelegramId} set up with cardId: ${currentHeldCardId || 'null'} in 'lobby' phase.`);
-
-            // --- Step 4: Add user to Redis Sets (Lobby and Overall Game Players) ---
-            await redis.sAdd(sessionKey, strTelegramId);
-            await redis.sAdd(gamePlayersKey, strTelegramId);
-            console.log(`Backend: Added ${strTelegramId} to Redis SETs: ${sessionKey} and ${gamePlayersKey}.`);
-
-            // --- Step 5: Broadcast Current Lobby State to All Players in the Game ---
-            const numberOfPlayersInLobby = await redis.sCard(sessionKey);
-            console.log(`Backend: Calculated numberOfPlayers for ${sessionKey} (card selection lobby): ${numberOfPlayersInLobby}`);
-
-            io.to(strGameId).emit("gameid", {
-                gameId: strGameId,
-                numberOfPlayers: numberOfPlayersInLobby,
-            });
-            console.log(`Backend: Emitted 'gameid' to room ${strGameId} with numberOfPlayers: ${numberOfPlayersInLobby}`);
-
-            // --- Step 6: Send Initial Card States to the *Joining Client Only* ---
-            const allTakenCardsData = await redis.hGetAll(gameCardsKey);
-            const initialCardsState = {};
-            for (const cardId in allTakenCardsData) {
-                initialCardsState[cardId] = {
-                    cardId: Number(cardId),
-                    takenBy: allTakenCardsData[cardId],
-                    isTaken: true
-                };
-            }
-            socket.emit("initialCardStates", { takenCards: initialCardsState });
-            console.log(`Backend: Sent 'initialCardStates' to ${strTelegramId} for game ${strGameId}. Total taken cards: ${Object.keys(initialCardsState).length}`);
-
-        } catch (err) {
-            console.error("❌ Error in userJoinedGame:", err);
-            socket.emit("joinError", {
-                message: "Failed to join game. Please refresh or retry.",
-            });
-        }
-    });
+     JoinedGameHandler(socket, io, redis);
 
 
     socket.on("cardSelected", async (data) => {
