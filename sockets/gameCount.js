@@ -12,7 +12,7 @@
   
 
   module.exports = function GameCountHandler(socket, io, redis, state) {
-    io.on("gameCount", async ({ gameId, GameSessionId }) => {
+    socket.on("gameCount", async ({ gameId, GameSessionId }) => {
         const strGameId = String(gameId);
         const strGameSessionId = String(GameSessionId);
 
