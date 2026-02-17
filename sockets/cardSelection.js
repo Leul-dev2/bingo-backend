@@ -149,7 +149,6 @@ socket.on("cardSelected", async (data) => {
         const myCurrentCards = await redis.sMembers(userHeldCardsKey);
 
         socket.emit("cardConfirmed", {
-            cardIds,  // cards user just tried to claim
             requestId,
             currentHeldCardIds: myCurrentCards.map(Number)  // <-- ALL owned cards
         });
