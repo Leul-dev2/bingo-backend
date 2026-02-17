@@ -1,6 +1,6 @@
    const { safeJsonParse } = require("../utils/safeJsonParse");
-   const ACTIVE_DISCONNECT_GRACE_PERIOD_MS = 30000; // 30 seconds for lobby disconnects
-   const JOIN_GAME_GRACE_PERIOD_MS = 60000; // 60 seconds for joinGame disconnects
+   const ACTIVE_DISCONNECT_GRACE_PERIOD_MS = 2000; // 30 seconds for lobby disconnects
+   const JOIN_GAME_GRACE_PERIOD_MS = 2000; // 60 seconds for joinGame disconnects
    const { pendingDisconnectTimeouts } = require("../utils/timeUtils");
    
    module.exports = function disconnectHandler(socket, io, redis) {
