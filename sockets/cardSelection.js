@@ -107,6 +107,10 @@ socket.on("cardSelected", async (data) => {
     const strGameId = String(gameId);
 
     const lockKey = `lock:userAction:${strGameId}:${strTelegramId}`;
+    const userHeldCardsKey = `userHeldCards:${strGameId}:${strTelegramId}`;  // ✅ THIS
+    const takenCardsKey = `takenCards:${strGameId}`;
+    const gameCardsKey = `gameCards:${strGameId}`;
+   
 
     const hasLock = await redis.set(lockKey, requestId, { NX: true, EX: 2 });
     if (!hasLock) {
