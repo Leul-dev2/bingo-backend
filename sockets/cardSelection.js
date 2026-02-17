@@ -160,8 +160,8 @@
                 });
            }
            
-            const numberOfPlayers = await redis.sCard(`gameSessions:${strGameId}`);
-            io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
+            // const numberOfPlayers = await redis.sCard(`gameSessions:${strGameId}`);
+            // io.to(strGameId).emit("gameid", { gameId: strGameId, numberOfPlayers });
 
         } catch (err) {
             console.error(`❌ cardSelected error for game ${strGameId}, user ${strTelegramId}:`, err);
