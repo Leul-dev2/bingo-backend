@@ -123,12 +123,20 @@ socket.on("cardSelected", async (data) => {
             arguments: [strTelegramId, cardIds.map(String).join(",")]
         });
 
-        if (result?.err === "CARD_TAKEN") {
-            throw new Error(`Card ${result[1]} already taken`);
+        if (!result || result[0] !== "OK") {
+            throw new Error("Card selection failed");
         }
 
-        const added = result[1] ? result[1].split(",") : [];
-        const released = result[2] ? result[2].split(",") : [];
+        const added = result[1]
+            ? result[1].split(",").filter(Boolean)
+            : [];
+
+        const released = result[2]
+            ? result[2].split(",").filter(Boolean)
+            : [];
+
+        console.log("ADDED:", added);   // 👈 debug
+        console.log("RELEASED:", released);
 
         socket.emit("cardConfirmed", { cardIds, requestId });
 
@@ -138,7 +146,9 @@ socket.on("cardSelected", async (data) => {
             released
         });
 
-        saveToDatabase(strGameId, strTelegramId, added, cardsData).catch(console.error);
+        // 🔥 BACKGROUND DB WRITES
+        saveToDb(strGameId, strTelegramId, added, cardsData).catch(console.error);
+        //releaseCardsInDb(strGameId, released).catch(console.error);
 
     } catch (err) {
         socket.emit("cardError", { message: err.message, requestId });
@@ -146,6 +156,7 @@ socket.on("cardSelected", async (data) => {
         await redis.del(lockKey);
     }
 });
+
 
 
 socket.on("cardDeselected", async ({ telegramId, cardId, gameId }) => {
