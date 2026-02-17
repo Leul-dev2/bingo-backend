@@ -1,4 +1,4 @@
-const { GameCard } = require("../models/GameCard");
+const GameCard  = require("../models/GameCard");
 
 const SELECT_CARDS_LUA = `
 local userHeldKey = KEYS[1]
