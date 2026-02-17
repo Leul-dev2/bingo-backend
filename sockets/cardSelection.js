@@ -138,7 +138,7 @@ socket.on("cardSelected", async (data) => {
             released
         });
 
-        saveToDb(strGameId, strTelegramId, added, cardsData).catch(console.error);
+        saveToDatabase(strGameId, strTelegramId, added, cardsData).catch(console.error);
 
     } catch (err) {
         socket.emit("cardError", { message: err.message, requestId });
@@ -178,43 +178,20 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId }) => {
     }
 });
 
-async function saveToDb(gameId, telegramId, addedCardIds, cardsData) {
-    if (!addedCardIds || addedCardIds.length === 0) return;
-
-    const ops = [];
-
-    for (const id of addedCardIds) {
-        const strId = String(id);
-        const grid = cardsData[strId];
-
-        if (!grid) continue;
-
-        const cleanCard = grid.map(row =>
-            row.map(c => (c === "FREE" ? 0 : Number(c)))
-        );
-
-        ops.push({
-            updateOne: {
-                filter: {
-                    gameId: String(gameId),
-                    cardId: Number(strId)
-                },
-                update: {
-                    $set: {
-                        card: cleanCard,
-                        isTaken: true,
-                        takenBy: String(telegramId),
-                        updatedAt: new Date()
-                    }
-                },
-                upsert: true
-            }
+// Helper for background writes
+    async function saveToDatabase(gameId, telegramId, cardIds, cardsData) {
+        const dbUpdatePromises = cardIds.map(cardId => {
+            const cardGrid = cardsData[cardId];
+            if (!cardGrid) return Promise.resolve();
+            const cleanCard = cardGrid.map(row => row.map(c => (c === "FREE" ? 0 : Number(c))));
+            
+            return GameCard.updateOne(
+                { gameId, cardId: Number(cardId) },
+                { $set: { card: cleanCard, isTaken: true, takenBy: telegramId } },
+                { upsert: true }
+            );
         });
+        await Promise.all(dbUpdatePromises);
     }
-
-    if (ops.length > 0) {
-        await GameCard.bulkWrite(ops, { ordered: false });
-    }
-}
 
 }
