@@ -152,6 +152,7 @@ socket.on("cardSelected", async (data) => {
 
         // 🔥 BACKGROUND DB WRITES
         saveToDatabase(strGameId, strTelegramId, added, cardsData).catch(console.error);
+        releaseCardsInDb(gameId, releasedCardIds).catch(console.error);
         //releaseCardsInDb(strGameId, released).catch(console.error);
 
     } catch (err) {
@@ -209,5 +210,32 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId }) => {
         });
         await Promise.all(dbUpdatePromises);
     }
+
+    async function releaseCardsInDb(gameId, releasedCardIds) {
+    if (!releasedCardIds || releasedCardIds.length === 0) return;
+
+    try {
+        const numericIds = releasedCardIds.map(id => Number(id));
+
+        const result = await GameCard.updateMany(
+            {
+                gameId: String(gameId),
+                cardId: { $in: numericIds }
+            },
+            {
+                $set: {
+                    isTaken: false,
+                    takenBy: null
+                }
+            }
+        );
+
+        console.log(`✅ Released ${result.modifiedCount} cards in DB`);
+    } catch (err) {
+        console.error("❌ DB release failed:", err);
+        throw err;
+    }
+}
+
 
 }
