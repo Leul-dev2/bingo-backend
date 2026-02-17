@@ -127,9 +127,13 @@ socket.on("cardSelected", async (data) => {
             throw new Error("Card selection failed");
         }
 
+        console.log("Lua raw result:", result);
+
         const added = result[1]
             ? result[1].split(",").filter(Boolean)
             : [];
+
+        console.log("Parsed added:", added);
 
         const released = result[2]
             ? result[2].split(",").filter(Boolean)
@@ -191,6 +195,7 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId }) => {
 
 // Helper for background writes
     async function saveToDatabase(gameId, telegramId, cardIds, cardsData) {
+        console.log("saveToDb called with:", cardIds);
         const dbUpdatePromises = cardIds.map(cardId => {
             const cardGrid = cardsData[cardId];
             if (!cardGrid) return Promise.resolve();
