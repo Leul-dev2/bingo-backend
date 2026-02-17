@@ -11,6 +11,7 @@
         const strTelegramId = String(telegramId);
         const strGameId = String(gameId);
         const userActionLockKey = `lock:userAction:${strGameId}:${strTelegramId}`;
+        const userHeldCardsKey = `userHeldCards:${strGameId}:${strTelegramId}`;
         
         // Redis keys
         const gameCardsKey = `gameCards:${strGameId}`;
@@ -38,7 +39,7 @@
             const newCardIdSet = new Set(cardIds.map(String));
 
             console.log(`User ${strTelegramId} is attempting to select cards:`, gameCardsKey, cardIds);
-            const myOldCardIds = await findFieldsByValue(redis, gameCardsKey, strTelegramId);
+            const myOldCardIds = await redis.sMembers(userHeldCardsKey);
             console.log("🎴🃏 Backend sees user owns:", myOldCardIds);
             const myOldCardIdSet = new Set(myOldCardIds);
 
@@ -96,6 +97,7 @@
                     )
                 );
                 redisMulti.hDel(gameCardsKey, ...cardsToRelease);
+                redisMulti.sRem(userHeldCardsKey, ...cardsToRelease);
             }
 
             // B) Add new cards
@@ -116,6 +118,7 @@
                         )
                     );
                     redisMulti.hSet(gameCardsKey, strCardId, strTelegramId);
+                    redisMulti.sAdd(userHeldCardsKey, String(cardId));
                 }
             }
 
@@ -226,15 +229,16 @@
                 // ✅ CRITICAL FIX 1: Trim the ID (Just like playerLeave)
                 const strTelegramId = String(telegramId).trim(); 
                 const gameCardsKey = `gameCards:${strGameId}`;
-
-               const cardsToRelease = await findFieldsByValue(redis, gameCardsKey, strTelegramId);
+                const userHeldCardsKey = `userHeldCards:${strGameId}:${strTelegramId}`;
+                const cardsToRelease = await redis.sMembers(userHeldCardsKey);
 
                 // --- 2. Release Cards (If any exist) ---
                 if (cardsToRelease.length > 0) {
                     console.log(`🍔 releasing ${cardsToRelease.length} cards for ${strTelegramId}`);
 
                     // A) Remove from Redis Hash
-                    await redis.hDel(gameCardsKey, ...cardsToRelease);
+                    //await redis.hDel(gameCardsKey, ...cardsToRelease);
+                    await redis.del(userHeldCardsKey);
 
                     // B) Update MongoDB
                     await GameCard.updateMany(
