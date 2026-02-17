@@ -167,18 +167,12 @@
             console.error(`❌ cardSelected error for game ${strGameId}, user ${strTelegramId}:`, err);
             
             // --- FIX ---: Correctly fetch the user's *actual* current cards on error
-            const allCards = await redis.hGetAll(gameCardsKey);
-            const oldCardIds = [];
-            for (const [cardId, ownerId] of Object.entries(allCards)) {
-                 if (ownerId === strTelegramId) {
-                    oldCardIds.push(Number(cardId));
-                 }
-            }
+           const myCurrentCards = await redis.sMembers(userHeldCardsKey);
                                 
             socket.emit("cardError", { 
                 message: err.message || "An unexpected error occurred. Please try again.", 
                 requestId,
-                currentHeldCardIds: oldCardIds 
+                currentHeldCardIds: myCurrentCards.map(Number)
             });
         } finally {
             // --- 9. Release All Locks ---
@@ -248,19 +242,27 @@
 
                     // ✅ CRITICAL FIX 3: Double-Check (The "Leftover" Check)
                     // Sometimes high-concurrency causes the first delete to miss a key. 
-                    // We check again immediately.
-                    const verifyGameCards = await redis.hGetAll(gameCardsKey);
-                    const leftovers = Object.entries(verifyGameCards)
-                        .filter(([_, ownerId]) => String(ownerId).trim() == strTelegramId)
-                        .map(([cardId]) => cardId);
+                    // 1. Check the "User Pocket" (Set) instead of the whole Game Hash
+                    const leftovers = await redis.sMembers(userHeldCardsKey);
 
                     if (leftovers.length > 0) {
-                        console.log(`⚠️ Found leftover cards after release, deleting again: ${leftovers.join(', ')}`);
+                        console.log(`⚠️ Cleaning up leftover cards: ${leftovers.join(', ')}`);
+
+                        // 2. Remove from the Master Game Hash (The 'Map')
                         await redis.hDel(gameCardsKey, ...leftovers);
-                        cardsToRelease.push(...leftovers);
+                        
+                        // 3. Destroy the "Pocket" Set entirely since the user is leaving
+                        await redis.del(userHeldCardsKey);
+
+                        // 4. Merge leftovers into cardsToRelease uniquely
+                        leftovers.forEach(id => {
+                            if (!cardsToRelease.includes(id)) {
+                                cardsToRelease.push(id);
+                            }
+                        });
                     }
 
-                    // C) Notify Frontend
+                    // 5. Notify Frontend (Now cardsToRelease contains EVERYTHING)
                     io.to(strGameId).emit("cardsReleased", { 
                         cardIds: cardsToRelease, 
                         telegramId: strTelegramId 
