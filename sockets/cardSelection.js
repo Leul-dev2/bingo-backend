@@ -73,7 +73,7 @@ module.exports = function CardSelectionHandler(socket, io, redis) {
             const cardIdToClaim = cardIds.find(id => !currentHeld.includes(String(id)));
 
             if (cardIdToClaim) {
-                const result = await redis.evalsha(claimSha, 3, takenCardsKey, userHeldCardsKey, gameCardsKey, cardIdToClaim, strTelegramId, MAX_CARDS);
+                const result = await redis.evalSha(claimSha, 3, takenCardsKey, userHeldCardsKey, gameCardsKey, cardIdToClaim, strTelegramId, MAX_CARDS);
                 if (result.err === "CARD_TAKEN") throw new Error("Card already taken!");
                 if (result.err === "LIMIT_EXCEEDED") throw new Error(`Limit of ${MAX_CARDS} reached.`);
             }
