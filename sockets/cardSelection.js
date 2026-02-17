@@ -82,7 +82,6 @@ return "OK"
 `;
 
 
-
 const RELEASE_ALL_LUA = `
 local takenKey = KEYS[1]
 local userHeldKey = KEYS[2]
@@ -100,7 +99,7 @@ return cards
 `;
 
 
-GPUShaderModule.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
+module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
 socket.on("cardSelected", async (data) => {
     const { telegramId, gameId, cardIds, cardsData, requestId } = data;
 
