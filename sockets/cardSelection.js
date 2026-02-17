@@ -69,18 +69,35 @@ module.exports = function CardSelectionHandler(socket, io, redis) {
         if (!hasLock) return socket.emit("cardError", { message: "Processing...", requestId });
 
         try {
-            const currentHeld = await redis.sMembers(userHeldCardsKey);
-            const cardIdToClaim = cardIds.find(id => !currentHeld.includes(String(id)));
+            const currentHeld = await redis.sMembers(keys[1]);
+            
+            // 1. Ensure we are comparing strings to strings
+            const currentHeldSet = new Set(currentHeld.map(String));
+            const cardIdToClaim = cardIds.find(id => !currentHeldSet.has(String(id)));
 
-            if (cardIdToClaim) {
-                const result = await redis.evalSha(claimSha, 3, takenCardsKey, userHeldCardsKey, gameCardsKey, cardIdToClaim, strTelegramId, MAX_CARDS);
-                if (result.err === "CARD_TAKEN") throw new Error("Card already taken!");
-                if (result.err === "LIMIT_EXCEEDED") throw new Error(`Limit of ${MAX_CARDS} reached.`);
+            // 2. ONLY call Redis if there's actually a new card being selected
+            if (cardIdToClaim !== undefined && cardIdToClaim !== null) {
+                const result = await redis.eval(CLAIM_LUA, {
+                    keys: keys,
+                    arguments: [
+                        String(cardIdToClaim), // Ensure this is a string
+                        String(strTelegramId), 
+                        String(MAX_CARDS)
+                    ]
+                });
+
+                // Handle the return from Lua (Lua returns strings or tables)
+                if (result && typeof result === 'object' && result.err) {
+                    if (result.err === "CARD_TAKEN") throw new Error("Card already taken!");
+                    if (result.err === "LIMIT_EXCEEDED") throw new Error(`Limit of ${MAX_CARDS} reached.`);
+                }
+            } else {
+                // If cardIdToClaim is undefined, it means the user clicked a card they already own
+                // or they are deselecting. We just confirm the current state.
+                return socket.emit("cardConfirmed", { cardIds, requestId });
+                 io.to(strGameId).emit("cardsUpdated", { ownerId: strTelegramId, selected: cardIds });
             }
-
-            socket.emit("cardConfirmed", { cardIds, requestId });
-            io.to(strGameId).emit("cardsUpdated", { ownerId: strTelegramId, selected: cardIds });
-
+           
             // Background Persistence
             saveToDb(strGameId, strTelegramId, cardIds, cardsData).catch(console.error);
 
@@ -139,20 +156,24 @@ module.exports = function CardSelectionHandler(socket, io, redis) {
     });
 
     // Helper: Background DB Update
-    async function saveToDb(gameId, telegramId, cardIds, cardsData) {
+  async function saveToDb(gameId, telegramId, cardIds, cardsData) {
+        if (!cardIds || cardIds.length === 0) return;
+
         const ops = cardIds.map(id => {
-            const grid = cardsData[id];
+            const strId = String(id);
+            const grid = cardsData[strId];
             if (!grid) return null;
+            
             const clean = grid.map(r => r.map(c => (c === "FREE" ? 0 : Number(c))));
             return {
                 updateOne: {
-                    filter: { gameId, cardId: Number(id) },
-                    update: { $set: { card: clean, isTaken: true, takenBy: telegramId } },
+                    filter: { gameId: String(gameId), cardId: Number(strId) },
+                    update: { $set: { card: clean, isTaken: true, takenBy: String(telegramId) } },
                     upsert: true
                 }
             };
         }).filter(Boolean);
-        
+
         if (ops.length > 0) await GameCard.bulkWrite(ops);
     }
 };
