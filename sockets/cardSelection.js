@@ -97,8 +97,8 @@
                     // 6. CONFIRM & BROADCAST
                     const finalHeldCards = await redis.sMembers(userHeldCardsKey);
                     
-                    socket.emit("cardConfirmed", {
-                        cardIds: finalHeldCards.map(Number),
+                   socket.emit("cardConfirmed", {
+                        cardIds: cardIds.map(Number), // cardIds is from the incoming 'data'
                         requestId
                     });
 
