@@ -28,10 +28,13 @@
                     // 2. Determine the card the user is actually trying to claim
                     // We compare their new request against what they already hold in Redis
                     const myOldCardIds = await redis.sMembers(userHeldCardsKey);
+                    console.log(`🔥🔥 User ${strTelegramId} currently holds cards: ${myOldCardIds.join(', ')}`);
                     const myOldCardIdSet = new Set(myOldCardIds);
                     
                     const cardsToAdd = cardIds.map(String).filter(id => !myOldCardIdSet.has(id));
+                    console.log(`🔥🔥 User ${strTelegramId} is trying to add cards: ${cardsToAdd.join(', ')}`);
                     const cardsToRelease = myOldCardIds.filter(id => !new Set(cardIds.map(String)).has(id));
+                    console.log(`🔥🔥 User ${strTelegramId} is trying to release cards: ${cardsToRelease.join(', ')}`);
 
                     // 3. ATOMIC CLAIM (The "Method A" Magic)
                     if (cardsToAdd.length > 0) {
