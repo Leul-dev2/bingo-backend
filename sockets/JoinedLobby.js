@@ -12,6 +12,7 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
             const userSelectionKey = `userSelections`; // Stores selection per socket.id
             const userOverallSelectionKey = `userSelectionsByTelegramId`; // Stores the user's *overall* selected card by telegramId
             const gameCardsKey = `gameCards:${strGameId}`;
+            const userHeldCardsKey = `userHeldCards:${strGameId}:${strTelegramId}`;
             const sessionKey = `gameSessions:${strGameId}`; // Card selection lobby (unique players)
             const gamePlayersKey = `gamePlayers:${strGameId}`; // Overall game players (unique players across all game states)
 
@@ -41,7 +42,7 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
             if (userOverallSelectionRaw) {
                 const overallSelection = JSON.parse(userOverallSelectionRaw);
                 if (String(overallSelection.gameId) === strGameId && overallSelection.cardId !== null) {
-                    const cardOwner = await redis.hGet(gameCardsKey, String(overallSelection.cardId));
+                    const cardOwner = await redis.sIsMember(userHeldCardsKey, String(overallSelection.cardId));
                     if (cardOwner === strTelegramId) {
                         currentHeldCardId = overallSelection.cardId;
                         currentHeldCard = overallSelection.card;
