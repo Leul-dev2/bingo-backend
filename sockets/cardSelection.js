@@ -142,7 +142,13 @@ socket.on("cardSelected", async (data) => {
         console.log("ADDED:", added);   // 👈 debug
         console.log("RELEASED:", released);
 
-        socket.emit("cardConfirmed", { cardIds, requestId });
+        const myCurrentCards = await redis.sMembers(userHeldCardsKey);
+
+        socket.emit("cardConfirmed", {
+            cardIds,  // cards user just tried to claim
+            requestId,
+            currentHeldCardIds: myCurrentCards.map(Number)  // <-- ALL owned cards
+        });
 
         io.to(strGameId).emit("cardsUpdated", {
             ownerId: strTelegramId,
