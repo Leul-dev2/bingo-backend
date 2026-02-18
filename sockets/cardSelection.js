@@ -167,7 +167,7 @@ socket.on("cardSelected", async (data) => {
         //releaseCardsInDb(strGameId, released).catch(console.error);
 
     } catch (err) {
-        socket.emit("cardError", { message: err.message, requestId,  currentHeldCardIds: redis.sMembers(userHeldCardsKey).map(Number) });
+        socket.emit("cardError", { message: err.message, requestId });
     } finally {
         await redis.del(lockKey);
     }
