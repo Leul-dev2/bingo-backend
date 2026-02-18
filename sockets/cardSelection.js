@@ -118,7 +118,7 @@ socket.on("cardSelected", async (data) => {
     }
 
     
-    const myCurrentCards = await redis.sMembers(userHeldCardsKey);
+    
     try {
         const result = await redis.eval(SELECT_CARDS_LUA, {
             keys: [
@@ -148,7 +148,7 @@ socket.on("cardSelected", async (data) => {
         console.log("ADDED:", added);   // 👈 debug
         console.log("RELEASED:", released);
 
-        
+       const myCurrentCards = await redis.sMembers(userHeldCardsKey);
 
         socket.emit("cardConfirmed", {
             requestId,
@@ -167,7 +167,7 @@ socket.on("cardSelected", async (data) => {
         //releaseCardsInDb(strGameId, released).catch(console.error);
 
     } catch (err) {
-        socket.emit("cardError", { message: err.message, requestId,  currentHeldCardIds: myCurrentCards.map(Number) });
+        socket.emit("cardError", { message: err.message, requestId,  currentHeldCardIds: redis.sMembers(userHeldCardsKey).map(Number) });
     } finally {
         await redis.del(lockKey);
     }
