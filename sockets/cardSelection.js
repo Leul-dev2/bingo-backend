@@ -117,6 +117,8 @@ socket.on("cardSelected", async (data) => {
         return socket.emit("cardError", { message: "Processing...", requestId });
     }
 
+    
+    const myCurrentCards = await redis.sMembers(userHeldCardsKey);
     try {
         const result = await redis.eval(SELECT_CARDS_LUA, {
             keys: [
@@ -146,7 +148,7 @@ socket.on("cardSelected", async (data) => {
         console.log("ADDED:", added);   // 👈 debug
         console.log("RELEASED:", released);
 
-        const myCurrentCards = await redis.sMembers(userHeldCardsKey);
+        
 
         socket.emit("cardConfirmed", {
             requestId,
