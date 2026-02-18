@@ -1,45 +1,62 @@
 const GameCard = require("../models/GameCard");
 
 const SELECT_CARDS_LUA = `
-local userHeldKey = KEYS[1]
-local takenKey = KEYS[2]
-local gameCardsKey = KEYS[3]
+local userHeldKey = KEYS[1] -- Redis LIST for user's cards (FIFO)
+local takenKey = KEYS[2] -- Redis SET for all taken cards
+local gameCardsKey = KEYS[3] -- Redis HASH to track ownership
 
 local telegramId = ARGV[1]
 local newCardsCSV = ARGV[2]
-local maxAllowed = tonumber(ARGV[3]) or 2  -- Fallback
+local maxAllowed = tonumber(ARGV[3]) or 2 -- fallback
 
--- Parse incoming cards
+-- Parse incoming as set for diff (unordered ok, we'll sort toAdd)
 local newSet = {}
 for id in string.gmatch(newCardsCSV, '([^,]+)') do
     newSet[id] = true
 end
 
--- Current user cards
-local oldCards = redis.call("SMEMBERS", userHeldKey)
+-- Current user cards in order
+local oldCards = redis.call("LRANGE", userHeldKey, 0, -1)
 local oldSet = {}
 for _, id in ipairs(oldCards) do oldSet[id] = true end
 
 local toAdd = {}
-local toRelease = {}
+local toReleaseSet = {}  -- Use set for unique releases
 
 -- Find additions
 for id, _ in pairs(newSet) do
     if not oldSet[id] then table.insert(toAdd, id) end
 end
 
--- Find releases
-for id, _ in pairs(oldSet) do
-    if not newSet[id] then table.insert(toRelease, id) end
-end
-
--- Sort toAdd for deterministic order
+-- Sort toAdd numerically for deterministic claiming
 table.sort(toAdd, function(a,b) return tonumber(a) < tonumber(b) end)
 
--- 🔥 LIMIT CHECK
-local finalCount = (#oldCards - #toRelease) + #toAdd
+-- Find base releases (deselected)
+for _, id in ipairs(oldCards) do
+    if not newSet[id] then toReleaseSet[id] = true end
+end
+
+-- Base final count
+local baseReleaseCount = 0
+for _ in pairs(toReleaseSet) do baseReleaseCount = baseReleaseCount + 1 end
+local finalCount = (#oldCards - baseReleaseCount) + #toAdd
+
+-- FIFO release if over: add oldest STILL HELD (skip already released)
 if finalCount > maxAllowed then
-    return {"LIMIT_REACHED", tostring(maxAllowed)}
+    local overflow = finalCount - maxAllowed
+    local addedOverflow = 0
+    for i = 1, #oldCards do
+        local id = oldCards[i]
+        if not toReleaseSet[id] then  -- Not already releasing
+            toReleaseSet[id] = true
+            addedOverflow = addedOverflow + 1
+            if addedOverflow >= overflow then break end
+        end
+    end
+    -- If couldn't find enough to release (extreme case), fail
+    if addedOverflow < overflow then
+        return {"LIMIT_REACHED", tostring(maxAllowed)}
+    end
 end
 
 -- Try claim new cards
@@ -48,27 +65,33 @@ for _, id in ipairs(toAdd) do
     if redis.call("SADD", takenKey, id) == 1 then
         table.insert(successfullyAdded, id)
     else
-        -- Only rollback the ones we JUST added
-        for _, c in ipairs(successfullyAdded) do 
-            redis.call("SREM", takenKey, c) 
+        -- Rollback
+        for _, c in ipairs(successfullyAdded) do
+            redis.call("SREM", takenKey, c)
         end
         return {"CARD_TAKEN", id}
     end
 end
 
+-- Collect unique toRelease list (order doesn't matter for release)
+local toRelease = {}
+for id, _ in pairs(toReleaseSet) do table.insert(toRelease, id) end
+
 -- Apply releases
 for _, id in ipairs(toRelease) do
     redis.call("SREM", takenKey, id)
-    redis.call("SREM", userHeldKey, id)
+    redis.call("LREM", userHeldKey, 0, id) -- Remove first occurrence
     redis.call("HDEL", gameCardsKey, id)
 end
 
--- Apply additions
+-- Apply additions (append to end for FIFO)
 for _, id in ipairs(toAdd) do
-    redis.call("SADD", userHeldKey, id)
+    redis.call("RPUSH", userHeldKey, id)
     redis.call("HSET", gameCardsKey, id, telegramId)
 end
 
+-- Return unique toRelease (sorted for consistency)
+table.sort(toRelease, function(a,b) return tonumber(a) < tonumber(b) end)
 return {
     "OK",
     table.concat(toAdd, ","),
@@ -76,10 +99,10 @@ return {
 }
 `;
 
-
 module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
   socket.on("cardSelected", async (data) => {
     const { telegramId, gameId, cardIds, cardsData, requestId } = data;
+
     const strTelegramId = String(telegramId);
     const strGameId = String(gameId);
 
@@ -100,9 +123,8 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
         arguments: [strTelegramId, cardIds.map(String).join(","), String(MAX_CARDS)]
       });
 
-      // Specific error checks first
       if (result[0] === "LIMIT_REACHED") {
-        const current = await redis.sMembers(userHeldCardsKey);
+        const current = await redis.lRange(userHeldCardsKey, 0, -1);
         return socket.emit("cardError", {
           message: `You can hold max ${result[1]} cards`,
           requestId,
@@ -114,7 +136,6 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
         throw new Error(`CARD_TAKEN:${result[1]}`);
       }
 
-      // General failure
       if (!result || result[0] !== "OK") {
         throw new Error("Card selection failed");
       }
@@ -122,29 +143,33 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
       const added = result[1] ? result[1].split(",").filter(Boolean) : [];
       const released = result[2] ? result[2].split(",").filter(Boolean) : [];
 
-      console.log("ADDED:", added);
-      console.log("RELEASED:", released);
-
-      const myCurrentCards = await redis.sMembers(userHeldCardsKey);
+      const myCurrentCards = await redis.lRange(userHeldCardsKey, 0, -1);
 
       socket.emit("cardConfirmed", {
         requestId,
-        currentHeldCardIds: myCurrentCards.map(Number)  // Use server truth
+        currentHeldCardIds: myCurrentCards.map(Number)
       });
 
       io.to(strGameId).emit("cardsUpdated", {
         ownerId: strTelegramId,
-        selected: added,
-        released
+        selected: added.map(Number),
+        released: released.map(Number)
       });
 
-      // BACKGROUND DB WRITES
-      saveToDatabase(strGameId, strTelegramId, added, cardsData).catch(console.error);
-      releaseCardsInDb(strGameId, released).catch(console.error);
+      if (added.length > 0) {
+        saveToDatabase(strGameId, strTelegramId, added, cardsData).catch(console.error);
+      }
+      if (released.length > 0) {
+        releaseCardsInDb(strGameId, released).catch(console.error);
+      }
 
     } catch (err) {
-      const current = await redis.sMembers(userHeldCardsKey);
-      socket.emit("cardError", { message: err.message, requestId, currentHeldCardIds: current.map(Number) });
+      const current = await redis.lRange(userHeldCardsKey, 0, -1);
+      socket.emit("cardError", {
+        message: err.message,
+        requestId,
+        currentHeldCardIds: current.map(Number)
+      });
     } finally {
       await redis.del(lockKey);
     }
@@ -171,49 +196,31 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
     }
   });
 
-
-// Helper for background writes
-   async function saveToDatabase(gameId, telegramId, cardIds, cardsData) {
+  async function saveToDatabase(gameId, telegramId, cardIds, cardsData) {
     const ops = cardIds.map(cardId => {
-        const cardGrid = cardsData[cardId];
-        const cleanCard = cardGrid.map(row => row.map(c => (c === "FREE" ? 0 : Number(c))));
-        return {
-            updateOne: {
-                filter: { gameId, cardId: Number(cardId) },
-                update: { $set: { card: cleanCard, isTaken: true, takenBy: telegramId } },
-                upsert: true
-            }
-        };
+      const cardGrid = cardsData[cardId];
+      const cleanCard = cardGrid.map(row => row.map(c => (c === "FREE" ? 0 : Number(c))));
+      return {
+        updateOne: {
+          filter: { gameId, cardId: Number(cardId) },
+          update: { $set: { card: cleanCard, isTaken: true, takenBy: telegramId } },
+          upsert: true
+        }
+      };
     });
     if (ops.length > 0) await GameCard.bulkWrite(ops);
-}
+  }
 
-
-    async function releaseCardsInDb(gameId, releasedCardIds) {
+  async function releaseCardsInDb(gameId, releasedCardIds) {
     if (!releasedCardIds || releasedCardIds.length === 0) return;
-
     try {
-        const numericIds = releasedCardIds.map(id => Number(id));
-
-        const result = await GameCard.updateMany(
-            {
-                gameId: String(gameId),
-                cardId: { $in: numericIds }
-            },
-            {
-                $set: {
-                    isTaken: false,
-                    takenBy: null
-                }
-            }
-        );
-
-        console.log(`✅ Released ${result.modifiedCount} cards in DB`);
+      const numericIds = releasedCardIds.map(id => Number(id));
+      await GameCard.updateMany(
+        { gameId: String(gameId), cardId: { $in: numericIds } },
+        { $set: { isTaken: false, takenBy: null } }
+      );
     } catch (err) {
-        console.error("❌ DB release failed:", err);
-        throw err;
+      console.error("DB release failed:", err);
     }
-}
-
-
-}
+  }
+};
