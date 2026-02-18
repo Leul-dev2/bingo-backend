@@ -33,10 +33,16 @@ for id, _ in pairs(oldSet) do
 end
 
 -- Try claim new cards
+local successfullyAdded = {}
 for _, id in ipairs(toAdd) do
-    if redis.call("SADD", takenKey, id) == 0 then
-        for _, c in ipairs(toAdd) do redis.call("SREM", takenKey, c) end
-        return {err="CARD_TAKEN", id}
+    if redis.call("SADD", takenKey, id) == 1 then
+        table.insert(successfullyAdded, id)
+    else
+        -- Only rollback the ones we JUST added
+        for _, c in ipairs(successfullyAdded) do 
+            redis.call("SREM", takenKey, c) 
+        end
+        return {"CARD_TAKEN", id}
     end
 end
 
@@ -133,6 +139,10 @@ socket.on("cardSelected", async (data) => {
             throw new Error("Card selection failed");
         }
 
+        if (result[0] === "CARD_TAKEN") {
+            throw new Error(`CARD_TAKEN:${result[1]}`);
+         }
+
         console.log("Lua raw result:", result);
 
         const added = result[1]
@@ -207,21 +217,21 @@ socket.on("unselectCardOnLeave", async ({ gameId, telegramId }) => {
 });
 
 // Helper for background writes
-    async function saveToDatabase(gameId, telegramId, cardIds, cardsData) {
-        console.log("saveToDb called with:", cardIds);
-        const dbUpdatePromises = cardIds.map(cardId => {
-            const cardGrid = cardsData[cardId];
-            if (!cardGrid) return Promise.resolve();
-            const cleanCard = cardGrid.map(row => row.map(c => (c === "FREE" ? 0 : Number(c))));
-            
-            return GameCard.updateOne(
-                { gameId, cardId: Number(cardId) },
-                { $set: { card: cleanCard, isTaken: true, takenBy: telegramId } },
-                { upsert: true }
-            );
-        });
-        await Promise.all(dbUpdatePromises);
-    }
+   async function saveToDatabase(gameId, telegramId, cardIds, cardsData) {
+    const ops = cardIds.map(cardId => {
+        const cardGrid = cardsData[cardId];
+        const cleanCard = cardGrid.map(row => row.map(c => (c === "FREE" ? 0 : Number(c))));
+        return {
+            updateOne: {
+                filter: { gameId, cardId: Number(cardId) },
+                update: { $set: { card: cleanCard, isTaken: true, takenBy: telegramId } },
+                upsert: true
+            }
+        };
+    });
+    if (ops.length > 0) await GameCard.bulkWrite(ops);
+}
+
 
     async function releaseCardsInDb(gameId, releasedCardIds) {
     if (!releasedCardIds || releasedCardIds.length === 0) return;
