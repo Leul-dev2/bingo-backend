@@ -102,7 +102,7 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
 
       // Specific error checks first
       if (result[0] === "LIMIT_REACHED") {
-        const current = await redis.smembers(userHeldCardsKey);
+        const current = await redis.sMembers(userHeldCardsKey);
         return socket.emit("cardError", {
           message: `You can hold max ${result[1]} cards`,
           requestId,
@@ -125,7 +125,7 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
       console.log("ADDED:", added);
       console.log("RELEASED:", released);
 
-      const myCurrentCards = await redis.smembers(userHeldCardsKey);
+      const myCurrentCards = await redis.sMembers(userHeldCardsKey);
 
       socket.emit("cardConfirmed", {
         requestId,
@@ -143,7 +143,7 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
       releaseCardsInDb(strGameId, released).catch(console.error);
 
     } catch (err) {
-      const current = await redis.smembers(userHeldCardsKey);
+      const current = await redis.sMembers(userHeldCardsKey);
       socket.emit("cardError", { message: err.message, requestId, currentHeldCardIds: current.map(Number) });
     } finally {
       await redis.del(lockKey);
