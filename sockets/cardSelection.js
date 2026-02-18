@@ -161,7 +161,7 @@ socket.on("cardSelected", async (data) => {
 
         // 🔥 BACKGROUND DB WRITES
         saveToDatabase(strGameId, strTelegramId, added, cardsData).catch(console.error);
-        releaseCardsInDb(gameId, releasedCardIds).catch(console.error);
+        releaseCardsInDb(strGameId, released).catch(console.error);
         //releaseCardsInDb(strGameId, released).catch(console.error);
 
     } catch (err) {
