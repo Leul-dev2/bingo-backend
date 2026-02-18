@@ -152,7 +152,7 @@ socket.on("cardSelected", async (data) => {
 
         socket.emit("cardConfirmed", {
             requestId,
-            currentHeldCardIds: myCurrentCards.map(Number)  // <-- ALL owned cards
+            currentHeldCardIds: cardIds.map(Number)  // <-- ALL owned cards
         });
 
         io.to(strGameId).emit("cardsUpdated", {
@@ -167,7 +167,7 @@ socket.on("cardSelected", async (data) => {
         //releaseCardsInDb(strGameId, released).catch(console.error);
 
     } catch (err) {
-        socket.emit("cardError", { message: err.message, requestId });
+        socket.emit("cardError", { message: err.message, requestId,  currentHeldCardIds: cardIds.map(Number) });
     } finally {
         await redis.del(lockKey);
     }
