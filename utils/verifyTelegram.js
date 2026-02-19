@@ -1,111 +1,47 @@
 const crypto = require("crypto");
 
 function verifyTelegramInitData(initDataRaw, botToken) {
-  if (!initDataRaw || typeof initDataRaw !== "string") {
-    console.warn("Invalid initData: not a string or empty");
-    return null;
-  }
-
-  if (!botToken || typeof botToken !== "string" || botToken.trim() === "") {
-    console.error("Invalid or missing bot token");
-    return null;
-  }
+  if (!initDataRaw) return null;
 
   try {
     const params = new URLSearchParams(initDataRaw);
+    const hash = params.get("hash");
+    params.delete("hash"); // Remove hash to sort remaining keys
 
-    // Telegram sometimes uses "hash", sometimes "signature" in different contexts
-    const telegramHash = params.get("hash") || params.get("signature");
-    if (!telegramHash) {
-      console.warn("Missing hash/signature in initData");
-      return null;
-    }
-
-    // Collect all parameters except hash/signature
-    const checkParams = {};
-    for (const [key, value] of params.entries()) {
-      if (key !== "hash" && key !== "signature") {
-        checkParams[key] = value;
-      }
-    }
-
-    // Sort keys alphabetically (very important!)
-    const sortedKeys = Object.keys(checkParams).sort((a, b) => a.localeCompare(b));
-
-    // Build data-check-string exactly as Telegram expects
-    const dataCheckString = sortedKeys
-      .map((key) => `${key}=${checkParams[key]}`)
+    // 1. Sort the keys alphabetically
+    const keys = Array.from(params.keys()).sort();
+    
+    // 2. Construct the data-check-string exactly as Telegram expects
+    // We use the raw value to avoid issues with double-decoding
+    const dataCheckString = keys
+      .map((key) => `${key}=${params.get(key)}`)
       .join("\n");
 
-    console.log("[Verification] dataCheckString:\n" + dataCheckString);
-
-   const cleanBotToken = botToken.trim(); // <-- ADD THIS to strip hidden linebreaks/spaces
-    
+    // 3. Create the secret key using the HMAC-SHA256 of the token with "WebAppData"
     const secretKey = crypto
       .createHmac("sha256", "WebAppData")
-      .update(cleanBotToken) // <-- USE THE CLEANED TOKEN HERE
+      .update(botToken.trim())
       .digest();
 
-    // Compute HMAC
+    // 4. Calculate the hash of the data-check-string
     const computedHash = crypto
       .createHmac("sha256", secretKey)
       .update(dataCheckString)
       .digest("hex");
 
+    console.log("[Verification] dataCheckString:\n", dataCheckString);
     console.log("[Verification] computedHash:", computedHash);
-    console.log("[Verification] received hash  :", telegramHash);
+    console.log("[Verification] received hash  :", hash);
 
-    // Constant-time comparison (security best practice)
-    const isValid = crypto.timingSafeEqual(
-      Buffer.from(computedHash, "hex"),
-      Buffer.from(telegramHash, "hex")
-    );
-
-    if (!isValid) {
+    if (computedHash !== hash) {
       console.warn("❌ Telegram init data verification FAILED");
       return null;
     }
 
-    // Optional: reject very old data (recommended)
-    const authDateStr = params.get("auth_date");
-    if (authDateStr) {
-      const authDate = parseInt(authDateStr, 10);
-      const now = Math.floor(Date.now() / 1000);
-      if (now - authDate > 86400) { // 24 hours
-        console.warn(`Init data too old (auth_date=${authDate}, age=${now - authDate}s)`);
-        return null;
-      }
-    }
-
-    // Parse user object
-    const userJson = params.get("user");
-    if (!userJson) {
-      console.warn("Missing user field");
-      return null;
-    }
-
-    let user;
-    try {
-      user = JSON.parse(userJson);
-    } catch (e) {
-      console.error("Failed to parse user JSON:", e.message);
-      return null;
-    }
-
-    return {
-      telegramId: String(user.id),
-      username: user.username || "",
-      firstName: user.first_name || "",
-      lastName: user.last_name || "",
-      fullName: `${user.first_name || ""} ${user.last_name || ""}`.trim(),
-      photoUrl: user.photo_url || null,
-      languageCode: user.language_code || "en",
-      allowsWriteToPm: !!user.allows_write_to_pm,
-      // You can add more fields if needed: is_premium, added_by, etc.
-    };
-
-  } catch (err) {
-    console.error("[Verification] Error:", err.message, err.stack);
+    const user = JSON.parse(params.get("user"));
+    return { telegramId: String(user.id), ...user };
+  } catch (e) {
+    console.error("Verification Error:", e);
     return null;
   }
 }
