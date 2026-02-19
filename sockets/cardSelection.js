@@ -1,5 +1,22 @@
 const GameCard = require("../models/GameCard");
 
+const RELEASE_ALL_LUA = `
+-- Release all cards for a user in a game
+local takenKey = KEYS[1]
+local userHeldKey = KEYS[2]
+local gameCardsKey = KEYS[3]
+
+local cards = redis.call("LRANGE", userHeldKey, 0, -1)
+for _, cardId in ipairs(cards) do
+    redis.call("SREM", takenKey, cardId)
+    redis.call("HDEL", gameCardsKey, cardId)
+end
+redis.call("DEL", userHeldKey)
+
+return cards
+`;
+
+
 const SELECT_CARDS_LUA = `
 local userHeldKey = KEYS[1] -- Redis LIST for user's cards (FIFO)
 local takenKey = KEYS[2] -- Redis SET for all taken cards
