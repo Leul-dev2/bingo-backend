@@ -3,6 +3,7 @@ const { verifyTelegramWithCache } = require("../utils/verifyWithCache");
 
 
 
+
 module.exports = function JoinedLobbyHandler(socket, io, redis) {
      socket.on("userJoinedGame", async ({ initData, gameId }) => {
         console.log("userJoined invoked");
@@ -21,9 +22,9 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
 
     const strTelegramId = verifiedUser.telegramId;
     const strGameId = String(gameId);
+    const multi = redis.multi();
 
     console.log("✅ Verified Telegram user:", strTelegramId);
-
 
         try {
             const userSelectionKey = `userSelections`; // Stores selection per socket.id
@@ -79,7 +80,7 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
             await redis.set(`activeSocket:${strTelegramId}:${socket.id}`, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
             socket.join(strGameId);
 
-            await redis.hSet(userSelectionKey, socket.id, JSON.stringify({
+            await multi.hSet(userSelectionKey, socket.id, JSON.stringify({
                 telegramId: strTelegramId,
                 gameId: strGameId,
                 cardId: currentHeldCardId,
@@ -89,12 +90,12 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
             console.log(`Backend: Socket ${socket.id} for ${strTelegramId} set up with cardId: ${currentHeldCardId || 'null'} in 'lobby' phase.`);
 
             // --- Step 4: Add user to Redis Sets (Lobby and Overall Game Players) ---
-            await redis.sAdd(sessionKey, strTelegramId);
-            await redis.sAdd(gamePlayersKey, strTelegramId);
+            await multi.sAdd(sessionKey, strTelegramId);
+            await multi.sAdd(gamePlayersKey, strTelegramId);
             console.log(`Backend: Added ${strTelegramId} to Redis SETs: ${sessionKey} and ${gamePlayersKey}.`);
 
             // --- Step 5: Broadcast Current Lobby State to All Players in the Game ---
-            const numberOfPlayersInLobby = await redis.sCard(sessionKey);
+            const numberOfPlayersInLobby = await multi.sCard(sessionKey);
             console.log(`Backend: Calculated numberOfPlayers for ${sessionKey} (card selection lobby): ${numberOfPlayersInLobby}`);
 
             io.to(strGameId).emit("gameid", {
@@ -104,7 +105,7 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
             console.log(`Backend: Emitted 'gameid' to room ${strGameId} with numberOfPlayers: ${numberOfPlayersInLobby}`);
 
             // --- Step 6: Send Initial Card States to the *Joining Client Only* ---
-            const allTakenCardsData = await redis.hGetAll(gameCardsKey);
+            const allTakenCardsData = await multi.hGetAll(gameCardsKey);
             const initialCardsState = {};
             for (const cardId in allTakenCardsData) {
                 initialCardsState[cardId] = {
