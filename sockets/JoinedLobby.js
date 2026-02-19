@@ -11,7 +11,7 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
             process.env.TELEGRAM_BOT_TOKEN
         );
 
-       if (!verifiedUser) {
+    if (!verifiedUser) {
         socket.emit("joinError", {
             message: "Unauthorized user"
         });

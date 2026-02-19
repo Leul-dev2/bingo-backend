@@ -1,49 +1,40 @@
 const crypto = require("crypto");
 
 function verifyTelegramInitData(initData, botToken) {
-    if (!initData || typeof initData !== "string") {
-        console.warn("Invalid initData format. Expected non-empty string.");
-        return null;
-    }
+    const crypto = require("crypto");
+
+    if (!initData || typeof initData !== "string") return null;
 
     try {
-        // 1️⃣ Decode URL-encoded initData (in case it comes from URL)
+        // URL decode once
         const decoded = decodeURIComponent(initData);
 
-        // 2️⃣ Convert to key=value pairs
         const params = {};
         decoded.split("&").forEach(pair => {
             const [key, value] = pair.split("=");
-            if (key && value !== undefined) {
-                params[key] = value;
-            }
+            if (key && value !== undefined) params[key] = value;
         });
 
-        // 3️⃣ Extract Telegram hash
         const telegramHash = params.hash;
         if (!telegramHash) return null;
 
-        // 4️⃣ Compute data_check_string
+        // Create data_check_string: only remove 'hash', keep everything else exactly
         const checkParams = { ...params };
         delete checkParams.hash;
 
-        // Sort keys alphabetically
         const sortedPairs = Object.entries(checkParams)
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([k, v]) => `${k}=${v}`);
 
         const dataCheckString = sortedPairs.join("\n");
 
-        // 5️⃣ Compute secret key from bot token
         const secretKey = crypto.createHash("sha256").update(botToken).digest();
 
-        // 6️⃣ Compute HMAC-SHA256 of data_check_string
         const computedHash = crypto
             .createHmac("sha256", secretKey)
             .update(dataCheckString)
             .digest("hex");
 
-        // 7️⃣ Compare hashes securely
         if (!crypto.timingSafeEqual(Buffer.from(computedHash), Buffer.from(telegramHash))) {
             console.warn("❌ Telegram init data verification failed!");
             console.log("dataCheckString:", dataCheckString);
@@ -52,7 +43,7 @@ function verifyTelegramInitData(initData, botToken) {
             return null;
         }
 
-        // 8️⃣ Parse user JSON (safe now)
+        // Decode user JSON **after** verification
         const user = JSON.parse(decodeURIComponent(params.user));
 
         return {
@@ -63,11 +54,11 @@ function verifyTelegramInitData(initData, botToken) {
             photoUrl: user.photo_url,
             languageCode: user.language_code,
         };
-
     } catch (err) {
-        console.error("Error verifying Telegram init data:", err);
+        console.error(err);
         return null;
     }
 }
+
 
 module.exports = { verifyTelegramInitData };
