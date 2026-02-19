@@ -23,20 +23,6 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
     const strGameId = String(gameId);
 
     console.log("✅ Verified Telegram user:", strTelegramId);
-    const activeSocketKey = `activeUserSocket:${strGameId}:${strTelegramId}`;
-
-    // 1️⃣ Attempt to register THIS socket atomically
-    const locked = await redis.set(activeSocketKey, socket.id, "NX", "EX", 7200);
-
-    if (!locked) {
-        console.log(`⚠️ Could not register active socket for ${strTelegramId}, another session exists.`);
-        io.to(socket.id).emit("forceDisconnect", { reason: "Another session active" });
-        return;
-    }
-
-   
-    console.log(`✅ Active socket registered: ${socket.id} for user ${strTelegramId}`);
-
 
         try {
             const userSelectionKey = `userSelections`; // Stores selection per socket.id
