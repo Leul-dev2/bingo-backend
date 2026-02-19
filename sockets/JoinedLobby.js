@@ -1,10 +1,11 @@
 const { pendingDisconnectTimeouts, ACTIVE_SOCKET_TTL_SECONDS } = require("../utils/timeUtils");
 const { verifyTelegramWithCache } = require("../utils/verifyWithCache");
-const multi = redis.multi();
+
 
 
 
 module.exports = function JoinedLobbyHandler(socket, io, redis) {
+    const multi = redis.multi();
      socket.on("userJoinedGame", async ({ initData, gameId }) => {
         console.log("userJoined invoked");
         const verifiedUser = await verifyTelegramWithCache(
