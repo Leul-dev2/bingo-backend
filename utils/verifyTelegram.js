@@ -5,8 +5,21 @@ function verifyTelegramInitData(initDataRaw, botToken) {
 
   try {
     const params = new URLSearchParams(initDataRaw);
+
     const hash = params.get("hash");
-    if (!hash) return null;
+    const authDate = params.get("auth_date");
+
+    if (!hash || !authDate) return null;
+
+    // 🔐 Replay protection
+    const MAX_AGE_SECONDS = 300;
+    const now = Math.floor(Date.now() / 1000);
+    const age = now - Number(authDate);
+
+    if (age > MAX_AGE_SECONDS) {
+      console.warn("❌ initData expired");
+      return null;
+    }
 
     params.delete("hash");
 
@@ -18,7 +31,7 @@ function verifyTelegramInitData(initDataRaw, botToken) {
 
     const secretKey = crypto
       .createHmac("sha256", "WebAppData")
-      .update(botToken)
+      .update(botToken.trim())
       .digest();
 
     const computedHash = crypto
@@ -26,22 +39,8 @@ function verifyTelegramInitData(initDataRaw, botToken) {
       .update(dataCheckString)
       .digest("hex");
 
-    if (
-      !crypto.timingSafeEqual(
-        Buffer.from(computedHash, "hex"),
-        Buffer.from(hash, "hex")
-      )
-    ) {
-      console.warn("❌ Telegram init data verification FAILED");
-      return null;
-    }
-
-    // ✅ Expiration check (VERY IMPORTANT)
-    const authDate = Number(params.get("auth_date"));
-    const now = Math.floor(Date.now() / 1000);
-
-    if (!authDate || now - authDate > 86400) {
-      console.warn("❌ Telegram initData expired");
+    if (computedHash !== hash) {
+      console.warn("❌ Hash mismatch");
       return null;
     }
 
@@ -49,13 +48,12 @@ function verifyTelegramInitData(initDataRaw, botToken) {
 
     return {
       telegramId: String(user.id),
-      username: user.username || "",
-      firstName: user.first_name,
-      lastName: user.last_name,
-      photoUrl: user.photo_url,
+      username: user.username,
+      first_name: user.first_name,
     };
-  } catch (err) {
-    console.error("Verification error:", err);
+
+  } catch (e) {
+    console.error("Verification error:", e);
     return null;
   }
 }
