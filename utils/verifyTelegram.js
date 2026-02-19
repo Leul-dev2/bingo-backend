@@ -1,14 +1,14 @@
 const crypto = require("crypto");
 
 function verifyTelegramInitData(initData, botToken) {
-    const crypto = require("crypto");
-
+    
     if (!initData || typeof initData !== "string") return null;
 
     try {
         // URL decode once
         const decoded = decodeURIComponent(initData);
 
+        // Parse key=value pairs
         const params = {};
         decoded.split("&").forEach(pair => {
             const [key, value] = pair.split("=");
@@ -18,34 +18,32 @@ function verifyTelegramInitData(initData, botToken) {
         const telegramHash = params.hash;
         if (!telegramHash) return null;
 
-        // Create data_check_string: only remove 'hash', keep everything else exactly
+        // Remove hash only
         const checkParams = { ...params };
         delete checkParams.hash;
 
+        // Sort keys alphabetically
         const sortedPairs = Object.entries(checkParams)
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([k, v]) => `${k}=${v}`);
 
         const dataCheckString = sortedPairs.join("\n");
+        console.log("dataCheckString:", dataCheckString); // Should include all 4 keys
 
         const secretKey = crypto.createHash("sha256").update(botToken).digest();
-
         const computedHash = crypto
             .createHmac("sha256", secretKey)
             .update(dataCheckString)
             .digest("hex");
 
-        if (!crypto.timingSafeEqual(Buffer.from(computedHash), Buffer.from(telegramHash))) {
+        if (!crypto.timingSafeEqual(Buffer.from(computedHash, "hex"), Buffer.from(telegramHash, "hex"))) {
             console.warn("❌ Telegram init data verification failed!");
-            console.log("dataCheckString:", dataCheckString);
             console.log("computedHash:", computedHash);
             console.log("telegramHash:", telegramHash);
             return null;
         }
 
-        // Decode user JSON **after** verification
-        const user = JSON.parse(decodeURIComponent(params.user));
-
+        const user = JSON.parse(params.user);
         return {
             telegramId: String(user.id),
             username: user.username || `${user.first_name} ${user.last_name || ""}`.trim(),
@@ -59,6 +57,7 @@ function verifyTelegramInitData(initData, botToken) {
         return null;
     }
 }
+
 
 
 module.exports = { verifyTelegramInitData };
