@@ -39,10 +39,11 @@ function verifyTelegramInitData(initDataRaw, botToken) {
 
     console.log("[Verification] dataCheckString:\n" + dataCheckString);
 
-    // === CORRECT SECRET KEY GENERATION FOR MINI APPS ===
+   const cleanBotToken = botToken.trim(); // <-- ADD THIS to strip hidden linebreaks/spaces
+    
     const secretKey = crypto
       .createHmac("sha256", "WebAppData")
-      .update(botToken)
+      .update(cleanBotToken) // <-- USE THE CLEANED TOKEN HERE
       .digest();
 
     // Compute HMAC
