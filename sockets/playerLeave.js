@@ -47,6 +47,7 @@ const { checkAndResetIfEmpty } = require("../utils/checkandreset");
 
                 // --- RELEASE ALL PLAYER CARDS ---
         const gameCardsKey = `gameCards:${gameId}`;
+        const takenCardsKey = `takenCards:${strGameId}`;
         const strTg = String(telegramId).trim();
 
         // Step 1: Fetch cards before release
@@ -62,6 +63,7 @@ const { checkAndResetIfEmpty } = require("../utils/checkandreset");
                 console.log(`🧹 Releasing ${cardsToRelease.length} cards for ${strTg}: ${cardsToRelease.join(', ')}`);
 
                 await redis.hDel(gameCardsKey, ...cardsToRelease);
+                 await redis.del(takenCardsKey);
 
                 await GameCard.updateMany(
                     { gameId: strGameId, cardId: { $in: cardsToRelease.map(Number) } },
