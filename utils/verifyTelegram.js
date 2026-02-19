@@ -1,47 +1,60 @@
 const crypto = require("crypto");
 
 function verifyTelegramInitData(initData, botToken) {
-    console.log("Verifying Telegram init data:", initData);
-
-     if (!initData || typeof initData !== "string") {
+    if (!initData || typeof initData !== "string") {
         console.warn("Invalid initData format. Expected a non-empty string.");
         return null;
     }
+
     const params = new URLSearchParams(initData);
+    const data = {};
+    for (const [key, value] of params.entries()) {
+        data[key] = value;
+    }
 
-    const hash = params.get("hash");
-    params.delete("hash");
+    if (!data.user || !data.hash) {
+        console.warn("Missing user or hash in initData.");
+        return null;
+    }
 
-    // Sort keys alphabetically
-    const dataCheckString = [...params.entries()]
+    const hash = data.hash;
+    delete data.hash;
+
+    // Parse user JSON
+    try {
+        data.user = JSON.parse(decodeURIComponent(data.user));
+    } catch (err) {
+        console.warn("Failed to parse Telegram user JSON:", err);
+        return null;
+    }
+
+    // Recreate data_check_string
+    const sortedPairs = Object.entries(data)
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([key, value]) => `${key}=${value}`)
-        .join("\n");
+        .map(([k, v]) => `${k}=${v}`);
+    const dataCheckString = sortedPairs.join("\n");
 
-    // Create secret key
-    const secretKey = crypto
-        .createHmac("sha256", "WebAppData")
-        .update(botToken)
-        .digest();
-
-    // Create HMAC hash
-    const calculatedHash = crypto
+    // Compute HMAC SHA256 using bot token
+    const secretKey = crypto.createHash("sha256").update(botToken).digest();
+    const computedHash = crypto
         .createHmac("sha256", secretKey)
         .update(dataCheckString)
         .digest("hex");
 
-    if (calculatedHash !== hash) {
+    if (computedHash !== hash) {
+        console.warn("❌ Telegram init data verification failed!");
         return null;
     }
 
-    // Extract user info safely
-    const user = JSON.parse(params.get("user"));
-
+    // Return verified Telegram user object
     return {
-        telegramId: String(user.id),
-        username: user.username,
-        firstName: user.first_name
+        telegramId: data.user.id,
+        username: data.user.username,
+        firstName: data.user.first_name,
+        lastName: data.user.last_name || "",
+        photoUrl: data.user.photo_url || null,
     };
 }
+
 
 module.exports = { verifyTelegramInitData };
