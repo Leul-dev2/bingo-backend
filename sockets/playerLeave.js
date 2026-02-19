@@ -46,24 +46,23 @@ const { checkAndResetIfEmpty } = require("../utils/checkandreset");
 
 
                 // --- RELEASE ALL PLAYER CARDS ---
-        const gameCardsKey = `gameCards:${gameId}`;
-        const takenCardsKey = `takenCards:${strGameId}`;
+        const gameCardsKey = `gameCards:${strGameId}`;
+        const takenCardsKey = `takenCards:${strGameId}`; // 🆕 The Global Set
+        const userHeldCardsKey = `userHeldCards:${strGameId}:${strTelegramId}`;
         const strTg = String(telegramId).trim();
 
         // Step 1: Fetch cards before release
-        let allGameCards = await redis.hGetAll(gameCardsKey);
-
-        // Step 2: Find all belonging to the player
-        let cardsToRelease = Object.entries(allGameCards)
-            .filter(([_, ownerId]) => String(ownerId).trim() == strTg)
-            .map(([cardId]) => cardId);
+        const cardsToRelease = await redis.lRange(userHeldCardsKey, 0, -1)
 
             // Step 3: Release all those cards
             if (cardsToRelease.length > 0) {
                 console.log(`🧹 Releasing ${cardsToRelease.length} cards for ${strTg}: ${cardsToRelease.join(', ')}`);
 
-                await redis.hDel(gameCardsKey, ...cardsToRelease);
-                 await redis.del(takenCardsKey);
+            const multi = redis.multi();
+            multi.hDel(gameCardsKey, ...cardsToRelease);     // Remove Owner mapping
+            multi.sRem(takenCardsKey, ...cardsToRelease);    // Make available for others
+            multi.del(userHeldCardsKey);                     // Delete the user's pocket
+            await multi.exec();
 
                 await GameCard.updateMany(
                     { gameId: strGameId, cardId: { $in: cardsToRelease.map(Number) } },
