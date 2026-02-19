@@ -1,80 +1,112 @@
 const crypto = require("crypto");
 
 function verifyTelegramInitData(initDataRaw, botToken) {
-    if (!initDataRaw || typeof initDataRaw !== "string") {
-        console.warn("Invalid initData format");
-        return null;
+  if (!initDataRaw || typeof initDataRaw !== "string") {
+    console.warn("Invalid initData: not a string or empty");
+    return null;
+  }
+
+  if (!botToken || typeof botToken !== "string" || botToken.trim() === "") {
+    console.error("Invalid or missing bot token");
+    return null;
+  }
+
+  try {
+    const params = new URLSearchParams(initDataRaw);
+
+    // Telegram sometimes uses "hash", sometimes "signature" in different contexts
+    const telegramHash = params.get("hash") || params.get("signature");
+    if (!telegramHash) {
+      console.warn("Missing hash/signature in initData");
+      return null;
     }
 
+    // Collect all parameters except hash/signature
+    const checkParams = {};
+    for (const [key, value] of params.entries()) {
+      if (key !== "hash" && key !== "signature") {
+        checkParams[key] = value;
+      }
+    }
+
+    // Sort keys alphabetically (very important!)
+    const sortedKeys = Object.keys(checkParams).sort((a, b) => a.localeCompare(b));
+
+    // Build data-check-string exactly as Telegram expects
+    const dataCheckString = sortedKeys
+      .map((key) => `${key}=${checkParams[key]}`)
+      .join("\n");
+
+    console.log("[Verification] dataCheckString:\n" + dataCheckString);
+
+    // === CORRECT SECRET KEY GENERATION FOR MINI APPS ===
+    const secretKey = crypto
+      .createHmac("sha256", "WebAppData")
+      .update(botToken)
+      .digest();
+
+    // Compute HMAC
+    const computedHash = crypto
+      .createHmac("sha256", secretKey)
+      .update(dataCheckString)
+      .digest("hex");
+
+    console.log("[Verification] computedHash:", computedHash);
+    console.log("[Verification] received hash  :", telegramHash);
+
+    // Constant-time comparison (security best practice)
+    const isValid = crypto.timingSafeEqual(
+      Buffer.from(computedHash, "hex"),
+      Buffer.from(telegramHash, "hex")
+    );
+
+    if (!isValid) {
+      console.warn("❌ Telegram init data verification FAILED");
+      return null;
+    }
+
+    // Optional: reject very old data (recommended)
+    const authDateStr = params.get("auth_date");
+    if (authDateStr) {
+      const authDate = parseInt(authDateStr, 10);
+      const now = Math.floor(Date.now() / 1000);
+      if (now - authDate > 86400) { // 24 hours
+        console.warn(`Init data too old (auth_date=${authDate}, age=${now - authDate}s)`);
+        return null;
+      }
+    }
+
+    // Parse user object
+    const userJson = params.get("user");
+    if (!userJson) {
+      console.warn("Missing user field");
+      return null;
+    }
+
+    let user;
     try {
-        // 1. Do NOT decode twice — Telegram already sends URL-encoded
-        const params = new URLSearchParams(initDataRaw);
-
-        const telegramHash = params.get("hash");
-        if (!telegramHash) {
-            console.warn("No hash field found");
-            return null;
-        }
-
-        // 2. Collect all params except hash
-        const checkParams = {};
-        for (const [key, value] of params.entries()) {
-            if (key !== "hash") {
-                checkParams[key] = value;
-            }
-        }
-
-        // 3. Sort keys alphabetically
-        const sortedKeys = Object.keys(checkParams).sort();
-
-        // 4. Build data-check-string (raw values, no extra encoding)
-        const dataCheckString = sortedKeys
-            .map(key => `${key}=${checkParams[key]}`)
-            .join("\n");
-
-        console.log("dataCheckString:\n" + dataCheckString);
-
-        // 5. Secret = SHA256(botToken)
-        const secretKey = crypto.createHash("sha256").update(botToken).digest();
-
-        // 6. HMAC-SHA256(dataCheckString, secret)
-        const computedHash = crypto
-            .createHmac("sha256", secretKey)
-            .update(dataCheckString)
-            .digest("hex");
-
-        console.log("computedHash:", computedHash);
-        console.log("telegramHash :", telegramHash);
-
-        // 7. Constant-time comparison
-        if (!crypto.timingSafeEqual(
-            Buffer.from(computedHash, "hex"),
-            Buffer.from(telegramHash, "hex")
-        )) {
-            console.warn("❌ Telegram init data verification failed!");
-            return null;
-        }
-
-        // 8. Parse user
-        const userRaw = params.get("user");
-        if (!userRaw) return null;
-
-        const user = JSON.parse(userRaw);
-
-        return {
-            telegramId: String(user.id),
-            username: user.username || `${user.first_name || ""} ${user.last_name || ""}`.trim(),
-            firstName: user.first_name,
-            lastName: user.last_name,
-            photoUrl: user.photo_url,
-            languageCode: user.language_code,
-            allowsWriteToPm: user.allows_write_to_pm === true,
-        };
-
-    } catch (err) {
-        console.error("Verification error:", err);
-        return null;
+      user = JSON.parse(userJson);
+    } catch (e) {
+      console.error("Failed to parse user JSON:", e.message);
+      return null;
     }
+
+    return {
+      telegramId: String(user.id),
+      username: user.username || "",
+      firstName: user.first_name || "",
+      lastName: user.last_name || "",
+      fullName: `${user.first_name || ""} ${user.last_name || ""}`.trim(),
+      photoUrl: user.photo_url || null,
+      languageCode: user.language_code || "en",
+      allowsWriteToPm: !!user.allows_write_to_pm,
+      // You can add more fields if needed: is_premium, added_by, etc.
+    };
+
+  } catch (err) {
+    console.error("[Verification] Error:", err.message, err.stack);
+    return null;
+  }
 }
 
 module.exports = { verifyTelegramInitData };
