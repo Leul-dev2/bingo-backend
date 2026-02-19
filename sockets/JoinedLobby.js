@@ -1,12 +1,27 @@
 const { pendingDisconnectTimeouts, ACTIVE_SOCKET_TTL_SECONDS } = require("../utils/timeUtils");
+const { verifyTelegramInitData } = require("../utils/verifyTelegram");
 
 
 
 module.exports = function JoinedLobbyHandler(socket, io, redis) {
-     socket.on("userJoinedGame", async ({ telegramId, gameId }) => {
+     socket.on("userJoinedGame", async ({ initData, gameId }) => {
         console.log("userJoined invoked");
-        const strGameId = String(gameId);
-        const strTelegramId = String(telegramId);
+        const verifiedUser = verifyTelegramInitData(
+            initData,
+            process.env.TELEGRAM_BOT_TOKEN
+        );
+
+       if (!verifiedUser) {
+        socket.emit("joinError", {
+            message: "Unauthorized user"
+        });
+        return;
+    }
+
+    const strTelegramId = verifiedUser.telegramId;
+    const strGameId = String(gameId);
+
+    console.log("✅ Verified Telegram user:", strTelegramId);
 
         try {
             const userSelectionKey = `userSelections`; // Stores selection per socket.id
