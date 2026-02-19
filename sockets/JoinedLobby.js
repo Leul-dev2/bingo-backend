@@ -1,14 +1,15 @@
 const { pendingDisconnectTimeouts, ACTIVE_SOCKET_TTL_SECONDS } = require("../utils/timeUtils");
-const { verifyTelegramInitData } = require("../utils/verifyTelegram");
+const { verifyTelegramWithCache } = require("../utils/verifyWithCache");
 
 
 
 module.exports = function JoinedLobbyHandler(socket, io, redis) {
      socket.on("userJoinedGame", async ({ initData, gameId }) => {
         console.log("userJoined invoked");
-        const verifiedUser = verifyTelegramInitData(
+        const verifiedUser = await verifyTelegramWithCache(
             initData,
-            process.env.TELEGRAM_BOT_TOKEN
+            process.env.TELEGRAM_BOT_TOKEN,
+            redis
         );
 
     if (!verifiedUser) {
