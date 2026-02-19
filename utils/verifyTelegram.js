@@ -1,6 +1,12 @@
 const crypto = require("crypto");
 
 function verifyTelegramInitData(initData, botToken) {
+    console.log("Verifying Telegram init data:", initData);
+
+     if (!initData || typeof initData !== "string") {
+        console.warn("Invalid initData format. Expected a non-empty string.");
+        return null;
+    }
     const params = new URLSearchParams(initData);
 
     const hash = params.get("hash");
