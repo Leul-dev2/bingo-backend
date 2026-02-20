@@ -185,7 +185,7 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
       // });
 
       if (added.length > 0 || released.length > 0) {
-        queueUserUpdate(gameId, telegramId, added, released);
+        queueUserUpdate(gameId, telegramId, added, released, io);
       }
 
       if (added.length > 0) {

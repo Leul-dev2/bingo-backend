@@ -12,7 +12,7 @@ function getOrCreateQueue(gameId) {
 }
 
 
-function queueUserUpdate(gameId, ownerId, added, released) {
+function queueUserUpdate(gameId, ownerId, added, released, io) {
   const queue = getOrCreateQueue(gameId);
   const strOwnerId = String(ownerId);
 
@@ -32,10 +32,10 @@ function queueUserUpdate(gameId, ownerId, added, released) {
   if (queue.timer) {
     clearTimeout(queue.timer);
   }
-  queue.timer = setTimeout(() => flushBatchUpdates(gameId), 60); // 60 ms – adjust as needed
+  queue.timer = setTimeout(() => flushBatchUpdates(gameId, io), 60); // 60 ms – adjust as needed
 }
 
-function flushBatchUpdates(gameId) {
+function flushBatchUpdates(gameId, io) {
   const queue = batchQueues.get(gameId);
   if (!queue || queue.updates.size === 0) return;
 
