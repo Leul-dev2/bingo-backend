@@ -1,5 +1,6 @@
 const GameCard = require("../models/GameCard");
 const { checkRateLimit } = require("../utils/rateLimiter");
+const { queueUserUpdate, cleanupBatchQueue  } = require("../utils/emitBatcher");
 
 const RELEASE_ALL_LUA = `
 -- Release all cards for a user in a game
@@ -177,11 +178,15 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
         currentHeldCardIds: myCurrentCards.map(Number)
       });
 
-      io.to(strGameId).emit("cardsUpdated", {
-        ownerId: strTelegramId,
-        selected: added.map(Number),
-        released: released.map(Number)
-      });
+      // io.to(strGameId).emit("cardsUpdated", {
+      //   ownerId: strTelegramId,
+      //   selected: added.map(Number),
+      //   released: released.map(Number)
+      // });
+
+      if (added.length > 0 || released.length > 0) {
+        queueUserUpdate(gameId, telegramId, added, released);
+      }
 
       if (added.length > 0) {
         saveToDatabase(strGameId, strTelegramId, added, cardsData).catch(console.error);
