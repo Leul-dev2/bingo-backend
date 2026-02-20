@@ -32,7 +32,7 @@ function queueUserUpdate(gameId, ownerId, added, released, io) {
   if (queue.timer) {
     clearTimeout(queue.timer);
   }
-  queue.timer = setTimeout(() => flushBatchUpdates(gameId, io), 60); // 60 ms – adjust as needed
+  queue.timer = setTimeout(() => flushBatchUpdates(gameId, io), 60); // 60 ms
 }
 
 function flushBatchUpdates(gameId, io) {
