@@ -1,6 +1,6 @@
 const { pendingDisconnectTimeouts, ACTIVE_SOCKET_TTL_SECONDS } = require("../utils/timeUtils");
 const { verifyTelegramWithCache } = require("../utils/verifyWithCache");
-
+const { checkRateLimit } = require("../utils/rateLimiter");
 
 
 
@@ -17,6 +17,16 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
         socket.emit("joinError", {
             message: "Unauthorized user"
         });
+        return;
+    }
+
+   
+    const rateKey = `rate:join:${verifiedUser.telegramId}`;
+
+    const allowed = await checkRateLimit(redis, rateKey, 3, 10);
+
+    if (!allowed) {
+        socket.emit("joinError", { message: "Too many requests. Slow down." });
         return;
     }
 

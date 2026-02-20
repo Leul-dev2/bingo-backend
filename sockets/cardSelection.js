@@ -1,4 +1,5 @@
 const GameCard = require("../models/GameCard");
+const { checkRateLimit } = require("../utils/rateLimiter");
 
 const RELEASE_ALL_LUA = `
 -- Release all cards for a user in a game
@@ -119,6 +120,15 @@ return {
 module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
   socket.on("cardSelected", async (data) => {
     const { telegramId, gameId, cardIds, cardsData, requestId } = data;
+
+    const rateKey = `rate:select:${telegramId}:${gameId}`;
+
+    const allowed = await checkRateLimit(redis, rateKey, 10, 5);
+
+    if (!allowed) {
+        socket.emit("rateLimit", { message: "Too fast selecting cards" });
+        return;
+    }
 
     const strTelegramId = String(telegramId);
     const strGameId = String(gameId);
