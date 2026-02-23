@@ -25,8 +25,18 @@ function queueUserUpdate(gameId, ownerId, added, released, io) {
 
   const userUpdates = queue.updates.get(strOwnerId);
 
-  added.forEach(id => userUpdates.selected.add(Number(id)));
-  released.forEach(id => userUpdates.released.add(Number(id)));
+  // 🔄 FIX: Cross-cancel additions and releases to prevent race conditions
+  added.forEach(id => {
+    const numId = Number(id);
+    userUpdates.selected.add(numId);
+    userUpdates.released.delete(numId); 
+  });
+
+  released.forEach(id => {
+    const numId = Number(id);
+    userUpdates.released.add(numId);
+    userUpdates.selected.delete(numId); 
+  });
 
   // Reset / schedule flush
   if (queue.timer) {
