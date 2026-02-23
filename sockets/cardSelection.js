@@ -192,7 +192,7 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
       }
 
       if (added.length > 0) {
-        saveToDatabase(strGameId, strTelegramId, added, cardsData).catch(console.error);
+        saveToDatabase(strGameId, strTelegramId, added).catch(console.error);
       }
       if (released.length > 0) {
         releaseCardsInDb(strGameId, released).catch(console.error);
