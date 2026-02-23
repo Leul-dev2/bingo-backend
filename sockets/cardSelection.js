@@ -243,6 +243,8 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
         return null;
       }
 
+      console.log(`✅ Found card layout for Card ID ${cardId} in bingoCards.json`);
+
       const cardGrid = cardObj.card; // This is the [ [row], [row] ] array from your JSON
       
       // Transform "FREE" to 0 and ensure numbers are type-safe
