@@ -1,6 +1,7 @@
 const GameCard = require("../models/GameCard");
 const { checkRateLimit } = require("../utils/rateLimiter");
 const { queueUserUpdate, cleanupBatchQueue  } = require("../utils/emitBatcher");
+const bingoCards = require("../assets/bingoCards.json");
 
 const RELEASE_ALL_LUA = `
 -- Release all cards for a user in a game
@@ -118,9 +119,11 @@ return {
 }
 `;
 
+
+
 module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
   socket.on("cardSelected", async (data) => {
-    const { telegramId, gameId, cardIds, cardsData, requestId } = data;
+    const { telegramId, gameId, cardIds, requestId } = data;
 
     const rateKey = `rate:select:${telegramId}:${gameId}`;
 
@@ -228,10 +231,14 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
     }
   });
 
-  async function saveToDatabase(gameId, telegramId, cardIds, cardsData) {
+  async function saveToDatabase(gameId, telegramId, cardIds) {
     const ops = cardIds.map(cardId => {
-      const cardGrid = cardsData[cardId];
+      // Find the card layout directly from the JSON file loaded in server memory
+      const cardObj = bingoCards.find(c => c.id === Number(cardId));
+      const cardGrid = cardObj ? cardObj.card : []; // Fallback if missing
+
       const cleanCard = cardGrid.map(row => row.map(c => (c === "FREE" ? 0 : Number(c))));
+      
       return {
         updateOne: {
           filter: { gameId, cardId: Number(cardId) },
@@ -240,6 +247,7 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
         }
       };
     });
+    
     if (ops.length > 0) await GameCard.bulkWrite(ops);
   }
 
