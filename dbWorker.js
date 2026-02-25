@@ -3,14 +3,13 @@ const mongoose = require('mongoose');
 const GameCard = require("./models/GameCard");
 const bingoCards = require("./assets/bingoCards.json");
 const { connection } = require("./utils/dbQueue");
+const connectDB = require("./config/db");
 
 const SHUTDOWN_TIMEOUT_MS = 45000;
 
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log("📦 Worker connected to MongoDB"))
-  .catch(err => console.error("MongoDB Worker Error:", err));
-
-const worker = new Worker('db-operations', async (job) => {
+connectDB()
+  .then(() => { 
+  const worker = new Worker('db-operations', async (job) => {
   const { type, payload } = job.data;
   const { gameId, telegramId, cardIds } = payload;
 
@@ -74,7 +73,13 @@ async function gracefulShutdown(signal) {
     process.exit(0);
   }
 }
-
+ 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('unhandledRejection', (reason) => console.error('Unhandled Rejection:', reason));
+
+ })
+.catch(err => {
+    console.error("[WORKER FATAL] MongoDB connection failed → stopping worker", err);
+    process.exit(1);
+});
