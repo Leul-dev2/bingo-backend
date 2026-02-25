@@ -4,6 +4,7 @@ console.log("║     DB WORKER PROCESS STARTED - PID:", process.pid, "     ║")
 console.log("║             Time:", new Date().toISOString(), "║");
 console.log("╚════════════════════════════════════════════╝");
 
+require('dotenv').config();
 const { Worker } = require('bullmq');
 const mongoose = require('mongoose');
 const GameCard = require("./models/GameCard");
