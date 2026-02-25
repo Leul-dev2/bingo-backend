@@ -9,9 +9,19 @@ const SHUTDOWN_TIMEOUT_MS = 45000;
 
 connectDB()
   .then(() => { 
+
   const worker = new Worker('db-operations', async (job) => {
   const { type, payload } = job.data;
   const { gameId, telegramId, cardIds } = payload;
+  // dbWorker.js — first lines, before ANY require or import
+console.log("╔════════════════════════════════════════════╗");
+console.log("║     DB WORKER PROCESS STARTED - PID:", process.pid, "     ║");
+console.log("║             Time:", new Date().toISOString(), "║");
+console.log("╚════════════════════════════════════════════╝");
+
+// Then the rest...
+const { Worker } = require('bullmq');
+console.log("[START] Required bullmq Worker");
 
   if (type === 'SAVE_CARDS') {
     const ops = cardIds.map(cardId => {
