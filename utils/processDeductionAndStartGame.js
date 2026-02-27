@@ -184,8 +184,35 @@
                     { session }
                 );
 
-                await redis.del(`gameCards:${strGameId}`);
-                io.to(strGameId).emit("gameCardResetOngameStart");
+                // 2. RELEASE ALL CARDS IN DATABASE (this is what you asked for)
+        await GameCard.updateMany(
+            { gameId: strGameId },
+            { 
+                $set: { isTaken: false },
+                $unset: { takenBy: "", GameSessionId: "" }
+            },
+            { session }
+        );
+        console.log(`✅ DB: Released ALL cards for game ${strGameId} → ready for next lobby`);
+
+        // 3. FULL REDIS CLEANUP (all keys used in cardSelection.js)
+        await redis.del(`gameCards:${strGameId}`);
+        await redis.del(`takenCards:${strGameId}`);
+
+        // Delete ALL userHeldCards for this game
+        const userHeldPattern = `userHeldCards:${strGameId}:*`;
+        const allUserHeldKeys = await redis.keys(userHeldPattern);
+        if (allUserHeldKeys.length > 0) {
+            await redis.del(...allUserHeldKeys);
+            console.log(`🧹 Redis: Deleted ${allUserHeldKeys.length} userHeldCards keys`);
+        }
+
+        // Optional: clean extra lobby keys if you use them
+        await redis.del(`userSelections`);
+        await redis.del(`userSelectionsByTelegramId`);
+
+        io.to(strGameId).emit("gameCardResetOngameStart");
+        console.log(`🚀 Full reset complete → Lobby is now 100% clean for next game`);
             });
 
             // 3. POST-COMMIT TASKS
