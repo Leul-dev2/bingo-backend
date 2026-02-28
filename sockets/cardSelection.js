@@ -236,13 +236,18 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
     }
   });
 
+  // Handle user disconnect: release all their cards
+
   socket.on("unselectCardOnLeave", async ({ gameId, telegramId }) => {
+    const strTelegramId = String(telegramId);
+    const strGameId = String(gameId);
+
     const released = await redis.eval(RELEASE_ALL_LUA, {
       keys: [`takenCards:${gameId}`, `userHeldCards:${gameId}:${telegramId}`, `gameCards:${gameId}`]
     });
 
-    if (released.length > 0) {
-      io.to(gameId).emit("cardsReleased", { cardIds: released, telegramId });
+    
+     queueUserUpdate(strGameId, strTelegramId, [], released, io);
       
     // 🔥 FIX: Update database + clean batch queue
     try {
@@ -257,7 +262,7 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
       console.error("Failed to queue RELEASE_ALL on leave:", err);
     }
 
-    }
+    
   });
 
 
