@@ -1,4 +1,3 @@
-
 const batchQueues = new Map();
 
 function getOrCreateQueue(gameId) {
@@ -10,7 +9,6 @@ function getOrCreateQueue(gameId) {
   }
   return batchQueues.get(gameId);
 }
-
 
 function queueUserUpdate(gameId, ownerId, added, released, io) {
   const queue = getOrCreateQueue(gameId);
@@ -25,33 +23,29 @@ function queueUserUpdate(gameId, ownerId, added, released, io) {
 
   const userUpdates = queue.updates.get(strOwnerId);
 
-  // 🔄 FIX: Cross-cancel additions and releases to prevent race conditions
+  // Cross-cancel to prevent race conditions
   added.forEach(id => {
     const numId = Number(id);
     userUpdates.selected.add(numId);
-    userUpdates.released.delete(numId); 
+    userUpdates.released.delete(numId);
   });
 
   released.forEach(id => {
     const numId = Number(id);
     userUpdates.released.add(numId);
-    userUpdates.selected.delete(numId); 
+    userUpdates.selected.delete(numId);
   });
 
-  // Reset / schedule flush
-  if (queue.timer) {
-    clearTimeout(queue.timer);
-  }
-  queue.timer = setTimeout(() => flushBatchUpdates(gameId, io), 60); // 60 ms
+  // Reset timer
+  if (queue.timer) clearTimeout(queue.timer);
+  queue.timer = setTimeout(() => flushBatchUpdates(gameId, io), 60);
 }
 
 function flushBatchUpdates(gameId, io) {
   const queue = batchQueues.get(gameId);
   if (!queue || queue.updates.size === 0) return;
 
-  const batchPayload = {
-    updates: [],
-  };
+  const batchPayload = { updates: [] };
 
   queue.updates.forEach((userUpdates, ownerId) => {
     batchPayload.updates.push({
@@ -61,27 +55,22 @@ function flushBatchUpdates(gameId, io) {
     });
   });
 
-  // Emit once per flush
   io.to(gameId).emit("batchCardsUpdated", batchPayload);
 
   // Clean up
-  queue.updates.clear();
-  queue.timer = null;
-
-  // Optional: remove empty queue entirely
-  if (queue.updates.size === 0) {
-    batchQueues.delete(gameId);
+  if (queue.timer) {
+    clearTimeout(queue.timer);
+    queue.timer = null;
   }
+  queue.updates.clear();
+  batchQueues.delete(gameId);   // safe
 }
 
 function cleanupBatchQueue(gameId) {
   const queue = batchQueues.get(gameId);
-  if (queue?.timer) {
-    clearTimeout(queue.timer);
-  }
+  if (queue?.timer) clearTimeout(queue.timer);
   batchQueues.delete(gameId);
 }
-
 
 module.exports = {
   queueUserUpdate,
