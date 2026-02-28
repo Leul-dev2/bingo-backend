@@ -243,67 +243,22 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
 
     if (released.length > 0) {
       io.to(gameId).emit("cardsReleased", { cardIds: released, telegramId });
+      
+    // 🔥 FIX: Update database + clean batch queue
+    try {
+      await dbQueue.add('db-write', {
+        type: 'RELEASE_CARDS',
+        payload: { gameId: strGameId, cardIds: released }
+      }, { ...defaultJobOptions, priority: 2 });
+
+      // Optional but recommended: clean memory batcher
+      cleanupBatchQueue(strGameId);
+    } catch (err) {
+      console.error("Failed to queue RELEASE_ALL on leave:", err);
+    }
+
     }
   });
 
-//  async function saveToDatabase(gameId, telegramId, cardIds) {
-//   try {
-//     const ops = cardIds.map(cardId => {
-//       // 🚀 THE FIX: Find the card layout directly from the imported JSON
-//       // Use Number(cardId) to ensure matching regardless of types
-//       const cardObj = bingoCards.find(c => Number(c.id) === Number(cardId));
-      
-//       if (!cardObj) {
-//         console.error(`❌ Card ID ${cardId} not found in bingoCards.json`);
-//         return null;
-//       }
 
-//       console.log(`✅ Found card layout for Card ID ${cardId} in bingoCards.json`);
-
-//       const cardGrid = cardObj.card; // This is the [ [row], [row] ] array from your JSON
-      
-//       // Transform "FREE" to 0 and ensure numbers are type-safe
-//       const cleanCard = cardGrid.map(row => 
-//         row.map(c => (c === "FREE" ? 0 : Number(c)))
-//       );
-
-//       return {
-//         updateOne: {
-//           filter: { 
-//             gameId: String(gameId), 
-//             cardId: Number(cardId) 
-//           },
-//           update: { 
-//             $set: { 
-//               card: cleanCard, 
-//               isTaken: true, 
-//               takenBy: Number(telegramId) 
-//             } 
-//           },
-//           upsert: true
-//         }
-//       };
-//     }).filter(op => op !== null); // Remove failed lookups
-
-//     if (ops.length > 0) {
-//       await GameCard.bulkWrite(ops);
-//       console.log(`✅ Successfully saved ${ops.length} cards to MongoDB for User ${telegramId}`);
-//     }
-//   } catch (error) {
-//     console.error("❌ Error in saveToDatabase:", error);
-//   }
-// }
-
-//   async function releaseCardsInDb(gameId, releasedCardIds) {
-//     if (!releasedCardIds || releasedCardIds.length === 0) return;
-//     try {
-//       const numericIds = releasedCardIds.map(id => Number(id));
-//       await GameCard.updateMany(
-//         { gameId: String(gameId), cardId: { $in: numericIds } },
-//         { $set: { isTaken: false, takenBy: null } }
-//       );
-//     } catch (err) {
-//       console.error("DB release failed:", err);
-//     }
-//   }
 };
