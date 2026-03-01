@@ -88,7 +88,7 @@ mongoose.connection.on('connected', async () => {
                     
         }else if (data.event === 'fullGameReset') { // <--- 3. CATCH THE WORKER'S SIGNAL
                 
-                // Execute the function signature you provided: resetGame(gameId, strGameSessionId, io, state, redis)
+                //// Execute the function signature you provided: resetGame(gameId, strGameSessionId, io, state, redis)
                 resetGame(data.gameId, data.gameSessionId, io, gameState, redisClient); 
                 
                 console.log(`✅ Executed local resetGame for Game ${data.gameId} triggered by worker.`);
