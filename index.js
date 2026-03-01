@@ -35,14 +35,14 @@ mongoose.connection.on('connected', async () => {
     console.log('✅ Mongoose connection successful, applying indexes...');
     await GameControl.createIndexes().catch(err => console.error('❌ Index creation failed:', err));
 
-    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
 
     // Client for Pub/Sub - exclusively for Socket.IO adapter
     const pubClient = createClient({ url: redisUrl });
     const subClient = pubClient.duplicate();
 
-    // Dedicated client for all general-purpose game logic and application commands
-    const redisClient = createClient({ url: redisUrl });
+    const redisClient = createClient({
+            url: process.env.REDIS_URL // Ensure this is set in Render Dashboard
+    });
 
     // New client to subscribe to events published by the worker process
     const eventSubscriber = pubClient.duplicate();
