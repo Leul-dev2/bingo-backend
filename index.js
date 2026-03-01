@@ -113,7 +113,7 @@ mongoose.connection.on('connected', async () => {
 
         registerGameSocket(io, redisClient);
 
-        const PORT = process.env.PORT || 5002;
+        const PORT = process.env.PORT || 10000;
         server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
     } catch (err) {
