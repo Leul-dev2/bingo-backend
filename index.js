@@ -57,11 +57,10 @@ mongoose.connection.on('connected', async () => {
         console.log("✅ Redis Pub/Sub, Command, and Event clients connected successfully.");
 
         const io = new Server(server, {
-            cors: { origin: "https://frontend.bingoogame.com", methods: ["GET", "POST"] },
-            pingInterval: 15000,
-            pingTimeout: 25000,
-        });
-
+                cors: { origin: ["http://localhost:5173", "https://frontendbingo.netlify.app"], methods: ["GET", "POST"] },
+                pingInterval: 15000,
+                pingTimeout: 15000,
+            });
         io.adapter(createAdapter(pubClient, subClient));
         console.log("✅ Socket.IO Redis Adapter applied for horizontal scaling.");
 
