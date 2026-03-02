@@ -19,6 +19,7 @@ const registerGameSocket = require("./sockets/gameSocket");
 const smsRoutes = require("./routes/smsWebhook");
 const GameControl = require("./models/GameControl");
 const resetGame = require("./utils/resetGame");
+const { queueUserUpdate, cleanupBatchQueue } = require("./utils/emitBatcher");
 
 const gameState = {}; 
 
@@ -76,27 +77,33 @@ mongoose.connection.on('connected', async () => {
                 // Your existing logic for simple cleanup/notification
                 io.to(data.gameId).emit('gameReset', { /* ... */ });
                 
-            } else if (data.event === 'cardsReleased') { // ⬅️ NEW BLOCK FOR CARD RELEASE
-             const strGameId = String(data.gameId);
-            
-                 io.to(strGameId).emit("cardReleased", {
-                    cardId: data.cardId,
-                    telegramId: data.releasedBy // Optional: good for logging/debugging on the client
-                });
-            
-         console.log(`✅ Emitted 'cardReleased' for card ${data.cardId} in Game ${data.gameId}.`); 
-                    
-        }else if (data.event === 'fullGameReset') { // <--- 3. CATCH THE WORKER'S SIGNAL
-                
-                //// Execute the function signature you provided: resetGame(gameId, strGameSessionId, io, state, redis)
-                resetGame(data.gameId, data.gameSessionId, io, gameState, redisClient); 
-                
-                console.log(`✅ Executed local resetGame for Game ${data.gameId} triggered by worker.`);
+            } //🆕 CHANGED: Use emitBatcher for cardsReleased (batches with any pending selections)
+                else if (data.event === 'cardsReleased') {
+                    const strGameId = String(data.gameId);
+                    const ownerId = String(data.releasedBy || data.telegramId);
 
+                    // Support both single cardId or cardIds array from worker
+                    const releasedIds = Array.isArray(data.cardIds) 
+                        ? data.cardIds.map(id => Number(id))
+                        : [Number(data.cardId || data.cardIds)].filter(id => !isNaN(id));
+
+                    if (releasedIds.length > 0) {
+                        // Queue release through batcher → will emit "batchCardsUpdated" (frontend already handles it)
+                        queueUserUpdate(strGameId, ownerId, [], releasedIds, io);
+                        
+                        console.log(`✅ Queued batched release of ${releasedIds.length} card(s) by ${ownerId} in Game ${strGameId}`);
+                    }
+                } 
+                else if (data.event === 'fullGameReset') {
+                    // 🆕 CLEANUP: Clear any pending batch for this game
+                    cleanupBatchQueue(data.gameId);
+                    
+                    resetGame(data.gameId, data.gameSessionId, io, gameState, redisClient); 
+                    console.log(`✅ Executed local resetGame for Game ${data.gameId}`);
+                }
+            } catch (err) {
+                console.error("❌ Error processing message from game-events channel:", err);
             }
-        } catch (err) {
-            console.error("❌ Error processing message from game-events channel:", err);
-        }
         });
         console.log("✅ Subscribed to 'game-events' channel for worker communication.");
         // --------------------------------------------------------
