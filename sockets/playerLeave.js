@@ -3,17 +3,19 @@ const GameCard = require("../models/GameCard");
 const PlayerSession = require("../models/PlayerSession");
 const { getGameRoomsKey } = require("../utils/redisKeys");
 const { checkAndResetIfEmpty } = require("../utils/checkandreset");
- 
- 
- module.exports = function playerLeaveHandler(socket, io, redis, state) { 
- // ✅ Handle playerLeave event
+
+// 🔥 NEW IMPORTS
+const { queueUserUpdate } = require("../utils/emitBatcher");
+const { dbQueue, defaultJobOptions } = require("../utils/dbQueue");
+
+module.exports = function playerLeaveHandler(socket, io, redis, state) {
     socket.on("playerLeave", async ({ gameId, GameSessionId, telegramId }, callback) => {
         const strTelegramId = String(telegramId);
         const strGameId = String(gameId);
         console.log(`🚪 Player ${telegramId} is leaving game ${gameId} ${GameSessionId}`);
 
         try {
-            // --- Release the player's balance reservation lock in the database ---
+            // --- Release the player's balance reservation lock ---
             const userUpdateResult = await User.updateOne(
                 { telegramId: strTelegramId, reservedForGameId: strGameId },
                 { $unset: { reservedForGameId: "" } }
@@ -21,79 +23,71 @@ const { checkAndResetIfEmpty } = require("../utils/checkandreset");
 
             if (userUpdateResult.modifiedCount > 0) {
                 console.log(`✅ Balance reservation lock for player ${telegramId} released.`);
-            } else {
-                console.log(`⚠️ No balance reservation lock found for player ${telegramId}.`);
             }
 
-        await PlayerSession.updateOne(
-            {
-                GameSessionId: GameSessionId,
-                telegramId: strTelegramId,
-            },
-            {
-                $set: { status: 'disconnected' }
-            }
-        );
+            await PlayerSession.updateOne(
+                { GameSessionId, telegramId: strTelegramId },
+                { $set: { status: 'disconnected' } }
+            );
+            console.log(`✅ PlayerSession record for ${strTelegramId} updated to disconnected.`);
 
-        console.log(`✅ PlayerSession record for ${strTelegramId} updated to disconnected status.`);
-
-
-            // --- Remove from Redis sets and hashes ---
+            // --- Remove from Redis sets ---
             await Promise.all([
                 redis.sRem(`gameSessions:${gameId}`, strTelegramId),
                 redis.sRem(`gameRooms:${gameId}`, strTelegramId),
             ]);
 
+            // 🔥🔥🔥 RELEASE ALL PLAYER CARDS + BATCHER + DB QUEUE 🔥🔥🔥
+            const gameCardsKey = `gameCards:${strGameId}`;
+            const takenCardsKey = `takenCards:${strGameId}`;
+            const userHeldCardsKey = `userHeldCards:${strGameId}:${strTelegramId}`;
+            const strTg = String(telegramId).trim();
 
-                // --- RELEASE ALL PLAYER CARDS ---
-        const gameCardsKey = `gameCards:${strGameId}`;
-        const takenCardsKey = `takenCards:${strGameId}`; // 🆕 The Global Set
-        const userHeldCardsKey = `userHeldCards:${strGameId}:${strTelegramId}`;
-        const strTg = String(telegramId).trim();
+            // Step 1: Fetch cards before release
+            const cardsToRelease = await redis.lRange(userHeldCardsKey, 0, -1);
 
-        // Step 1: Fetch cards before release
-        const cardsToRelease = await redis.lRange(userHeldCardsKey, 0, -1)
-
-            // Step 3: Release all those cards
             if (cardsToRelease.length > 0) {
                 console.log(`🧹 Releasing ${cardsToRelease.length} cards for ${strTg}: ${cardsToRelease.join(', ')}`);
 
-            const multi = redis.multi();
-            multi.hDel(gameCardsKey, ...cardsToRelease);     // Remove Owner mapping
-            multi.sRem(takenCardsKey, ...cardsToRelease);    // Make available for others
-            multi.del(userHeldCardsKey);                     // Delete the user's pocket
-            await multi.exec();
+                // Redis atomic release (your existing excellent logic)
+                const multi = redis.multi();
+                multi.hDel(gameCardsKey, ...cardsToRelease);
+                multi.sRem(takenCardsKey, ...cardsToRelease);
+                multi.del(userHeldCardsKey);
+                await multi.exec();
 
-                await GameCard.updateMany(
-                    { gameId: strGameId, cardId: { $in: cardsToRelease.map(Number) } },
-                    { $set: { isTaken: false, takenBy: null } }
-                );
-
-                // Step 4: Double-check Redis (handle race condition)
+                // Double-check leftovers (you already had this — keeping it)
                 const verifyGameCards = await redis.hGetAll(gameCardsKey);
                 const leftovers = Object.entries(verifyGameCards)
-                    .filter(([_, ownerId]) => String(ownerId).trim() == strTg)
+                    .filter(([_, ownerId]) => String(ownerId).trim() === strTg)
                     .map(([cardId]) => cardId);
 
                 if (leftovers.length > 0) {
-                    console.log(`⚠️ Found leftover cards after release, deleting again: ${leftovers.join(', ')}`);
+                    console.log(`⚠️ Found leftovers, cleaning: ${leftovers.join(', ')}`);
                     await redis.hDel(gameCardsKey, ...leftovers);
                 }
 
-                io.to(gameId).emit("cardsReleased", {
-                    cardIds: [...cardsToRelease, ...leftovers],
-                    telegramId: strTg,
-                });
+                const finalReleased = [...cardsToRelease, ...leftovers];
+
+                // 🔥 THIS IS THE KEY LINE (replaces old emit)
+                queueUserUpdate(strGameId, strTg, [], finalReleased, io);
+                console.log(`✅ Queued batched release of ${finalReleased.length} cards via emitBatcher`);
+
+                // 🔥 Queue DB update via your worker (consistent with everywhere else)
+                await dbQueue.add('db-write', {
+                    type: 'RELEASE_CARDS',
+                    payload: { gameId: strGameId, cardIds: finalReleased }
+                }, { ...defaultJobOptions, priority: 2 });
+
+                console.log(`📤 Queued RELEASE_CARDS job to dbWorker`);
             }
 
-
-            // --- Remove userSelections entries by both socket.id and telegramId after usage ---
+            // --- Cleanup remaining keys ---
             await Promise.all([
                 redis.hDel("userSelections", socket.id),
-                redis.hDel("userSelections", strTelegramId), // Legacy
-                redis.hDel("userSelectionsByTelegramId", strTelegramId), // Legacy
+                redis.hDel("userSelections", strTelegramId),
+                redis.hDel("userSelectionsByTelegramId", strTelegramId),
                 redis.sRem(getGameRoomsKey(gameId), strTelegramId),
-                // deleteCardsByTelegramId(strGameId, strTelegramId, redis), // This is redundant now
                 redis.del(`activeSocket:${strTelegramId}:${socket.id}`),
                 redis.del(`countdown:${strGameId}`),
             ]);
@@ -101,7 +95,8 @@ const { checkAndResetIfEmpty } = require("../utils/checkandreset");
             // Emit updated player count
             const playerCount = await redis.sCard(`gameRooms:${gameId}`) || 0;
             io.to(gameId).emit("playerCountUpdate", { gameId, playerCount });
-            await checkAndResetIfEmpty(gameId, GameSessionId, telegramId,  socket, io, redis, state);
+
+            await checkAndResetIfEmpty(gameId, GameSessionId, telegramId, socket, io, redis, state);
 
             if (callback) callback();
         } catch (error) {
@@ -109,4 +104,4 @@ const { checkAndResetIfEmpty } = require("../utils/checkandreset");
             if (callback) callback();
         }
     });
-}
+};
