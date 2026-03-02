@@ -238,31 +238,43 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
 
   // Handle user disconnect: release all their cards
 
+    // Handle manual "unselect all cards" when user leaves lobby (before starting game)
+  // This is the legacy path — still kept for backward compatibility
   socket.on("unselectCardOnLeave", async ({ gameId, telegramId }) => {
     const strTelegramId = String(telegramId);
     const strGameId = String(gameId);
 
-    const released = await redis.eval(RELEASE_ALL_LUA, {
-      keys: [`takenCards:${gameId}`, `userHeldCards:${gameId}:${telegramId}`, `gameCards:${gameId}`]
-    });
-
-    
-     queueUserUpdate(strGameId, strTelegramId, [], released, io);
-      
-    // 🔥 FIX: Update database + clean batch queue
     try {
-      await dbQueue.add('db-write', {
-        type: 'RELEASE_CARDS',
-        payload: { gameId: strGameId, cardIds: released }
-      }, { ...defaultJobOptions, priority: 2 });
+      console.log(`[UNSELECT ON LEAVE] Processing full release for ${strTelegramId} in game ${strGameId}`);
 
-      // Optional but recommended: clean memory batcher
-      cleanupBatchQueue(strGameId);
+      // RELEASE_ALL_LUA is already perfect (atomic)
+      const released = await redis.eval(RELEASE_ALL_LUA, {
+        keys: [
+          `takenCards:${strGameId}`,
+          `userHeldCards:${strGameId}:${strTelegramId}`,
+          `gameCards:${strGameId}`
+        ]
+      });
+
+      if (Array.isArray(released) && released.length > 0) {
+        // 🔥 Use batcher → both cards instantly turn white for everyone
+        queueUserUpdate(strGameId, strTelegramId, [], released, io);
+        console.log(`✅ Queued batched release of ${released.length} cards (unselectCardOnLeave)`);
+
+        // 🔥 Queue DB update via your worker (exactly like playerLeave & disconnect)
+        await dbQueue.add('db-write', {
+          type: 'RELEASE_CARDS',
+          payload: { gameId: strGameId, cardIds: released }
+        }, { ...defaultJobOptions, priority: 2 });
+
+        console.log(`📤 Queued RELEASE_CARDS job to dbWorker`);
+      } else {
+        console.log(`[UNSELECT ON LEAVE] No cards held by ${strTelegramId}`);
+      }
+
     } catch (err) {
-      console.error("Failed to queue RELEASE_ALL on leave:", err);
+      console.error(`❌ Error in unselectCardOnLeave for ${strTelegramId}:`, err);
     }
-
-    
   });
 
 
