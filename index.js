@@ -76,7 +76,7 @@ mongoose.connection.on('connected', async () => {
                 // Your existing logic for simple cleanup/notification
                 io.to(data.gameId).emit('gameReset', { /* ... */ });
                 
-            } else if (data.event === 'cardReleased') { // ⬅️ NEW BLOCK FOR CARD RELEASE
+            } else if (data.event === 'cardsReleased') { // ⬅️ NEW BLOCK FOR CARD RELEASE
              const strGameId = String(data.gameId);
             
                  io.to(strGameId).emit("cardReleased", {
