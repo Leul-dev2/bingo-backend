@@ -2,19 +2,51 @@ const { getActiveDrawLockKey } = require("./redisKeys");
 const { syncGameIsActive } = require("./syncGameIsActive");
   
   
-  async function fullGameCleanup(gameId, redis, state) {
-        console.log("fullGameCleanup 🔥🔥🔥");
-         
-    await redis.del(`lock:resetGame:${gameId}`);
-    await redis.del(`lock:reset:${gameId}`);
-    await redis.del(`lock:countdownOwner:${gameId}`);
-    await redis.del(`lock:drawing:${gameId}`);
+async function fullGameCleanup(gameId, redis, state = {}) {
+    // Default to empty object so we never crash on undefined state
+    console.log("fullGameCleanup 🔥🔥🔥");
 
-        delete state.activeDrawLocks[gameId];
-        await redis.del(getActiveDrawLockKey(gameId));
-        await syncGameIsActive(gameId, false, redis);
-        if (state.countdownIntervals[gameId]) { clearInterval(state.countdownIntervals[gameId]); delete state.countdownIntervals[gameId]; }
-     }
+    const strGameId = String(gameId);
+
+    // In-memory cleanup — very defensive
+    try {
+        if (state.countdownIntervals?.[strGameId]) {
+            clearInterval(state.countdownIntervals[strGameId]);
+            delete state.countdownIntervals[strGameId];
+        }
+        if (state.drawIntervals?.[strGameId]) {
+            clearInterval(state.drawIntervals[strGameId]);
+            delete state.drawIntervals[strGameId];
+        }
+        if (state.activeDrawLocks && strGameId in state.activeDrawLocks) {
+            delete state.activeDrawLocks[strGameId];
+        }
+    } catch (e) {
+        console.warn(`Non-fatal cleanup warning for game ${strGameId}:`, e.message);
+    }
+
+    // Redis cleanup — always runs
+    try {
+        await Promise.all([
+            redis.del(`lock:countdownOwner:${strGameId}`),
+            redis.del(`lock:drawing:${strGameId}`),
+            redis.del(`lock:reset:${strGameId}`),
+            redis.del(`lock:resetGame:${strGameId}`),
+            redis.del(getActiveDrawLockKey(strGameId)),
+            // ... other per-game locks if any
+        ]);
+    } catch (redisErr) {
+        console.error(`Redis cleanup failed for ${strGameId}:`, redisErr);
+    }
+
+    try {
+        await syncGameIsActive(strGameId, false, redis);
+    } catch (syncErr) {
+        console.error(`syncGameIsActive failed during cleanup for ${strGameId}:`, syncErr);
+    }
+
+    console.log(`fullGameCleanup finished for game ${strGameId}`);
+}
 
 
      module.exports = { fullGameCleanup };
