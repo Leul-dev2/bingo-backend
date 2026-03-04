@@ -7,6 +7,8 @@ const GameControl = require("../models/GameControl");
 async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
     const strGameId = String(gameId);
     const strGameSessionId = String(GameSessionId);
+     console.log(`🔄 Resetting round for game: ${strGameId}`);
+     await pushHistoryForAllPlayers(strGameSessionId, strGameId, redis);
 
     // ── Redis lock to prevent multiple servers from resetting the same game ──
     const resetLockKey = `lock:reset:${strGameId}`;
