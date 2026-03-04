@@ -1,16 +1,14 @@
- const { acquireGameLock } = require("../utils/acquireGameLock");
- const { getCountdownKey } = require("../utils/redisKeys");
- const { isGameLockedOrActive } = require("../utils/isGameLockedOrActive");
- const { prepareNewGame } = require("../utils/PrepareNewGame");
- const { processDeductionsAndStartGame } = require("../utils/processDeductionAndStartGame");
- const { fullGameCleanup } = require("../utils/fullGameCleanup");
- const PlayerSession = require("../models/PlayerSession");
- 
- const MIN_PLAYERS_TO_START = 2;
+const { acquireGameLock } = require("../utils/acquireGameLock");
+const { getCountdownKey } = require("../utils/redisKeys");
+const { isGameLockedOrActive } = require("../utils/isGameLockedOrActive");
+const { prepareNewGame } = require("../utils/PrepareNewGame");
+const { processDeductionsAndStartGame } = require("../utils/processDeductionAndStartGame");
+const { fullGameCleanup } = require("../utils/fullGameCleanup");
+const PlayerSession = require("../models/PlayerSession");
 
-  
+const MIN_PLAYERS_TO_START = 2;
 
-  module.exports = function GameCountHandler(socket, io, redis, state) {
+module.exports = function GameCountHandler(socket, io, redis, state) {
     socket.on("gameCount", async ({ gameId, GameSessionId }) => {
         const strGameId = String(gameId);
         const strGameSessionId = String(GameSessionId);
@@ -18,95 +16,91 @@
         console.log("gameCount gamesessionId", GameSessionId);
 
         try {
-            // --- 0. PREVENT DOUBLE COUNTDOWN ---
-            if (state.countdownIntervals[strGameId]) {
-                console.log(`⏳ Countdown for game ${strGameId} is already running. Ignoring new 'gameCount' trigger.`);
+            // ── PREVENT DOUBLE COUNTDOWN (Redis lock instead of in-memory state) ──
+            const countdownOwnerKey = `lock:countdownOwner:${strGameId}`;
+            const ownerLock = await redis.set(countdownOwnerKey, "1", { NX: true, EX: 40 });
+            if (!ownerLock) {
+                console.log(`⏳ Countdown for game ${strGameId} is already owned by another process. Ignoring.`);
                 return;
             }
 
-                if (await isGameLockedOrActive(strGameId, redis, state)) {
-                console.log(`⚠️ Game ${strGameId} is already active or locked. Ignoring gameCount event.`);
+            if (await isGameLockedOrActive(strGameId, redis, state)) {
+                console.log(`⚠️ Game ${strGameId} is already active or locked.`);
+                await redis.del(countdownOwnerKey);
                 return;
             }
 
             const lockAcquired = await acquireGameLock(strGameId, redis, state);
-
             if (!lockAcquired) {
-                console.log(`⚠️ Failed to acquire lock for game ${strGameId}. Another process beat us to it.`);
-                return; // 🛑 CRITICAL: Exit if the atomic lock failed
-            }
-
-            console.log(`🚀 Acquired lock for game ${strGameId}.`);
-
-            // Optional Redis Countdown Lock (safety across multiple nodes)
-            const countdownLockKey = `countdown:${strGameId}`;
-            const countdownLock = await redis.set(countdownLockKey, "1", { NX: true, EX: 35 });
-            if (!countdownLock) {
-                console.log(`⏳ Countdown already running in Redis for game ${strGameId}. Exiting.`);
+                console.log(`⚠️ Failed to acquire game lock for ${strGameId}.`);
+                await redis.del(countdownOwnerKey);
                 return;
             }
 
-            // --- 1. VALIDATE PLAYER COUNT ---
+            // Optional Redis safety lock (kept from your original)
+            const countdownLockKey = `countdown:${strGameId}`;
+            const countdownLock = await redis.set(countdownLockKey, "1", { NX: true, EX: 35 });
+            if (!countdownLock) {
+                console.log(`⏳ Countdown already running in Redis.`);
+                await redis.del(countdownOwnerKey);
+                return;
+            }
+
+            // ── VALIDATE PLAYER COUNT ──
             const connectedPlayersCount = await PlayerSession.countDocuments({
                 GameSessionId: strGameSessionId,
                 status: 'connected'
             });
 
             if (connectedPlayersCount < MIN_PLAYERS_TO_START) {
-                console.log(`🛑 Not enough players to start game ${strGameId}. Found: ${connectedPlayersCount}`);
-                io.to(strGameId).emit("gameNotStarted", { message: "Not enough connected players to start the game." });
+                console.log(`🛑 Not enough players (${connectedPlayersCount})`);
+                io.to(strGameId).emit("gameNotStarted", { message: "Not enough connected players." });
                 await fullGameCleanup(strGameId, redis, state);
                 await redis.del(countdownLockKey);
+                await redis.del(countdownOwnerKey);
                 return;
             }
 
-
             await prepareNewGame(strGameId, strGameSessionId, redis, state);
 
-            // --- 2. START COUNTDOWN ---
+            // ── START COUNTDOWN ──
             let countdownValue = 30;
             io.to(strGameId).emit("countdownTick", { countdown: countdownValue });
             await redis.set(getCountdownKey(strGameId), countdownValue.toString());
 
-            state.countdownIntervals[strGameId] = setInterval(async () => {
+            state.countdownIntervals[strGameId] = setInterval(async () => {   // kept for backward compat inside single process
                 if (countdownValue > 0) {
                     countdownValue--;
                     io.to(strGameId).emit("countdownTick", { countdown: countdownValue });
                     await redis.set(getCountdownKey(strGameId), countdownValue.toString());
                 } else {
-                    // --- 3. COUNTDOWN ENDED: ATOMIC LOCK ---
                     const gameStartingKey = `gameStarting:${strGameId}`;
-                    const setNXResult = await redis.set(gameStartingKey, "1", {
-                        NX: true, // Only set if key does NOT exist
-                        EX: 20    // Safety TTL
-                    });
+                    const setNXResult = await redis.set(gameStartingKey, "1", { NX: true, EX: 20 });
 
-                    // Stop and clean interval regardless of lock result
                     clearInterval(state.countdownIntervals[strGameId]);
                     delete state.countdownIntervals[strGameId];
                     await redis.del(getCountdownKey(strGameId));
 
-                    // Check lock result
                     if (setNXResult !== 'OK') {
-                        console.log(`Lobby ${strGameId}: Lost atomic lock. Another worker is starting the game.`);
-                    // await redis.del(countdownLockKey);
+                        console.log(`Lost atomic start lock.`);
+                        await redis.del(countdownLockKey);
+                        await redis.del(countdownOwnerKey);
                         return;
                     }
 
-                    console.log(`Lobby ${strGameId}: Successfully acquired atomic lock. Starting the game process.`);
-
-                    // --- 4. START GAME ---
+                    console.log(`✅ Starting game ${strGameId}`);
                     await processDeductionsAndStartGame(strGameId, strGameSessionId, io, redis, state);
 
-                    // Cleanup countdown lock after game start
                     await redis.del(countdownLockKey);
+                    await redis.del(countdownOwnerKey);
                 }
             }, 1000);
 
         } catch (err) {
             console.error(`❌ Fatal error in gameCount for ${strGameId}:`, err);
-            io.to(strGameId).emit("gameNotStarted", { message: "Error during game setup." });
+            io.to(strGameId).emit("gameNotStarted", { message: "Error during setup." });
             await fullGameCleanup(strGameId, redis, state);
+            await redis.del(`lock:countdownOwner:${strGameId}`);
         }
     });
-}
+};

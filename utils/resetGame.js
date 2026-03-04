@@ -1,98 +1,80 @@
-const GameControl = require("../models/GameControl");
-const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLockKey, getGameActiveKey, getGameSessionsKey, getGamePlayersKey } = require("./redisKeys");
+// resetGame.js  ← FULL PRODUCTION-READY VERSION
 
-async function resetGame(gameId, strGameSessionId,  io,  state, redis) {
+const GameControl = require("../models/GameControl");
+const { getGameRoomsKey, getGameDrawsKey, getGameDrawStateKey, getActiveDrawLockKey, getGameActiveKey, getGameSessionsKey } = require("./redisKeys");
+const { fullGameCleanup } = require("./fullGameCleanup");
+
+async function resetGame(gameId, strGameSessionId, io, state, redis) {
     const strGameId = String(gameId);
     console.log("inside reset Game gamesessionid🤪🤪", strGameSessionId);
-    const {
-        drawIntervals,
-        countdownIntervals,
-        drawStartTimeouts,
-        activeDrawLocks,
-        gameDraws,
-        gameSessionIds,
-        gameIsActive,
-        gamePlayers,
-        userSelections, // Not used here for Redis cleanup, as handled elsewhere or removed
-    } = state;
 
-    console.log(`🧹 Starting full reset for game ${gameId}`);
+    // ── Redis lock to prevent duplicate resets across multiple servers ──
+    const resetLockKey = `lock:resetGame:${strGameId}`;
+    const lockAcquired = await redis.set(resetLockKey, "1", { NX: true, EX: 15 });
+    if (!lockAcquired) {
+        console.log(`⛔️ ResetGame already owned by another process for game ${strGameId}. Skipping.`);
+        return;
+    }
 
-    // 🛠 1. Update GameControl in MongoDB
     try {
+        console.log(`🧹 Starting FULL reset for game ${strGameId}`);
+
+        // 1. Update GameControl in MongoDB
         const updatedGame = await GameControl.findOneAndUpdate(
-                { GameSessionId: strGameSessionId },
-                { $set: { isActive: false, endedAt: new Date() } },
-                { new: true }
-            );
-            console.log("Updated GameControl:", updatedGame);
-        console.log(`✅ GameControl for game ${gameId} has been reset in DB.`);
-    } catch (err) {
-        console.error(`❌ Failed to reset GameControl for ${gameId}:`, err);
-    }
+            { GameSessionId: strGameSessionId, endedAt: null },
+            { $set: { isActive: false, endedAt: new Date() } },
+            { new: true }
+        );
+        console.log(`✅ GameControl updated (endedAt set) for game ${strGameId}:`, updatedGame?._id || "not found");
 
-    // 📢 2. Notify clients
-    io?.to(gameId).emit("gameEnded");
+        // 2. Notify clients (both events for maximum frontend compatibility)
+        io?.to(strGameId).emit("gameEnded");
+        io?.to(strGameId).emit("gameReset", { gameId: strGameId });
+        console.log(`📢 Emitted gameEnded + gameReset to room ${strGameId}`);
 
+        // 3. Clear timeouts/intervals (defense in depth)
+        if (state?.countdownIntervals?.[strGameId]) {
+            clearInterval(state.countdownIntervals[strGameId]);
+            delete state.countdownIntervals[strGameId];
+        }
+        if (state?.drawIntervals?.[strGameId]) {
+            clearInterval(state.drawIntervals[strGameId]);
+            delete state.drawIntervals[strGameId];
+        }
+        if (state?.drawStartTimeouts?.[strGameId]) {
+            clearTimeout(state.drawStartTimeouts[strGameId]);
+            delete state.drawStartTimeouts[strGameId];
+        }
+        if (state?.activeDrawLocks?.[strGameId]) {
+            delete state.activeDrawLocks[strGameId];
+        }
 
-    // ⏱ 3. Clear timeouts/intervals
-  if (state?.countdownIntervals?.[strGameId]) {
-        clearInterval(state.countdownIntervals[strGameId]);
-        delete state.countdownIntervals[strGameId];
-    }
-    if (state?.drawIntervals?.[strGameId]) {
-        clearInterval(state.drawIntervals[strGameId]);
-        delete state.drawIntervals[strGameId];
-    }
-    if (state?.drawStartTimeouts?.[strGameId]) {
-        clearTimeout(state.drawStartTimeouts[strGameId]);
-        delete state.drawStartTimeouts[strGameId];
-    }
-    if (state?.activeDrawLocks?.[strGameId]) {
-        delete state.activeDrawLocks[strGameId];
-    }
-
-    // 🧠 4. Clear in-memory state
-    delete activeDrawLocks?.[gameId];
-    delete gameDraws?.[gameId];
-    delete gameSessionIds?.[gameId];
-    delete gameIsActive?.[gameId];
-    delete gamePlayers?.[gameId]; // Clear this in-memory map/object entry
-    console.log(`🧹 In-memory state for game ${gameId} cleared.`);
-
-
-    // 🗑️ 5. Redis cleanup for game-specific keys
-    try {
+        // 4. Redis cleanup (consolidated + fixed duplicates)
         await Promise.all([
-        redis.set(`gameIsActive:${gameId}`, "false"),
-        redis.del(getGameDrawsKey(strGameSessionId)),
-        redis.del(getGameDrawStateKey(strGameId)),
-        redis.del(getGameDrawsKey(strGameSessionId)),
-        redis.del(getActiveDrawLockKey(strGameId)),
-        redis.del(getGameSessionsKey(strGameId)),
-        redis.del(getGameRoomsKey(strGameId)),
-        redis.del(getGameActiveKey(strGameId)),
-        redis.del(`gameSessionId:${strGameId}`),
-    ]);
-        console.log(`✅ Core Redis game keys for ${gameId} cleared.`);
+            redis.set(`gameIsActive:${strGameId}`, "false", "EX", 60),
+            redis.del(getGameDrawsKey(strGameSessionId)),
+            redis.del(getGameDrawStateKey(strGameSessionId)),   // ← fixed: use sessionId
+            redis.del(getActiveDrawLockKey(strGameId)),
+            redis.del(getGameSessionsKey(strGameId)),
+            redis.del(getGameRoomsKey(strGameId)),
+            redis.del(getGameActiveKey(strGameId)),
+            redis.del(`gameSessionId:${strGameId}`),
+        ]);
+        console.log(`✅ Core Redis keys cleared for game ${strGameId}`);
 
-        // --- IMPORTANT NOTE ON USER SELECTIONS CLEANUP ---
-        // The `userSelectionsByTelegramId` hash (keyed by Telegram ID)
-        // is primarily cleaned up in the `socket.on("disconnect")` handler
-        // when a user truly leaves the game.
-        // Clearing it here for a specific gameId would require iterating through
-        // the entire `userSelectionsByTelegramId` hash, which is generally inefficient
-        // for a global hash and less critical given the disconnect handler's role.
-        // If `userSelections` (keyed by socket.id) is a global hash, it also shouldn't
-        // be fully deleted here as it might contain data for other active games.
-        // It's best to rely on the `disconnect` logic for user-specific cleanup.
-        // --- END NOTE ---
+        // 5. Full cleanup (includes countdownOwner, drawing, reset locks, activeDrawLocks, etc.)
+        await fullGameCleanup(strGameId, redis, state);
 
-    } catch (redisErr) {
-        console.error(`❌ Redis cleanup error for game ${gameId}:`, redisErr);
+        console.log(`🧼 Game ${strGameId} has been FULLY reset and is ready for next game.`);
+
+    } catch (error) {
+        console.error(`❌ Error during resetGame for ${strGameId}:`, error);
+        // Still attempt cleanup on error
+        await fullGameCleanup(strGameId, redis, state);
+    } finally {
+        // Always release the lock
+        await redis.del(resetLockKey);
     }
-
-    console.log(`🧼 Game ${gameId} has been fully reset.`);
 }
 
 module.exports = resetGame;

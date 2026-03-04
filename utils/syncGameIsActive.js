@@ -1,55 +1,69 @@
+// syncGameIsActive.js  ← FULL PRODUCTION-READY VERSION
+
 const GameControl = require("../models/GameControl");
-//const redis = require("./redisClient");
 
 async function syncGameIsActive(gameId, isActive, redis) {
-    // Only run the atomic update if we are setting the game to 'active' (true)
+    const strGameId = String(gameId);
+
+    // ── Redis lock (only needed when activating) ──
     if (isActive) {
+        const activateLockKey = `lock:syncActivate:${strGameId}`;
+        const lockAcquired = await redis.set(activateLockKey, "1", { NX: true, EX: 10 });
+        if (!lockAcquired) {
+            console.log(`⛔️ syncGameIsActive (activate) already owned by another process for game ${strGameId}`);
+            return;
+        }
+
         try {
+            console.log(`🔄 Attempting to activate game ${strGameId} (with race protection)`);
+
             const startedGame = await GameControl.findOneAndUpdate(
                 { 
-                    gameId, 
+                    gameId: strGameId, 
                     endedAt: null, 
-                    // 🛑 THE CRITICAL FIX: Only update if it's currently NOT active
-                    isActive: false 
+                    isActive: false   // ← This prevents double activation
                 }, 
                 { 
                     $set: { 
                         isActive: true,
-                        startedAt: new Date(), // Optional: Add a startedAt timestamp
+                        startedAt: new Date()
                     } 
                 },
                 { new: true }
             );
 
             if (!startedGame) {
-                // This means the update failed because isActive was already true 
-                // (i.e., another concurrent process beat us to it). This is a successful avoidance of the race.
-                console.log(`⚠️ Game ${gameId} was already active. Race condition avoided.`);
+                console.log(`⚠️ Game ${strGameId} was already active. Race condition avoided.`);
             } else {
-                console.log(`✅ Game ${gameId} successfully started.`);
+                console.log(`✅ Game ${strGameId} successfully activated.`);
             }
 
-            // Update Redis based on the attempted status
-            await redis.set(`gameIsActive:${gameId}`, isActive ? "true" : "false", "EX", 60);
+            // Update Redis (5-minute TTL while game is active)
+            await redis.set(`gameIsActive:${strGameId}`, "true", "EX", 300);
 
         } catch (err) {
-            console.error(`❌ syncGameIsActive error for game ${gameId}:`, err.message);
+            console.error(`❌ syncGameIsActive (activate) error for ${strGameId}:`, err.message);
+        } finally {
+            await redis.del(activateLockKey);   // always release
         }
-    } else {
-        // Use the original simple update logic for setting isActive to false (e.g., game end)
+    } 
+    else {
+        // ── Deactivation path (simple & safe) ──
         try {
-             await GameControl.updateOne(
-                { 
-                    gameId, 
-                    endedAt: null
-                }, 
-                { isActive }
+            console.log(`🔄 Deactivating game ${strGameId}`);
+
+            await GameControl.updateOne(
+                { gameId: strGameId, endedAt: null },
+                { isActive: false }
             );
-             // Update Redis
-             await redis.set(`gameIsActive:${gameId}`, "false", "EX", 60);
+
+            // Short TTL when inactive
+            await redis.set(`gameIsActive:${strGameId}`, "false", "EX", 60);
+
+            console.log(`✅ Game ${strGameId} deactivated.`);
 
         } catch (err) {
-            console.error(`❌ syncGameIsActive error for game ${gameId}:`, err.message);
+            console.error(`❌ syncGameIsActive (deactivate) error for ${strGameId}:`, err.message);
         }
     }
 }
