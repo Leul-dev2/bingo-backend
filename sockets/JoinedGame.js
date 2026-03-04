@@ -95,6 +95,8 @@ const { getGameDrawsKey } = require("../utils/redisKeys");
                     GameSessionId: strGameSessionId,
                     phase: 'joinGame'
                 }));
+
+                console.log(`✅ Stored joinGame socket info for ${strTelegramId} with socket ID ${socket.id}. Total joinGame sockets tracked: ${joinGameSocketInfo}`);
                 
                 // ❌ REMOVED: THE REDUNDANT AND INCORRECT TTL LINE WAS HERE.
                 
