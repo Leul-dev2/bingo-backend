@@ -1,12 +1,33 @@
+// playerLeave.js  ← FULLY FIXED VERSION (atomic release, no more "only 1 card" bug)
+
 const User = require("../models/user");
 const GameCard = require("../models/GameCard");
 const PlayerSession = require("../models/PlayerSession");
 const { getGameRoomsKey } = require("../utils/redisKeys");
 const { checkAndResetIfEmpty } = require("../utils/checkandreset");
 
-// 🔥 NEW IMPORTS
+// 🔥 NEW IMPORTS (keep your existing batcher + queue)
 const { queueUserUpdate } = require("../utils/emitBatcher");
 const { dbQueue, defaultJobOptions } = require("../utils/dbQueue");
+
+// 🔥 RELEASE_ALL_LUA (copied from cardSelection.js so playerLeave is self-contained)
+//    This is the exact same atomic script used everywhere else.
+//    (Recommended: move to utils/luaScripts.js later to avoid duplication)
+const RELEASE_ALL_LUA = `
+-- Release all cards for a user in a game
+local takenKey = KEYS[1]
+local userHeldKey = KEYS[2]
+local gameCardsKey = KEYS[3]
+
+local cards = redis.call("LRANGE", userHeldKey, 0, -1)
+for _, cardId in ipairs(cards) do
+    redis.call("SREM", takenKey, cardId)
+    redis.call("HDEL", gameCardsKey, cardId)
+end
+redis.call("DEL", userHeldKey)
+
+return cards
+`;
 
 module.exports = function playerLeaveHandler(socket, io, redis, state) {
     socket.on("playerLeave", async ({ gameId, GameSessionId, telegramId }, callback) => {
@@ -37,49 +58,31 @@ module.exports = function playerLeaveHandler(socket, io, redis, state) {
                 redis.sRem(`gameRooms:${gameId}`, strTelegramId),
             ]);
 
-            // 🔥🔥🔥 RELEASE ALL PLAYER CARDS + BATCHER + DB QUEUE 🔥🔥🔥
-            const gameCardsKey = `gameCards:${strGameId}`;
+            // 🔥🔥🔥 ATOMIC RELEASE ALL PLAYER CARDS (FIXED) 🔥🔥🔥
             const takenCardsKey = `takenCards:${strGameId}`;
             const userHeldCardsKey = `userHeldCards:${strGameId}:${strTelegramId}`;
-            const strTg = String(telegramId).trim();
+            const gameCardsKey = `gameCards:${strGameId}`;
 
-            // Step 1: Fetch cards before release
-            const cardsToRelease = await redis.lRange(userHeldCardsKey, 0, -1);
+            const released = await redis.eval(RELEASE_ALL_LUA, {
+                keys: [takenCardsKey, userHeldCardsKey, gameCardsKey]
+            });
 
-            if (cardsToRelease.length > 0) {
-                console.log(`🧹 Releasing ${cardsToRelease.length} cards for ${strTg}: ${cardsToRelease.join(', ')}`);
+            if (Array.isArray(released) && released.length > 0) {
+                console.log(`🧹 Released ${released.length} cards atomically for ${strTelegramId}:`, released);
 
-                // Redis atomic release (your existing excellent logic)
-                const multi = redis.multi();
-                multi.hDel(gameCardsKey, ...cardsToRelease);
-                multi.sRem(takenCardsKey, ...cardsToRelease);
-                multi.del(userHeldCardsKey);
-                await multi.exec();
+                // 🔥 Instant UI update for everyone (batcher)
+                queueUserUpdate(strGameId, strTelegramId, [], released, io);
+                console.log(`✅ Queued batched release of ${released.length} cards via emitBatcher`);
 
-                // Double-check leftovers (you already had this — keeping it)
-                const verifyGameCards = await redis.hGetAll(gameCardsKey);
-                const leftovers = Object.entries(verifyGameCards)
-                    .filter(([_, ownerId]) => String(ownerId).trim() === strTg)
-                    .map(([cardId]) => cardId);
-
-                if (leftovers.length > 0) {
-                    console.log(`⚠️ Found leftovers, cleaning: ${leftovers.join(', ')}`);
-                    await redis.hDel(gameCardsKey, ...leftovers);
-                }
-
-                const finalReleased = [...cardsToRelease, ...leftovers];
-
-                // 🔥 THIS IS THE KEY LINE (replaces old emit)
-                queueUserUpdate(strGameId, strTg, [], finalReleased, io);
-                console.log(`✅ Queued batched release of ${finalReleased.length} cards via emitBatcher`);
-
-                // 🔥 Queue DB update via your worker (consistent with everywhere else)
+                // 🔥 Queue DB update (consistent with cardSelection & unselectCardOnLeave)
                 await dbQueue.add('db-write', {
                     type: 'RELEASE_CARDS',
-                    payload: { gameId: strGameId, cardIds: finalReleased }
+                    payload: { gameId: strGameId, cardIds: released }
                 }, { ...defaultJobOptions, priority: 2 });
 
                 console.log(`📤 Queued RELEASE_CARDS job to dbWorker`);
+            } else {
+                console.log(`[playerLeave] ${strTelegramId} had no cards to release`);
             }
 
             // --- Cleanup remaining keys ---
