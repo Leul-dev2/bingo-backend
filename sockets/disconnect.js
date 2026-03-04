@@ -32,6 +32,8 @@ module.exports = function disconnectHandler(socket, io, redis) {
                 .hGet("joinGameSocketsInfo", socket.id)
                 .exec();
 
+                console.log(`JoinGame Payload Raw: ${joinGamePayloadRaw}, User Selection Payload Raw: ${userSelectionPayloadRaw}`);
+
             let userPayload = null;
             let disconnectedPhase = null;
             let strGameSessionId = 'NO_SESSION_ID';
