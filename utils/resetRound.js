@@ -20,11 +20,11 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
         console.log(`🔄 Starting round reset for game ${strGameId}`);
 
         // 1. Mark game as ended in MongoDB (safe, outside any transaction)
-        await GameControl.findOneAndUpdate(
-            { gameId: strGameId, endedAt: null },
-            { $set: { endedAt: new Date() } },
-            { new: true }
-        );
+       await GameControl.findOneAndUpdate(
+        { GameSessionId: strGameSessionId },
+        { $set: { isActive: false, endedAt: new Date() } },
+        { new: true }
+       );
         console.log(`✅ Game ${strGameId} marked as ended in DB`);
 
         // 2. Clear all drawing-related Redis keys
