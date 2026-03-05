@@ -109,10 +109,10 @@ const DEFAULT_CREATED_BY = 'System';
                     // 3. Validate the card (Ensure card is reserved for this user)
                     const cards = await GameCard.find({ gameId: strGameId, cardId: { $in: cardIds }, isTaken: true, takenBy: Number(telegramId) }).session(session);
                     
-                    // // --- FIX 1: Validate card COUNT ---
-                    // // if (cards.length !== cardIds.length) {
-                    // // throw new Error("Invalid card or card not reserved by you.");
-                    // // }
+                    // --- FIX 1: Validate card COUNT ---
+                    if (cards.length !== cardIds.length) {
+                    throw new Error("Invalid card or card not reserved by you.");
+                    }
                     
                     // --- FIX 2: Calculate total stake ---
                     const totalStakeToReserve = lobbyDoc.stakeAmount * cardIds.length;
@@ -169,7 +169,7 @@ const DEFAULT_CREATED_BY = 'System';
                 }); // END TRANSACTION COMMIT
 
                 // 7. POST-COMMIT ACTIONS: Redis update
-                await redisClient.sAdd(`gameRooms:${strGameId}`, String(telegramId)); 
+                await redisClient.sAdd(`gameRooms:${strGameId}`, telegramId); 
                 
                 return res.status(statusCode).json(responseBody);
 
