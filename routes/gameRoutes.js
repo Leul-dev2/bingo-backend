@@ -23,116 +23,175 @@ const DEFAULT_CREATED_BY = 'System';
     module.exports = (redisClient) => { 
         const router = express.Router();
 
-router.post("/start", async (req, res) => {
-    const { gameId, telegramId, cardIds, username } = req.body;
-    const strGameId = String(gameId);
+        router.post("/start", async (req, res) => {
+            const { gameId, telegramId, cardIds, username } = req.body;
+            const strGameId = String(gameId);
+            const control = await SystemControl.getSingleton();
 
-    const control = await SystemControl.getSingleton();
-    if (!control.allowNewGames) {
-        return res.status(403).json({ success: false, message: "Currently disabled for maintenance." });
-    }
+            // 1. Start the MongoDB Session for Transaction
+            const session = await mongoose.startSession();
+            
+            try {
+                let lobbyDoc;
+                let responseBody;
+                let statusCode = 200;
 
-    const gameStartingKey = `gameStarting:${strGameId}`;
-    if (await redisClient.get(gameStartingKey)) {
-        return res.status(400).json({ error: "🚫 Game is currently starting." });
-    }
+              if (!control.allowNewGames) {
+                return res.status(403).json({
+                    success: false,
+                    message: "Currently disabled for maintenance."
+                });
+                }
 
-    // ── ATOMIC CREATOR ELECTION (Redis decides in <2ms) ──
-    const sessionKey = `lobby:session:${strGameId}`;
-    let GameSessionId = null;
-    const mongoSession = await mongoose.startSession();
+                // 🔐 Step 1: Block joins during "game starting" phase
+                const gameStartingKey = `gameStarting:${strGameId}`;
+                const isStarting = await redisClient.get(gameStartingKey);
+                if (isStarting) {
+                    return res.status(400).json({
+                        error: "🚫 Game is currently starting."
+                    });
+                }
 
-    try {
-        GameSessionId = await redisClient.get(sessionKey);
+                // --- NEW: Add validation for the cardIds array itself ---
+                if (!cardIds || !Array.isArray(cardIds) || cardIds.length === 0 || cardIds.length > 2) {
+                    return res.status(400).json({ error: "You must select 1 or 2 cards." });
+                }
 
-        if (!GameSessionId) {
-            GameSessionId = uuidv4();
-            const created = await redisClient.set(sessionKey, GameSessionId, { NX: true, EX: 25 });
+                await session.withTransaction(async () => {
+                    
+                    // A. ATTEMPT TO FIND OR CREATE THE SINGLE LOBBY/GAME CONTROL
+                    
+                    // 2. Find the current game (Lobby or Active).
+                    const currentControl = await GameControl.findOne({ gameId: strGameId, endedAt: null }).session(session);
 
-            if (created === 'OK') {
-                // ONLY THIS PLAYER creates the lobby
-                await GameControl.create([{
-                    GameSessionId,
-                    gameId: strGameId,
-                    isActive: false,
-                    createdBy: DEFAULT_CREATED_BY,
-                    stakeAmount: Number(strGameId) > 0 ? Number(strGameId) : FALLBACK_STAKE_AMOUNT,
-                    totalCards: DEFAULT_GAME_TOTAL_CARDS,
-                    prizeAmount: 0,
-                    houseProfit: 0,
-                    createdAt: new Date(),
-                    endedAt: null,
-                }]);
-                console.log(`🏆 Lobby created by ${telegramId} → ${GameSessionId}`);
-            } else {
-                // Another player just created it
-                GameSessionId = await redisClient.get(sessionKey);
-            }
+                    if (currentControl) {
+                        // Game/Lobby found.
+                        if (currentControl.isActive) {
+                            // Game is active.
+                            throw { 
+                                message: "🚫 A game is already running.", 
+                                statusCode: 400, 
+                                body: { GameSessionId: currentControl.GameSessionId } 
+                            };
+                        }
+                        // Lobby exists.
+                        lobbyDoc = currentControl;
+
+                    } else {
+                        // No current game/lobby found. Attempt to CREATE the NEW LOBBY.
+                        try {
+                            lobbyDoc = (await GameControl.create([{
+                                GameSessionId: uuidv4(),
+                                gameId: strGameId,
+                                isActive: false, // LOBBY STATE
+                                createdBy: DEFAULT_CREATED_BY,
+                                stakeAmount: Number(strGameId) > 0 ? Number(strGameId) : FALLBACK_STAKE_AMOUNT,
+                                totalCards: DEFAULT_GAME_TOTAL_CARDS,
+                                prizeAmount: 0,
+                                houseProfit: 0,
+                                createdAt: new Date(),
+                                endedAt: null,
+                            }], { session }))[0];
+                        } catch (e) {
+                            if (e.code === 11000) {
+                                lobbyDoc = await GameControl.findOne({ gameId: strGameId, endedAt: null }).session(session);
+                                if (!lobbyDoc) {
+                                    throw new Error("Could not retrieve lobby after concurrent creation attempt.");
+                                }
+                            } else {
+                                throw e;
+                            }
+                        }
+                    }
+                    
+                    // B. VALIDATE AND ADD PLAYER TO THE SINGLE LOBBY DOCUMENT
+                    
+                    // 3. Validate the card (Ensure card is reserved for this user)
+                    const cards = await GameCard.find({ gameId: strGameId, cardId: { $in: cardIds }, isTaken: true, takenBy: Number(telegramId) }).session(session);
+                    
+                    // --- FIX 1: Validate card COUNT ---
+                    if (cards.length !== cardIds.length) {
+                    throw new Error("Invalid card or card not reserved by you.");
+                    }
+                    
+                    // --- FIX 2: Calculate total stake ---
+                    const totalStakeToReserve = lobbyDoc.stakeAmount * cardIds.length;
+
+                    // 4. Reserve the user's stake AND check if they are already reserved for this game.
+                    const user = await User.findOneAndUpdate(
+                        {
+                            telegramId,
+                            $or: [
+                                { reservedForGameId: { $exists: false } },
+                                { reservedForGameId: null },
+                                { reservedForGameId: "" },
+                                { reservedForGameId: strGameId } 
+                            ],
+                        $or: [ // This block is now correct because totalStakeToReserve is defined
+                                { bonus_balance: { $gte: totalStakeToReserve } }, 
+                                { balance: { $gte: totalStakeToReserve } } 
+                            ]
+                        },
+                            { $set: { reservedForGameId: strGameId } },
+                            { new: true, session }
+                    );
+
+                    if (!user) {
+                        throw new Error("Insufficient balance or you are already in another game.");
+                    }
+
+                    // 🛑 SECONDARY FIX: Defensive Check
+                    const finalControlCheck = await GameControl.findOne(
+                        { GameSessionId: lobbyDoc.GameSessionId, endedAt: null, isActive: true }
+                    ).session(session);
+                    
+                    if (finalControlCheck) {
+                        throw { 
+                            message: "🚫 A game is already running.", 
+                            statusCode: 400, 
+                            body: { GameSessionId: lobbyDoc.GameSessionId } 
+                        };
+                    }
+                    
+                    // 5. CRITICAL FIX: Create or update the PlayerSession record.
+                    const playerSession = await PlayerSession.findOneAndUpdate(
+                        { GameSessionId: lobbyDoc.GameSessionId, telegramId: Number(telegramId) },
+                        { 
+                            $set: { username: username || `User ${telegramId}`, cardIds: cardIds, status: 'connected' }, // This was already correct
+                            $setOnInsert: { joinedAt: new Date() } 
+                        },
+                        { new: true, upsert: true, session }
+                    );
+
+                    // 6. Set response body
+                    responseBody = { success: true, message: "Joined game successfully. Your stake has been reserved.", GameSessionId: lobbyDoc.GameSessionId };
+
+                }); // END TRANSACTION COMMIT
+
+                // 7. POST-COMMIT ACTIONS: Redis update
+                await redisClient.sAdd(`gameRooms:${strGameId}`, telegramId); 
+                
+                return res.status(statusCode).json(responseBody);
+
+            } catch (error) {
+                // ... (rest of your error handling is fine) ...
+                if (session.inTransaction()) {
+                    await session.abortTransaction();
+                }
+                if (error.statusCode === 400 && error.body) {
+                    return res.status(error.statusCode).json(error.body);
+                }
+                if (error.code === 11000) {
+                    return res.status(409).json({ error: "Lobby is being created. Please try again in a moment." });
+                }
+                const code = error.statusCode || 400;
+                const body = { error: error.message || "An internal error occurred." };
+                return res.status(code).json(body);
+                
+            }finally {
+            await session.endSession();
         }
-
-        // ── EVERY PLAYER joins the SAME game ──
-        await mongoSession.withTransaction(async () => {
-            const cards = await GameCard.find({
-                gameId: strGameId,
-                cardId: { $in: cardIds },
-                isTaken: true,
-                takenBy: Number(telegramId)
-            }).session(mongoSession);
-
-            if (cards.length !== cardIds.length) {
-                throw new Error("Invalid card or card not reserved by you.");
-            }
-
-            const totalStakeToReserve = (Number(strGameId) > 0 ? Number(strGameId) : FALLBACK_STAKE_AMOUNT) * cardIds.length;
-
-            const user = await User.findOneAndUpdate(
-                {
-                    telegramId,
-                    $or: [
-                        { reservedForGameId: { $exists: false } },
-                        { reservedForGameId: null },
-                        { reservedForGameId: "" },
-                        { reservedForGameId: strGameId }
-                    ],
-                    $or: [
-                        { bonus_balance: { $gte: totalStakeToReserve } },
-                        { balance: { $gte: totalStakeToReserve } }
-                    ]
-                },
-                { $set: { reservedForGameId: strGameId } },
-                { new: true, session: mongoSession }
-            );
-
-            if (!user) throw new Error("Insufficient balance or you are already in another game.");
-
-            await PlayerSession.findOneAndUpdate(
-                { GameSessionId, telegramId: Number(telegramId) },
-                {
-                    $set: { username: username || `User ${telegramId}`, cardIds, status: 'connected' },
-                    $setOnInsert: { joinedAt: new Date() }
-                },
-                { upsert: true, session: mongoSession }
-            );
         });
-
-        await redisClient.sAdd(`gameRooms:${strGameId}`, String(telegramId));
-
-        return res.json({
-            success: true,
-            message: "Joined game successfully. Your stake has been reserved.",
-            GameSessionId
-        });
-
-    } catch (error) {
-        console.error("Start error:", error.message);
-        if (GameSessionId) await redisClient.del(sessionKey).catch(() => {});
-        return res.status(400).json({ error: "Please try again" }); // only real errors (balance, etc.)
-    } finally {
-        await mongoSession.endSession();
-        // cleanup after 25s
-        setTimeout(() => redisClient.del(sessionKey), 25000);
-    }
-});
 
         return router;
     };
