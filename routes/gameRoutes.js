@@ -107,7 +107,7 @@ const DEFAULT_CREATED_BY = 'System';
                     // B. VALIDATE AND ADD PLAYER TO THE SINGLE LOBBY DOCUMENT
                     
                     // 3. Validate the card (Ensure card is reserved for this user)
-                    // const cards = await GameCard.find({ gameId: strGameId, cardId: { $in: cardIds }, isTaken: true, takenBy: Number(telegramId) }).session(session);
+                    const cards = await GameCard.find({ gameId: strGameId, cardId: { $in: cardIds }, isTaken: true, takenBy: Number(telegramId) }).session(session);
                     
                     // // --- FIX 1: Validate card COUNT ---
                     // // if (cards.length !== cardIds.length) {
@@ -169,7 +169,7 @@ const DEFAULT_CREATED_BY = 'System';
                 }); // END TRANSACTION COMMIT
 
                 // 7. POST-COMMIT ACTIONS: Redis update
-                await redisClient.sAdd(`gameRooms:${strGameId}`, telegramId); 
+                await redisClient.sAdd(`gameRooms:${strGameId}`, String(telegramId)); 
                 
                 return res.status(statusCode).json(responseBody);
 
