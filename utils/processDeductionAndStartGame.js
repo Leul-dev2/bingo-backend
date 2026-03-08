@@ -196,6 +196,8 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
         await redis.del(`gameCards:${strGameId}`);
         await redis.del(`takenCards:${strGameId}`);
 
+        await updateCardSnapshot(strGameId, redis);
+
         const userHeldPattern = `userHeldCards:${strGameId}:*`;
         const allUserHeldKeys = await redis.keys(userHeldPattern);
         if (allUserHeldKeys.length > 0) {

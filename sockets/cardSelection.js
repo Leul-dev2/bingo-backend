@@ -270,6 +270,8 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
           payload: { gameId: strGameId, cardIds: released }
         }, { ...defaultJobOptions, priority: 2 });
 
+        await updateCardSnapshot(strGameId, redis);
+
         console.log(`📤 Queued RELEASE_CARDS job to dbWorker`);
       } else {
         console.log(`[UNSELECT ON LEAVE] No cards held by ${strTelegramId}`);
