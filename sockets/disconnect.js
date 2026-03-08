@@ -5,6 +5,8 @@ const { pendingDisconnectTimeouts } = require("../utils/timeUtils");
 const { queueUserUpdate } = require("../utils/emitBatcher");
 const { dbQueue, defaultJobOptions } = require("../utils/dbQueue");
 
+const { updateCardSnapshot } = require("../utils/updateCardSnapshot");
+
 const RELEASE_ALL_LUA = `
 local takenKey = KEYS[1]
 local userHeldKey = KEYS[2]
