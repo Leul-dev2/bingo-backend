@@ -65,15 +65,13 @@ const { getGameDrawsKey } = require("../utils/redisKeys");
                 // ----------------------------------------------------
                 
                 // 4.5. AGGRESSIVE CLEANUP: Find ALL old activeSocket keys for this user
-                const activeSocketKeyPattern = `activeSocket:${strTelegramId}:*`;
-                const allKeysForUser = await redis.keys(activeSocketKeyPattern);
-                
-                const keysToDelete = allKeysForUser.filter(key => !key.endsWith(`:${socket.id}`));
-                
-                if (keysToDelete.length > 0) {
-                    await redis.del(...keysToDelete); 
-                    console.log(`🧹 AGGRESSIVELY deleted ${keysToDelete.length} stale activeSocket keys for ${strTelegramId}.`);
-                }
+                // const activeSocketKeyPattern = `activeSocket:${strTelegramId}:*`;
+                // const allKeysForUser = await redis.keys(activeSocketKeyPattern);
+                // const keysToDelete = allKeysForUser.filter(key => !key.endsWith(`:${socket.id}`));
+                // if (keysToDelete.length > 0) {
+                //     await redis.del(...keysToDelete); 
+                //     console.log(`🧹 AGGRESSIVELY deleted ${keysToDelete.length} stale activeSocket keys for ${strTelegramId}.`);
+                // }
                 
                 // 4.6. CORRECT TTL REGISTRATION: Set the new key with a 2-hour TTL
                 const activeSocketKey = `activeSocket:${strTelegramId}:${socket.id}`;

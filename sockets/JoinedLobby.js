@@ -101,7 +101,7 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
             multi.sAdd(sessionKey, strTelegramId);
             multi.sAdd(gamePlayersKey, strTelegramId);
             multi.sCard(sessionKey);   // <-- This will be index 3 in results
-            multi.hGetAll(gameCardsKey); // <-- This will be index 4 in results
+            //multi.hGetAll(gameCardsKey); // <-- This will be index 4 in results
             console.log(`Backend: Added ${strTelegramId} to Redis SETs: ${sessionKey} and ${gamePlayersKey}.`);
 
             const results = await multi.exec();
@@ -116,18 +116,28 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
             });
             console.log(`Backend: Emitted 'gameid' to room ${strGameId} with numberOfPlayers: ${numberOfPlayersInLobby}`);
 
-            // --- Step 6: Send Initial Card States to the *Joining Client Only* ---
-            const allTakenCardsData = results[4]; 
-            const initialCardsState = {};
-            for (const cardId in allTakenCardsData) {
-                initialCardsState[cardId] = {
-                    cardId: Number(cardId),
-                    takenBy: allTakenCardsData[cardId],
-                    isTaken: true
-                };
+            if (currentHeldCardId) {
+                socket.emit("myCardRestored", {
+                    cardId: Number(currentHeldCardId),
+                    card: currentHeldCard
+                    });
+                    console.log(`✅ Sent own card restore to ${strTelegramId}: ${currentHeldCardId}`);
+            } else {
+                socket.emit("myCardRestored", { cardId: null });
             }
-            socket.emit("initialCardStates", { takenCards: initialCardsState });
-            console.log(`Backend: Sent 'initialCardStates' to ${strTelegramId} for game ${strGameId}. Total taken cards: ${Object.keys(initialCardsState).length}`);
+
+            // --- Step 6: Send Initial Card States to the *Joining Client Only* ---
+            // const allTakenCardsData = results[4]; 
+            // const initialCardsState = {};
+            // for (const cardId in allTakenCardsData) {
+            //     initialCardsState[cardId] = {
+            //         cardId: Number(cardId),
+            //         takenBy: allTakenCardsData[cardId],
+            //         isTaken: true
+            //     };
+            // }
+            // socket.emit("initialCardStates", { takenCards: initialCardsState });
+            // console.log(`Backend: Sent 'initialCardStates' to ${strTelegramId} for game ${strGameId}. Total taken cards: ${Object.keys(initialCardsState).length}`);
 
         } catch (err) {
             console.error("❌ Error in userJoinedGame:", err);
