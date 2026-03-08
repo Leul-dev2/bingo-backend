@@ -1,6 +1,7 @@
 const { pendingDisconnectTimeouts, ACTIVE_SOCKET_TTL_SECONDS } = require("../utils/timeUtils");
 const { verifyTelegramWithCache } = require("../utils/verifyWithCache");
 const { checkRateLimit } = require("../utils/rateLimiter");
+const { updateCardSnapshot } = require("../utils/updateCardSnapshot");
 
 
 
@@ -116,15 +117,18 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
             });
             console.log(`Backend: Emitted 'gameid' to room ${strGameId} with numberOfPlayers: ${numberOfPlayersInLobby}`);
 
-            if (currentHeldCardId) {
-                socket.emit("myCardRestored", {
-                    cardId: Number(currentHeldCardId),
-                    card: currentHeldCard
-                    });
-                    console.log(`✅ Sent own card restore to ${strTelegramId}: ${currentHeldCardId}`);
-            } else {
-                socket.emit("myCardRestored", { cardId: null });
-            }
+            // 🔥 BEST FOR 10K+ SPECTATORS — Cached Snapshot (1 GET only)
+                const snapshotKey = `cardStateSnapshot:${strGameId}`;
+                const snapshotRaw = await redis.get(snapshotKey);
+
+                if (snapshotRaw) {
+                    const initialCardsState = JSON.parse(snapshotRaw);
+                    socket.emit("initialCardStates", { takenCards: initialCardsState });
+                    console.log(`✅ Sent cached snapshot (${Object.keys(initialCardsState).length} cards) to ${strTelegramId}`);
+                } else {
+                    socket.emit("initialCardStates", { takenCards: {} });
+                    console.log(`✅ Sent empty snapshot to ${strTelegramId}`);
+                }
 
             // --- Step 6: Send Initial Card States to the *Joining Client Only* ---
             // const allTakenCardsData = results[4]; 
