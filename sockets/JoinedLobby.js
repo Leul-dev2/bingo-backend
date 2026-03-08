@@ -47,11 +47,9 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
             console.log(`Backend: Processing userJoinedGame for Telegram ID: ${strTelegramId}, Game ID: ${strGameId}`);
 
             // --- Step 1: Handle Disconnect Grace Period Timer Cancellation ---
-            const timeoutKey = `${strTelegramId}:${strGameId}`;
-            if (pendingDisconnectTimeouts.has(timeoutKey)) {
-                clearTimeout(pendingDisconnectTimeouts.get(timeoutKey));
-                pendingDisconnectTimeouts.delete(timeoutKey);
-                console.log(`✅ User ${strTelegramId} reconnected to game ${strGameId} within grace period. Cancelled full disconnect cleanup.`);
+            const graceKey = `pendingDisconnect:${strTelegramId}:${strGameId}:lobby`;
+            if (await redis.del(graceKey)) {
+                console.log(`✅ User ${strTelegramId} reconnected within Redis grace period`);
             } else {
                 console.log(`🆕 User ${strTelegramId} joining game ${strGameId}. No pending disconnect timeout found (or it already expired).`);
             }

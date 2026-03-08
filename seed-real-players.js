@@ -1,11 +1,11 @@
-// reseed-test-players.js
+// seed-real-players.js
 require("dotenv").config();
 const mongoose = require("mongoose");
 const User = require("./models/user");
 const GameCard = require("./models/GameCard");
 
 const GAME_ID = "10";
-const TOTAL_USERS = 100;
+const TOTAL_USERS = 200;
 const START_TELEGRAM = 900000;
 
 async function seedTestData() {

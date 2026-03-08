@@ -12,13 +12,10 @@ const { getGameDrawsKey } = require("../utils/redisKeys");
                 const strGameSessionId = String(GameSessionId);
                 const strTelegramId = String(telegramId);
                 const numTelegramId = Number(telegramId);
-                const timeoutKey = `${strTelegramId}:${strGameId}:joinGame`;
-
-                // 1. CRITICAL: Check for and cancel any pending cleanup for this user.
-                if (pendingDisconnectTimeouts.has(timeoutKey)) {
-                    clearTimeout(pendingDisconnectTimeouts.get(timeoutKey));
-                    pendingDisconnectTimeouts.delete(timeoutKey);
-                    console.log(`🕒 Player ${strTelegramId} reconnected within the grace period. Cancelling cleanup.`);
+                const graceKey = `pendingDisconnect:${strTelegramId}:${strGameId}:joinGame`;
+                
+                if (await redis.del(graceKey)) {
+                    console.log(`✅ User ${strTelegramId} reconnected within Redis grace period`);
                 }
 
                 // 2. ROBUST MEMBERSHIP CHECK 
