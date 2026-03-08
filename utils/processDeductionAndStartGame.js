@@ -8,6 +8,7 @@ const PlayerSession = require("../models/PlayerSession");
 const { syncGameIsActive } = require("./syncGameIsActive");
 const { fullGameCleanup } = require("./fullGameCleanup");
 const { startDrawing } = require("./startDrawing");
+const { updateCardSnapshot } = require("./updateCardSnapshot");
 
 const HOUSE_CUT_PERCENTAGE = 0.20;
 const MIN_PLAYERS_TO_START = 2;
