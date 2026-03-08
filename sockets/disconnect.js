@@ -1,6 +1,4 @@
 const { safeJsonParse } = require("../utils/safeJsonParse");
-const ACTIVE_DISCONNECT_GRACE_PERIOD_MS = 2000;
-const JOIN_GAME_GRACE_PERIOD_MS = 2000;
 const { pendingDisconnectTimeouts } = require("../utils/timeUtils");
 
 // 🔥 Required for card release + batching + DB worker
@@ -78,7 +76,7 @@ module.exports = function disconnectHandler(socket, io, redis) {
             // FIX 1: Grace period using Redis key (no in-memory Map anymore)
             // ──────────────────────────────────────────────────────────────
             const graceKey = `pendingDisconnect:${strTelegramId}:${strGameId}:${disconnectedPhase}`;
-            const graceSeconds = disconnectedPhase === 'lobby' ? 30 : 30; // ← adjust as needed (was 2s + jitter)
+            const graceSeconds = disconnectedPhase === 'lobby' ? 2 : 2; // ← adjust as needed (was 2s + jitter)
 
             // Set grace flag with TTL → if reconnect happens → it will be deleted
             await redis.set(graceKey, '1', 'EX', graceSeconds);
