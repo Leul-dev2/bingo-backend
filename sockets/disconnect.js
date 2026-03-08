@@ -32,7 +32,7 @@ module.exports = function disconnectHandler(socket, io, redis) {
                 .hGet("joinGameSocketsInfo", socket.id)
                 .exec();
 
-            console.log(`JoinGame Payload Raw: ${joinGamePayloadRaw}, User Selection Payload Raw: ${userSelectionPayloadRaw}`);
+                console.log(`JoinGame Payload Raw: ${joinGamePayloadRaw}, User Selection Payload Raw: ${userSelectionPayloadRaw}`);
 
             let userPayload = null;
             let disconnectedPhase = null;
@@ -67,69 +67,68 @@ module.exports = function disconnectHandler(socket, io, redis) {
 
             console.log(`[DISCONNECT] User: ${strTelegramId}, Game: ${strGameId}, Phase: ${disconnectedPhase}`);
 
-            // Remove this specific socket from active list
             await redis.del(`activeSocket:${strTelegramId}:${socket.id}`);
 
-            // Check if user has ANY remaining active sockets
-            // (we no longer use keys(*) pattern — assume if this one is gone and no reconnect happened → cleanup)
-            // If you want stricter check later, you can use a Redis set per user instead
+            const allActiveSocketKeysForUser = await redis.keys(`activeSocket:${strTelegramId}:*`);
+            if (allActiveSocketKeysForUser.length > 0) {
+                console.log(`[DISCONNECT] User ${strTelegramId} still has other sockets. No cleanup.`);
+                return;
+            }
 
-            // ──────────────────────────────────────────────────────────────
-            // FIX 1: Grace period using Redis key (no in-memory Map anymore)
-            // ──────────────────────────────────────────────────────────────
-            const graceKey = `pendingDisconnect:${strTelegramId}:${strGameId}:${disconnectedPhase}`;
-            const graceSeconds = disconnectedPhase === 'lobby' ? 30 : 30; // ← adjust as needed (was 2s + jitter)
+            const timeoutKeyForPhase = `${strTelegramId}:${strGameId}:${disconnectedPhase}`;
+            if (pendingDisconnectTimeouts.has(timeoutKeyForPhase)) {
+                clearTimeout(pendingDisconnectTimeouts.get(timeoutKeyForPhase));
+                pendingDisconnectTimeouts.delete(timeoutKeyForPhase);
+            }
 
-            // Set grace flag with TTL → if reconnect happens → it will be deleted
-            await redis.set(graceKey, '1', 'EX', graceSeconds);
-            console.log(`🕒 Grace period ${graceSeconds}s stored in Redis for ${strTelegramId} (phase: ${disconnectedPhase})`);
+            let gracePeriodDuration = disconnectedPhase === 'lobby' 
+                ? ACTIVE_DISCONNECT_GRACE_PERIOD_MS 
+                : JOIN_GAME_GRACE_PERIOD_MS;
 
-            // Schedule cleanup AFTER grace period expires
-            // Note: we use a fixed delay slightly longer than TTL to be safe
-            const cleanupDelay = (graceSeconds + 2) * 1000; // 2s buffer
+            // 🔥 JITTER: spread load if many users disconnect at once
+            const jitter = Math.random() * 800; // 0–800 ms random spread
+            gracePeriodDuration += jitter;
 
-            setTimeout(async () => {
-                try {
-                    // Check if grace key still exists → means no reconnect happened
-                    const graceStillActive = await redis.get(graceKey);
-                    if (!graceStillActive) {
-                        console.log(`[GRACE CANCELLED] User ${strTelegramId} reconnected → skipping cleanup`);
-                        return;
+            if (gracePeriodDuration > 0) {
+                const timeoutId = setTimeout(async () => {
+                    try {
+                        await redis.lPush('disconnect-cleanup-queue', JSON.stringify({
+                            telegramId: strTelegramId,
+                            gameId: strGameId,
+                            gameSessionId: strGameSessionId,
+                            phase: disconnectedPhase,
+                            timestamp: new Date().toISOString()
+                        }));
+
+                        // 🔥 RELEASE ALL CARDS (fixes 2-card bug)
+                        const released = await redis.eval(RELEASE_ALL_LUA, {
+                            keys: [
+                                `takenCards:${strGameId}`,
+                                `userHeldCards:${strGameId}:${strTelegramId}`,
+                                `gameCards:${strGameId}`
+                            ]
+                        });
+
+                        if (Array.isArray(released) && released.length > 0) {
+                            queueUserUpdate(strGameId, strTelegramId, [], released, io);
+                            console.log(`🔄 Released ALL ${released.length} cards for ${strTelegramId} (disconnect)`);
+
+                            await dbQueue.add('db-write', {
+                                type: 'RELEASE_CARDS',
+                                payload: { gameId: strGameId, cardIds: released }
+                            }, { ...defaultJobOptions, priority: 2 });
+                        }
+
+                    } catch (e) {
+                        console.error(`❌ Disconnect cleanup error for ${strTelegramId}:`, e);
+                    } finally {
+                        pendingDisconnectTimeouts.delete(timeoutKeyForPhase);
                     }
+                }, gracePeriodDuration);
 
-                    console.log(`[GRACE EXPIRED] Cleaning up disconnected user ${strTelegramId}`);
-
-                    // RELEASE ALL CARDS
-                    const released = await redis.eval(RELEASE_ALL_LUA, {
-                        keys: [
-                            `takenCards:${strGameId}`,
-                            `userHeldCards:${strGameId}:${strTelegramId}`,
-                            `gameCards:${strGameId}`
-                        ]
-                    });
-
-                    if (Array.isArray(released) && released.length > 0) {
-                        queueUserUpdate(strGameId, strTelegramId, [], released, io);
-                        console.log(`🔄 Released ${released.length} cards for ${strTelegramId} (grace expired)`);
-
-                        await dbQueue.add('db-write', {
-                            type: 'RELEASE_CARDS',
-                            payload: { gameId: strGameId, cardIds: released }
-                        }, { ...defaultJobOptions, priority: 2 });
-
-                        // Optional: update snapshot if you implemented it
-                        await updateCardSnapshot(strGameId, redis);
-                        console.log(`[SNAPSHOT] Updated after unselectCardOnLeave by ${strTelegramId}`);
-                    }
-
-                    // Clean up any remaining session tracking
-                    await redis.del(graceKey);
-
-                } catch (e) {
-                    console.error(`❌ Disconnect cleanup error for ${strTelegramId}:`, e);
-                }
-            }, cleanupDelay);
-
+                pendingDisconnectTimeouts.set(timeoutKeyForPhase, timeoutId);
+                console.log(`🕒 Grace period ${ (gracePeriodDuration/1000).toFixed(2) }s (with jitter) for ${strTelegramId}`);
+            }
         } catch (e) {
             console.error(`❌ CRITICAL ERROR in disconnect for ${socket.id}:`, e);
         }
