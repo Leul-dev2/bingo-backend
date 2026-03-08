@@ -9,6 +9,7 @@ const { checkAndResetIfEmpty } = require("../utils/checkandreset");
 // 🔥 NEW IMPORTS (keep your existing batcher + queue)
 const { queueUserUpdate } = require("../utils/emitBatcher");
 const { dbQueue, defaultJobOptions } = require("../utils/dbQueue");
+const { updateCardSnapshot } = require("../utils/updateCardSnapshot");
 
 // 🔥 RELEASE_ALL_LUA (copied from cardSelection.js so playerLeave is self-contained)
 //    This is the exact same atomic script used everywhere else.
@@ -73,6 +74,9 @@ module.exports = function playerLeaveHandler(socket, io, redis, state) {
                 // 🔥 Instant UI update for everyone (batcher)
                 queueUserUpdate(strGameId, strTelegramId, [], released, io);
                 console.log(`✅ Queued batched release of ${released.length} cards via emitBatcher`);
+
+                await updateCardSnapshot(strGameId, redis);
+                console.log(`[SNAPSHOT] Updated after playerLeave by ${strTelegramId}`);
 
                 // 🔥 Queue DB update (consistent with cardSelection & unselectCardOnLeave)
                 await dbQueue.add('db-write', {
