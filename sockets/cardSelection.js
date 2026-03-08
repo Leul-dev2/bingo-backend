@@ -3,6 +3,7 @@ const { checkRateLimit } = require("../utils/rateLimiter");
 const { queueUserUpdate, cleanupBatchQueue  } = require("../utils/emitBatcher");
 //const bingoCards = require("../assets/bingoCards.json");
 const { dbQueue, defaultJobOptions } = require("../utils/dbQueue");
+const { updateCardSnapshot } = require("../utils/updateCardSnapshot");
 
 const RELEASE_ALL_LUA = `
 -- Release all cards for a user in a game
@@ -190,6 +191,8 @@ module.exports = function cardSelectionHandler(socket, io, redis, saveToDb) {
 
       if (added.length > 0 || released.length > 0) {
         queueUserUpdate(gameId, telegramId, added, released, io);
+        await updateCardSnapshot(strGameId, redis);
+        console.log(`[SNAPSHOT] Updated after card selection by ${strTelegramId}`);
       }
 
      // 🔥 THE FIX: Push to Worker Queue instead of awaiting DB

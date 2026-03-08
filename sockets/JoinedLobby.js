@@ -1,7 +1,6 @@
 const { pendingDisconnectTimeouts, ACTIVE_SOCKET_TTL_SECONDS } = require("../utils/timeUtils");
 const { verifyTelegramWithCache } = require("../utils/verifyWithCache");
 const { checkRateLimit } = require("../utils/rateLimiter");
-const { updateCardSnapshot } = require("../utils/updateCardSnapshot");
 
 
 
