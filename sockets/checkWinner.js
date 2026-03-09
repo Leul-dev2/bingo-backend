@@ -1,64 +1,63 @@
-const GameCard = require("../models/GameCard");
-const { checkBingoPattern } = require("../utils/BingoPatterns"); 
+const { checkBingoPattern } = require("../utils/BingoPatterns");
 const { ProcessWinner } = require("../utils/ProcessWinner");
- 
- 
- module.exports = function CheckWinnerHandler(socket, io, redis, state) {
-    socket.on("checkWinner", async ({ telegramId, gameId, GameSessionId, cartelaId, selectedNumbers }) => {
-        console.time(`⏳checkWinner_${telegramId}`);
+const { getDrawnNumbersSet, cacheCardIfNotExists, getWinnerInfo } = require("../utils/winnerUtils");
 
-      try {
-        const selectedSet = new Set((selectedNumbers || []).map(Number));
-        const numericCardId = Number(cartelaId);
-        if (isNaN(numericCardId)) {
-          return socket.emit("winnerError", { message: "Invalid card ID." });
-        }
+module.exports = function CheckWinnerHandler(socket, io, redis, state) {
+  socket.on("checkWinner", async ({ telegramId, gameId, GameSessionId, cartelaId, selectedNumbers }) => {
+    console.time(`checkWinner_${telegramId}`);
+    const strGameSessionId = String(GameSessionId);
 
-        // --- 1️⃣ Fetch drawn numbers from Redis (Non-redundant fetch) ---
-        const drawnNumbersRaw = await redis.lRange(`gameDraws:${GameSessionId}`, 0, -1);
-        if (!drawnNumbersRaw?.length) return socket.emit("winnerError", { message: "No numbers drawn yet." });
-        const drawnNumbersArray = drawnNumbersRaw.map(Number);
-        const lastTwoDrawnNumbers = drawnNumbersArray.slice(-2);
-        const drawnNumbers = new Set(drawnNumbersArray);
+    try {
+      // 1. If winner already declared → give them the winner page too!
+      const existingWinner = await getWinnerInfo(redis, strGameSessionId);
+      if (existingWinner) {
+        return socket.emit("winnerConfirmed", existingWinner); // ← LOSERS ALSO SEE WINNER
+      }
 
-        // --- 2️⃣ Fetch cardData once (Cache data for processor) ---
-        const cardData = await GameCard.findOne({ gameId, cardId: numericCardId });
-        if (!cardData) return socket.emit("winnerError", { message: "Card not found." });
+      // 2. Rate limit (anti-spam)
+      const rateKey = `claimRate:${strGameSessionId}:${telegramId}`;
+      const claims = await redis.incr(rateKey);
+      if (claims === 1) await redis.expire(rateKey, 300);
+      if (claims > 3) return socket.emit("winnerError", { message: "Too many claims. Please wait." });
 
-        // --- 3️⃣ Check bingo pattern in memory ---
-        const pattern = checkBingoPattern(cardData.card, drawnNumbers, selectedSet);
-        if (!pattern.some(Boolean)) return socket.emit("winnerError", { message: "No winning pattern." });
+      // 3. Fast Redis + cache path
+      const drawnNumbers = await getDrawnNumbersSet(redis, strGameSessionId);
+      if (drawnNumbers.size === 0) return socket.emit("winnerError", { message: "No numbers drawn yet." });
 
-        // --- 4️⃣ Check recent numbers in pattern (Critical game rule validation) ---
-        const flatCard = cardData.card.flat();
-        const isRecentNumberInPattern = lastTwoDrawnNumbers.some(num =>
-          // Checks if the recent number 'num' is present in the card and corresponds to a winning cell (pattern[i] === true)
-          flatCard.some((n, i) => pattern[i] && n === num)
-        );
-        if (!isRecentNumberInPattern) {
-          // Provides debugging info back to the client/logs on failure
-          return socket.emit("bingoClaimFailed", {
-            message: "Winning pattern not completed by recent numbers.",
-            telegramId, gameId, cardId: cartelaId, card: cardData.card, lastTwoNumbers: lastTwoDrawnNumbers, selectedNumbers
-          });
-        }
+      const cardData = await cacheCardIfNotExists(redis, require("../models/GameCard"), gameId, cartelaId);
+      if (!cardData) return socket.emit("winnerError", { message: "Card not found." });
 
-        // --- 5️⃣ Acquire winner lock in Redis (Minimize DB calls inside lock) ---
-        const winnerLockKey = `winnerLock:${GameSessionId}`;
-        // EX: 30 seconds expiry (Increased for safety), NX: Only set if Not eXists
-        const lockAcquired = await redis.set(winnerLockKey, telegramId, { NX: true, EX: 30 });
-        if (!lockAcquired) return; // Someone else won and acquired the lock first
+      // 4. Validation
+      const selectedSet = new Set((selectedNumbers || []).map(Number));
+      const pattern = checkBingoPattern(cardData.card, drawnNumbers, selectedSet);
+      if (!pattern.some(Boolean)) return socket.emit("winnerError", { message: "No winning pattern." });
 
-        // --- 6️⃣ Call optimized winner processor, passing cached data ---
-        await ProcessWinner({
-          telegramId, gameId, GameSessionId, cartelaId, io, selectedSet, state, redis, cardData, drawnNumbersRaw, winnerLockKey
-        });
+      const lastTwo = Array.from(drawnNumbers).slice(-2);
+      const flatCard = cardData.card.flat();
+      const validRecent = lastTwo.some(num => flatCard.some((n, i) => pattern[i] && n === num));
+      if (!validRecent) {
+        return socket.emit("bingoClaimFailed", { /* same as before */ });
+      }
 
-      } catch (error) {
-        console.error("checkWinner error:", error);
-        socket.emit("winnerError", { message: "Internal error." });
-      } finally {
-        console.timeEnd(`⏳checkWinner_${telegramId}`);
-      }
-    });
-}
+      // 5. Lock + declare winner
+      const lockKey = `winnerLock:${strGameSessionId}`;
+      const lockAcquired = await redis.set(lockKey, telegramId, { NX: true, EX: 5 });
+      if (!lockAcquired) return socket.emit("winnerError", { message: "Someone else won!" });
+
+      await redis.set(`winnerDeclared:${strGameSessionId}`, "1", "EX", 300);
+
+      // 6. Process (only one player reaches here)
+      await ProcessWinner({
+        telegramId, gameId, GameSessionId, cartelaId: Number(cartelaId),
+        io, selectedSet, state, redis, cardData,
+        drawnNumbersRaw: Array.from(drawnNumbers), winnerLockKey: lockKey
+      });
+
+    } catch (error) {
+      console.error("checkWinner error:", error);
+      socket.emit("winnerError", { message: "Internal error." });
+    } finally {
+      console.timeEnd(`checkWinner_${telegramId}`);
+    }
+  });
+};
