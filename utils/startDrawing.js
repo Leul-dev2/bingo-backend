@@ -29,6 +29,7 @@ async function startDrawing(gameId, GameSessionId, io, state, redis) {
     await redis.del(gameDrawsKey);
 
     const drawNextNumber = async () => { 
+        const strGameId = String(gameId);
         // === NEW: Redis ownership guard + renewal (this replaces memory control) ===
         const stillOwner = await redis.get(drawingLockKey);
         if (!stillOwner) {
