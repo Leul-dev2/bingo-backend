@@ -1,12 +1,6 @@
 const express = require("express");
 const User = require("../models/user");
 
-/**
- * User Routes Router Factory.
- * Accepts the pre-initialized Redis client for dependency injection.
- * @param {import('redis').RedisClientType} redisClient - The shared Redis client instance.
- * @returns {express.Router} The configured Express router.
- */
 module.exports = (redisClient) => {
     const router = express.Router();
 
@@ -14,10 +8,7 @@ module.exports = (redisClient) => {
         res.json({ message: "Users route is connected" });
     });
 
-    /**
-     * GET /getUser?telegramId=12345
-     * Tries Redis first → falls back to DB → refreshes Redis if needed.
-     */
+
     router.get("/getUser", async (req, res) => {
         const { telegramId } = req.query;
         const telegramIdNum = Number(telegramId);
@@ -30,7 +21,7 @@ module.exports = (redisClient) => {
             const cacheKey = `userBalance:${telegramId}`;
             const bonusCacheKey = `userBonusBalance:${telegramId}`;
 
-            // 🔹 Try fetching from Redis first (fast path)
+            //  Try fetching from Redis first (fast path)
             const [cachedBalance, cachedBonus] = await Promise.all([
                 redisClient.get(cacheKey),
                 redisClient.get(bonusCacheKey),
