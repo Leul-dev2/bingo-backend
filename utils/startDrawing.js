@@ -31,13 +31,20 @@ async function startDrawing(gameId, GameSessionId, io, state, redis) {
     const drawNextNumber = async () => { 
         // === NEW: Redis ownership guard + renewal (this replaces memory control) ===
         const stillOwner = await redis.get(drawingLockKey);
-        if (!stillOwner) {
-            console.log(`⛔ No longer drawing owner for ${strGameId} — stopping`);
+        if (stillOwner !== "1") {
+            console.log(`⛔ Drawing lock invalid/lost for ${strGameId} (value: ${stillOwner || 'null'}) — stopping`);
             clearInterval(state.drawIntervals[strGameId]);
             delete state.drawIntervals[strGameId];
             return;
         }
-        await redis.set(drawingLockKey, "1", { EX: 60 }); // renew every draw
+
+        // Renew every draw (safe, simple, recommended)
+        await redis.expire(drawingLockKey, 60);
+
+        // Sparse logging
+        if (Math.random() < 0.05) {
+            console.log(`🔄 Renewed drawing lock for ${strGameId}`);
+        }
 
         try {
             const currentPlayersInRoom = (await redis.sCard(gameRoomsKey)) || 0;
@@ -101,14 +108,21 @@ async function startDrawing(gameId, GameSessionId, io, state, redis) {
     };
 
     // 🕑 Draw the first number after the initial delay
-    setTimeout(async () => {
-        await drawNextNumber();
+        setTimeout(async () => {
+            // Double-check ownership before first draw (small race window fix)
+            const stillOwnerAtStart = await redis.get(drawingLockKey);
+            if (!stillOwnerAtStart) {
+                console.log(`⛔ Ownership lost before first draw — aborting ${strGameId}`);
+                await redis.del(drawingLockKey);
+                return;
+            }
 
-        // Then start recurring interval
-        state.drawIntervals[strGameId] = setInterval(async () => {
             await drawNextNumber();
-        }, DRAW_SUBSEQUENT_DELAY);
-    }, DRAW_INITIAL_DELAY);
+
+            state.drawIntervals[strGameId] = setInterval(async () => {
+                await drawNextNumber();
+            }, DRAW_SUBSEQUENT_DELAY);
+        }, DRAW_INITIAL_DELAY);
 }
 
 module.exports = { startDrawing };
