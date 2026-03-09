@@ -11,7 +11,7 @@ const disconnectHandler = require("./disconnect");
 module.exports = function registerGameSocket(io, redis) {
 const state = {
   countdownIntervals: {},
-  drawIntervals: {},
+ // drawIntervals: {},
   drawStartTimeouts: {},
   activeDrawLocks: {},
   gameDraws: {},
@@ -34,6 +34,7 @@ const subClient = redis.duplicate();
         if (action.type === 'FORCE_TERMINATE') {
             // Ensure gameId is treated as a string for Socket.io room consistency
             const targetRoom = String(action.gameId);
+            
             
             console.log(`🚫 Termination signal for Room: ${targetRoom}`);
 

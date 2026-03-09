@@ -13,7 +13,7 @@ async function startDrawing(gameId, GameSessionId, io, state, redis) {
 
     // ── Redis-based drawing ownership lock (works across multiple servers) ──
     const drawingLockKey = `lock:drawing:${strGameId}`;
-    const lockAcquired = await redis.set(drawingLockKey, "1", { NX: true, EX: 300 });
+    const lockAcquired = await redis.set(drawingLockKey, "1", { NX: true, EX: 60 });
     if (!lockAcquired) {
         console.log(`⛔️ Drawing already owned by another process for ${strGameId}`);
         return;
@@ -28,7 +28,17 @@ async function startDrawing(gameId, GameSessionId, io, state, redis) {
     console.log(`🎯 Starting the drawing process for gameId: ${strGameId}. First draw in ${DRAW_INITIAL_DELAY/1000}s, then every ${DRAW_SUBSEQUENT_DELAY/1000}s.`);
     await redis.del(gameDrawsKey);
 
-    const drawNextNumber = async () => {
+    const drawNextNumber = async () => { 
+        // === NEW: Redis ownership guard + renewal (this replaces memory control) ===
+        const stillOwner = await redis.get(drawingLockKey);
+        if (!stillOwner) {
+            console.log(`⛔ No longer drawing owner for ${strGameId} — stopping`);
+            clearInterval(state.drawIntervals[strGameId]);
+            delete state.drawIntervals[strGameId];
+            return;
+        }
+        await redis.set(drawingLockKey, "1", { EX: 60 }); // renew every draw
+
         try {
             const currentPlayersInRoom = (await redis.sCard(gameRoomsKey)) || 0;
 
