@@ -1,3 +1,4 @@
+const GameCard = require("../models/GameCard");
 const { getGameDrawsKey } = require("./redisKeys");
 
 async function getDrawnNumbersSet(redis, GameSessionId) {
