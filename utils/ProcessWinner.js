@@ -51,6 +51,8 @@ async function ProcessWinner({ telegramId, gameId, GameSessionId, cartelaId, io,
     // 2. Broadcast to EVERYONE (AFK players + early clickers)
     io.to(strGameId).emit("winnerConfirmed", winnerData);
     io.to(strGameId).emit("gameEnded", { message: "Winner found!" });
+    
+    await redis.del(`lock:drawing:${strGameId}`);
 
     // 3. Stop drawing
     if (state.drawIntervals?.[strGameId]) {
