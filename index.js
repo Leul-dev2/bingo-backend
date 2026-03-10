@@ -47,7 +47,7 @@ mongoose.connection.on('connected', async () => {
     const subClient = pubClient.duplicate();
 
     const redisClient = createClient({
-            url: process.env.REDIS_URL // Ensure this is set in Render Dashboard
+            url: process.env.REDIS_URL // Ensure this is set in Render Dashboards
     });
 
     // New client to subscribe to events published by the worker process
