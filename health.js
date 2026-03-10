@@ -1,6 +1,9 @@
-// health.js — Add this route to your Express app
-// Usage:   app.use("/health", require("./routes/health")(redisClient, mongoose));
-// Monitor: https://your-domain.com/health  (uptime robot, Railway health checks, etc.)
+// routes/health.js
+// Register in index.js:
+//   app.use("/health", require("./routes/health")(lazyRedisProxy, mongoose));
+//
+// Accepts either a real redis client OR a proxy object with a .ping() method,
+// so the route works even before Redis is fully connected (reports "degraded").
 
 const express = require("express");
 
@@ -13,26 +16,23 @@ module.exports = function healthRouter(redis, mongoose) {
 
         // ── Redis ping ────────────────────────────────────────────────────────
         try {
-            const pong = await redis.ping();
-            checks.redis = pong === "PONG" ? "ok" : "degraded";
+            const pong    = await redis.ping();
+            checks.redis  = (pong === "PONG" || pong === true) ? "ok" : "degraded";
         } catch (err) {
-            checks.redis = "error";
-            healthy      = false;
+            checks.redis  = "not ready";
+            healthy        = false;
         }
 
-        // ── MongoDB readyState ────────────────────────────────────────────────
-        // 1 = connected, 2 = connecting, 3 = disconnecting, 0 = disconnected
+        // ── MongoDB readyState (1 = connected) ────────────────────────────────
         const mongoState = mongoose.connection.readyState;
         if (mongoState === 1) {
             checks.mongo = "ok";
         } else {
             checks.mongo = `degraded (state=${mongoState})`;
-            healthy      = false;
+            healthy       = false;
         }
 
-        const statusCode = healthy ? 200 : 503;
-
-        res.status(statusCode).json({
+        res.status(healthy ? 200 : 503).json({
             status:    healthy ? "healthy" : "unhealthy",
             timestamp: new Date().toISOString(),
             checks,
