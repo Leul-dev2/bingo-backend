@@ -1,5 +1,8 @@
 require("dotenv").config();
 
+process.on("uncaughtException",  (err) => { console.error("💥 uncaughtException:", err); });
+process.on("unhandledRejection", (err) => { console.error("💥 unhandledRejection:", err); });
+
 const express = require("express");
 const cors = require("cors");
 const http = require("http");
@@ -7,6 +10,7 @@ const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 const { createClient } = require("redis");
 const { createAdapter } = require("@socket.io/redis-adapter");
+app.use("/health", require("./routes/health")(redisClient, mongoose));
 
 const connectDB = require("./config/db");
 const userRoutes = require("./routes/userRoutes");
@@ -60,8 +64,8 @@ mongoose.connection.on('connected', async () => {
 
         const io = new Server(server, {
                 cors: { origin: ["http://localhost:5173", "https://frontendbingo.netlify.app"], methods: ["GET", "POST"] },
-                pingInterval: 15000,
-                pingTimeout: 15000,
+                pingInterval: 10000,
+                pingTimeout: 5000,
             });
         io.adapter(createAdapter(pubClient, subClient));
         console.log("✅ Socket.IO Redis Adapter applied for horizontal scaling.");

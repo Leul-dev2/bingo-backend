@@ -11,6 +11,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@socket.io/redis-adapter": "^8.2.1",
     "axios": "^1.9.0",
     "bullmq": "^5.70.1",
     "cors": "^2.8.5",
@@ -23,8 +24,7 @@
     "rate-limiter-flexible": "^7.1.1",
     "redis": "^5.8.2",
     "socket.io": "^4.8.1",
-    "uuid": "^11.1.0",
-    "@socket.io/redis-adapter": "8.2.1"
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.9"
