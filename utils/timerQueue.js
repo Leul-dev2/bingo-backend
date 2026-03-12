@@ -14,11 +14,16 @@
 
 const { Queue } = require("bullmq");
 
+const { URL } = require("url");
+
+const redisUrl = new URL(process.env.REDIS_URL);
+
 const redisConnection = {
-    host: process.env.REDIS_HOST || "localhost",
-    port: Number(process.env.REDIS_PORT) || 6379,
-    // If you use a full REDIS_URL (e.g. Render/Railway), parse it:
-    // ...(process.env.REDIS_URL && parseRedisUrl(process.env.REDIS_URL)),
+  host: redisUrl.hostname,
+  port: redisUrl.port,
+  username: redisUrl.username,
+  password: redisUrl.password,
+  tls: {}
 };
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
