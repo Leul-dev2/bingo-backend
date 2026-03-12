@@ -63,11 +63,11 @@ const DEFAULT_CREATED_BY = 'System';
         ]);
 
       // ── Log 3: What we found ─────────────────────────────────────────────
-        console.log(`[START ROUTE] existingLobby: ${existingLobby ? 'found' : 'not found'} | status=${existingLobby?.status || '(none)'} | endedAt=${existingLobby?.endedAt || '(none)'}`);
+        console.log(`[START ROUTE] existingLobby: ${existingLobby ? 'found' : 'not found'} | status=${existingLobby?.isActive || '(none)'} | endedAt=${existingLobby?.endedAt || '(none)'}`);
         console.log(`[START ROUTE] reservedCards count: ${reservedCards.length} (expected ${cardIds.length})`);
 
         // Your existing active-game block (should now work once status is set)
-        if (existingLobby?.status === "active") {
+        if (existingLobby?.isActive === true) {
             console.log(`[START ROUTE] Blocked: game is active | game ${strGameId} | user ${telegramId}`);
             return res.status(403).json({
                 success: false,
