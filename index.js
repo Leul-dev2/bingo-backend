@@ -25,6 +25,7 @@ const registerGameSocket = require("./sockets/gameSocket");
 const GameControl = require("./models/GameControl");
 const resetGame   = require("./utils/resetGame");
 const { queueUserUpdate, cleanupBatchQueue } = require("./utils/emitBatcher");
+const { resetRound } = require("./utils/resetRound");
 
 // ─── App + HTTP server created BEFORE any app.use() calls ────────────────────
 const app    = express();
@@ -118,7 +119,7 @@ mongoose.connection.on("connected", async () => {
         console.log("✅ Socket.IO Redis Adapter attached — horizontal scaling enabled.");
 
         // ── Worker event subscriber (game-events channel) ─────────────────────
-        await eventSubscriber.subscribe("game-events", (message) => {
+        await eventSubscriber.subscribe("game-events", async (message) => {
     try {
         const data       = JSON.parse(message);
         const strGameId  = String(data.gameId);
@@ -151,7 +152,15 @@ mongoose.connection.on("connected", async () => {
 
             case "gameEnd":
                 io.to(strGameId).emit("gameEnd", { gameId: strGameId });
-                break;
+                try {
+        // Use the same reset function you already have
+           
+            await resetRound(strGameId, data.gameSessionId, io, gameState, redisClient); // null sessionId if unknown
+            console.log(`[EVENT] Full reset completed for ended game ${strGameId}`);
+            } catch (cleanupErr) {
+                console.error(`[EVENT] Cleanup failed after gameEnd for ${strGameId}:`, cleanupErr);
+            }
+                        break;
 
             case "gameDetails":
                 io.to(strGameId).emit("gameDetails", {
