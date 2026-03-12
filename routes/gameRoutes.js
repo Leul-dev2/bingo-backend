@@ -62,13 +62,18 @@ const DEFAULT_CREATED_BY = 'System';
             User.findOne({ telegramId }).lean()
         ]);
 
+      // ── Log 3: What we found ─────────────────────────────────────────────
+        console.log(`[START ROUTE] existingLobby: ${existingLobby ? 'found' : 'not found'} | status=${existingLobby?.status || '(none)'} | endedAt=${existingLobby?.endedAt || '(none)'}`);
+        console.log(`[START ROUTE] reservedCards count: ${reservedCards.length} (expected ${cardIds.length})`);
+
+        // Your existing active-game block (should now work once status is set)
         if (existingLobby?.status === "active") {
-            return res.status(403).json({ 
+            console.log(`[START ROUTE] Blocked: game is active | game ${strGameId} | user ${telegramId}`);
+            return res.status(403).json({
                 success: false,
-                error: "Game is already in progress. You cannot join now." 
+                error: "Game is already in progress. You cannot join now."
             });
         }
-
         // Optional: also block if already ended (good hygiene)
         if (existingLobby?.endedAt) {
             return res.status(410).json({ 
