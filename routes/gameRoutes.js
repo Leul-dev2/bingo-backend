@@ -62,6 +62,21 @@ const DEFAULT_CREATED_BY = 'System';
             User.findOne({ telegramId }).lean()
         ]);
 
+        if (existingLobby?.status === "active") {
+            return res.status(403).json({ 
+                success: false,
+                error: "Game is already in progress. You cannot join now." 
+            });
+        }
+
+        // Optional: also block if already ended (good hygiene)
+        if (existingLobby?.endedAt) {
+            return res.status(410).json({ 
+                success: false,
+                error: "This game has already ended." 
+            });
+        }
+
         if (reservedCards.length !== cardIds.length) {
             return res.status(400).json({ error: "Invalid card or card not reserved by you." });
         }
