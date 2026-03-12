@@ -118,35 +118,96 @@ mongoose.connection.on("connected", async () => {
 
         // ── Worker event subscriber (game-events channel) ─────────────────────
         await eventSubscriber.subscribe("game-events", (message) => {
-            try {
-                const data = JSON.parse(message);
-                console.log(`[EVENT] '${data.event}' for game: ${data.gameId}`);
+    try {
+        const data       = JSON.parse(message);
+        const strGameId  = String(data.gameId);
 
-                if (data.event === "gameReset") {
-                    io.to(data.gameId).emit("gameReset", {});
+        console.log(`[EVENT] '${data.event}' for game: ${strGameId}`);
 
-                } else if (data.event === "cardsReleased") {
-                    const strGameId    = String(data.gameId);
-                    const ownerId      = String(data.releasedBy || data.telegramId);
-                    const releasedIds  = Array.isArray(data.cardIds)
-                        ? data.cardIds.map(id => Number(id))
-                        : [Number(data.cardId || data.cardIds)].filter(id => !isNaN(id));
+        switch (data.event) {
 
-                    if (releasedIds.length > 0) {
-                        queueUserUpdate(strGameId, ownerId, [], releasedIds, io);
-                        console.log(`✅ Batched release of ${releasedIds.length} card(s) by ${ownerId} in game ${strGameId}`);
-                    }
+            // ── Timer worker → socket server events ───────────────────────────
 
-                } else if (data.event === "fullGameReset") {
-                    cleanupBatchQueue(data.gameId);
-                    resetGame(data.gameId, data.gameSessionId, io, gameState, redisClient);
-                    console.log(`✅ Full reset executed for game ${data.gameId}`);
+            case "countdownTick":
+                io.to(strGameId).emit("countdownTick", { countdown: data.countdown });
+                break;
+
+            case "numberDrawn":
+                io.to(strGameId).emit("numberDrawn", {
+                    number:           data.number,
+                    label:            data.label,
+                    callNumberLength: data.callNumberLength,
+                });
+                break;
+
+            case "gameStart":
+                io.to(strGameId).emit("gameStart", { gameId: strGameId });
+                break;
+
+            case "gameNotStarted":
+                io.to(strGameId).emit("gameNotStarted", { message: data.message });
+                break;
+
+            case "gameEnd":
+                io.to(strGameId).emit("gameEnd", { gameId: strGameId });
+                break;
+
+            case "gameDetails":
+                io.to(strGameId).emit("gameDetails", {
+                    winAmount:          data.winAmount,
+                    playersCount:       data.playersCount,
+                    cardCount:          data.cardCount,
+                    stakeAmount:        data.stakeAmount,
+                    totalDrawingLength: data.totalDrawingLength,
+                    isHouseCutFree:     data.isHouseCutFree,
+                });
+                break;
+
+            case "gameCardResetOngameStart":
+                io.to(strGameId).emit("gameCardResetOngameStart");
+                break;
+
+            case "winnerConfirmed":
+                io.to(strGameId).emit("winnerConfirmed", data.winnerInfo || {});
+                break;
+
+            case "socketsLeave":
+                io.in(strGameId).socketsLeave(strGameId);
+                break;
+
+            // ── Existing worker events (unchanged) ────────────────────────────
+
+            case "gameReset":
+                io.to(strGameId).emit("gameReset", {});
+                break;
+
+            case "cardsReleased": {
+                const ownerId     = String(data.releasedBy || data.telegramId);
+                const releasedIds = Array.isArray(data.cardIds)
+                    ? data.cardIds.map(id => Number(id))
+                    : [Number(data.cardId || data.cardIds)].filter(id => !isNaN(id));
+
+                if (releasedIds.length > 0) {
+                    queueUserUpdate(strGameId, ownerId, [], releasedIds, io);
+                    console.log(`✅ Batched release of ${releasedIds.length} card(s) by ${ownerId} in game ${strGameId}`);
                 }
-
-            } catch (err) {
-                console.error("❌ Error processing game-events message:", err);
+                break;
             }
-        });
+
+            case "fullGameReset":
+                cleanupBatchQueue(strGameId);
+                resetGame(strGameId, data.gameSessionId, io, gameState, redisClient);
+                console.log(`✅ Full reset executed for game ${strGameId}`);
+                break;
+
+            default:
+                console.warn(`[EVENT] Unhandled event type: ${data.event}`);
+        }
+
+    } catch (err) {
+        console.error("❌ Error processing game-events message:", err);
+    }
+});
         console.log("✅ Subscribed to 'game-events' channel.");
 
         // ── API routes ────────────────────────────────────────────────────────
