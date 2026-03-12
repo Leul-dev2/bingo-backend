@@ -155,8 +155,8 @@ mongoose.connection.on("connected", async () => {
                 try {
         // Use the same reset function you already have
            
-            await resetRound(strGameId, data.gameSessionId, io, gameState, redisClient); // null sessionId if unknown
-            console.log(`[EVENT] Full reset completed for ended game ${strGameId}`);
+            await resetRound(strGameId, data.gameSessionId, null, io, gameState, redisClient);
+               console.log(`[EVENT] Full reset completed for ended game ${strGameId}`);
             } catch (cleanupErr) {
                 console.error(`[EVENT] Cleanup failed after gameEnd for ${strGameId}:`, cleanupErr);
             }
