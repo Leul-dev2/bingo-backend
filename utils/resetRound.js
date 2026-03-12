@@ -38,7 +38,7 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
         console.log(`🧹 Cleared draw state and draws for game ${strGameId}`);
 
         // 3. Clear any remaining drawing interval (defense in depth)
-        if (state.drawIntervals[strGameId]) {
+       if (state?.drawIntervals?.[strGameId]) {
             clearInterval(state.drawIntervals[strGameId]);
             delete state.drawIntervals[strGameId];
             console.log(`⏹️ Cleared draw interval for game ${strGameId}`);
