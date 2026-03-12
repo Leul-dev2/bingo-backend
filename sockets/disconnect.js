@@ -1,16 +1,12 @@
 const { safeJsonParse }    = require("../utils/safeJsonParse");
-// pendingDisconnectTimeouts (in-memory) intentionally NOT imported — grace period
-// is handled entirely through Redis keys (graceKey with EX TTL), which is
-// correct and process-safe.  The in-memory map is no longer needed.
-
 const { queueUserUpdate }  = require("../utils/emitBatcher");
 const { dbQueue, defaultJobOptions } = require("../utils/dbQueue");
 const { updateCardSnapshot } = require("../utils/updateCardSnapshot");
 
-// ─── FIX P1: Also HDELs gameCardsKey so ownership map stays clean ─────────────
+// ─── Lua: release all cards + clean ownership map atomically ─────────────────
 const RELEASE_ALL_LUA = `
-local takenKey    = KEYS[1]
-local userHeldKey = KEYS[2]
+local takenKey     = KEYS[1]
+local userHeldKey  = KEYS[2]
 local gameCardsKey = KEYS[3]
 
 local cards = redis.call("LRANGE", userHeldKey, 0, -1)
@@ -29,12 +25,12 @@ module.exports = function disconnectHandler(socket, io, redis) {
 
         try {
             const [userSelectionRaw, joinGameRaw] = await redis.multi()
-                .hGet("userSelections",    socket.id)
+                .hGet("userSelections",     socket.id)
                 .hGet("joinGameSocketsInfo", socket.id)
                 .exec();
 
-            let userPayload = null;
-            let phase       = null;
+            let userPayload   = null;
+            let phase         = null;
             let gameSessionId = "NO_SESSION_ID";
 
             if (joinGameRaw) {
@@ -68,14 +64,19 @@ module.exports = function disconnectHandler(socket, io, redis) {
 
             await redis.del(`activeSocket:${telegramId}:${socket.id}`);
 
-            // ── Grace period: 2 s Redis TTL ──────────────────────────────────
+            // ─── FIX P0: Grace period increased from 2s → 20s ────────────────
+            // Telegram mobile on 4G can take 5–10 seconds to reconnect after a
+            // network blip or app backgrounding. A 2-second window was triggering
+            // false card releases on live players constantly.
+            // 20 seconds covers the 99th percentile mobile reconnect time while
+            // keeping the Redis key size trivial (just a string with TTL).
             const graceKey     = `pendingDisconnect:${telegramId}:${gameId}:${phase || "unknown"}`;
-            const graceSeconds = 2;
+            const graceSeconds = 20; // was 2 — increased for mobile reconnect
 
             await redis.set(graceKey, "1", "EX", graceSeconds);
             console.log(`[GRACE] Set ${graceKey} → ${graceSeconds}s TTL`);
 
-            const cleanupDelay = graceSeconds * 1000 + 600; // 600 ms accuracy buffer
+            const cleanupDelay = graceSeconds * 1000 + 600; // 600ms accuracy buffer
 
             setTimeout(async () => {
                 try {
@@ -89,18 +90,6 @@ module.exports = function disconnectHandler(socket, io, redis) {
 
                     console.log(`[GRACE EXPIRED] Processing disconnect cleanup for ${telegramId}`);
 
-                    // ─── FIX P0: SINGLE release path ─────────────────────────
-                    // Previously the code BOTH pushed to disconnect-cleanup-queue
-                    // AND ran the Lua release inline, releasing cards TWICE and
-                    // corrupting game state.
-                    //
-                    // Decision: inline Lua release is the authoritative path.
-                    // The raw Redis list queue (disconnect-cleanup-queue) is
-                    // REMOVED.  If you need a background worker for heavy cleanup
-                    // (e.g. MongoDB PlayerSession update), add a BullMQ job AFTER
-                    // the Lua release — NOT a second card release.
-                    // ─────────────────────────────────────────────────────────
-
                     const released = await redis.eval(RELEASE_ALL_LUA, {
                         keys: [
                             `takenCards:${gameId}`,
@@ -112,25 +101,30 @@ module.exports = function disconnectHandler(socket, io, redis) {
                     console.log(`[RELEASE RESULT] ${telegramId} → ${JSON.stringify(released)}`);
 
                     if (Array.isArray(released) && released.length > 0) {
-                        // Instant UI update for all room members
                         queueUserUpdate(gameId, telegramId, [], released, io);
                         console.log(`[BATCH] Queued UI release for ${released.length} cards`);
 
-                        // Async DB write via BullMQ (single queue, no duplicate)
                         await dbQueue.add(
                             "db-write",
                             { type: "RELEASE_CARDS", payload: { gameId, cardIds: released } },
                             { ...defaultJobOptions, priority: 2 }
                         );
 
-                        // Update snapshot so new joiners see correct state
                         await updateCardSnapshot(gameId, redis);
                         console.log(`[SNAPSHOT] Updated after release for game ${gameId}`);
                     } else {
                         console.log(`[NO CARDS TO RELEASE] for ${telegramId}`);
                     }
 
-                    // Tidy up session tracking hashes
+                    // ─── FIX P0: Decrement connectedCount for the session ──────
+                    // gameCount.js reads this Redis counter instead of doing a
+                    // MongoDB countDocuments query on every countdown trigger.
+                    if (gameSessionId && gameSessionId !== "NO_SESSION_ID") {
+                        await redis.decr(`connectedCount:${gameSessionId}`);
+                        console.log(`[COUNTER] Decremented connectedCount for session ${gameSessionId}`);
+                    }
+                    // ─────────────────────────────────────────────────────────────
+
                     await Promise.all([
                         redis.hDel("userSelections",     socket.id),
                         redis.hDel("joinGameSocketsInfo", socket.id),

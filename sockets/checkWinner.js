@@ -2,11 +2,9 @@ const { checkBingoPattern }                          = require("../utils/BingoPa
 const { ProcessWinner }                              = require("../utils/ProcessWinner");
 const { getDrawnNumbersSet, cacheCardIfNotExists, getWinnerInfo } = require("../utils/winnerUtils");
 
-// ─── FIX P1: Atomic rate-limit Lua script ─────────────────────────────────────
-// Original code used redis.incr() + redis.expire() as two separate calls.
-// If the process crashed between them, the key would exist forever with no TTL,
-// permanently locking the player out of claiming a win.
-// This Lua script sets the TTL atomically on the very first increment.
+// ─── Atomic rate-limit Lua script ─────────────────────────────────────────────
+// Sets TTL atomically on first increment — prevents permanent lockout if process
+// crashes between INCR and EXPIRE.
 const RATE_LIMIT_LUA = `
 local key     = KEYS[1]
 local limit   = tonumber(ARGV[1])
@@ -21,8 +19,16 @@ return current
 
 module.exports = function CheckWinnerHandler(socket, io, redis, state) {
   socket.on("checkWinner", async ({
-    telegramId, gameId, GameSessionId, cartelaId, selectedNumbers
+    gameId, GameSessionId, cartelaId, selectedNumbers
   }) => {
+    // ─── FIX P0: Use server-verified identity — never trust client payload ──
+    const telegramId = socket.data.telegramId;
+    if (!telegramId) {
+        console.warn(`🚫 checkWinner rejected: socket ${socket.id} has no verified telegramId`);
+        socket.emit("winnerError", { message: "Not authenticated." });
+        return;
+    }
+
     console.time(`checkWinner_${telegramId}`);
     const strGameSessionId = String(GameSessionId);
 
@@ -33,11 +39,11 @@ module.exports = function CheckWinnerHandler(socket, io, redis, state) {
         return socket.emit("winnerConfirmed", existingWinner);
       }
 
-      // 2. Rate limit — FIX P1: atomic incr+expire via Lua (max 3 claims per 5 min)
+      // 2. Rate limit — atomic incr+expire via Lua (max 3 claims per 5 min)
       const rateKey = `claimRate:${strGameSessionId}:${telegramId}`;
       const claims  = await redis.eval(RATE_LIMIT_LUA, {
         keys:      [rateKey],
-        arguments: ["3", "300"],   // limit=3, ttl=300s
+        arguments: ["3", "300"],
       });
       if (claims > 3) {
         return socket.emit("winnerError", { message: "Too many claims. Please wait." });
@@ -78,8 +84,13 @@ module.exports = function CheckWinnerHandler(socket, io, redis, state) {
       }
 
       // 5. Atomic winner lock — only one player reaches ProcessWinner
-      const lockKey     = `winnerLock:${strGameSessionId}`;
-      const lockAcquired = await redis.set(lockKey, telegramId, { NX: true, EX: 5 });
+      // ─── FIX P0: TTL increased from 5s to 30s ────────────────────────────
+      // Original 5s TTL meant that if ProcessWinner (MongoDB write + prize
+      // distribution + event emission) took longer than 5 seconds under DB
+      // load, the lock would expire and a second player could claim the same
+      // prize. 30s safely covers the entire ProcessWinner execution window.
+      const lockKey      = `winnerLock:${strGameSessionId}`;
+      const lockAcquired = await redis.set(lockKey, telegramId, { NX: true, EX: 30 });
       if (!lockAcquired) {
         return socket.emit("winnerError", { message: "Someone else won!" });
       }

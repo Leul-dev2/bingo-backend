@@ -1,7 +1,7 @@
 // ─── FIX P0: Added missing fullGameCleanup import (was causing runtime crash on admin terminate)
 const { fullGameCleanup } = require("../utils/fullGameCleanup");
 
-const JoinedLobbyHandler  = require("./JoinedLobby");
+const JoinedLobbyHandler   = require("./JoinedLobby");
 const cardSelectionHandler = require("./cardSelection");
 const JoinedGameHandler    = require("./JoinedGame");
 const GameCountHandler     = require("./gameCount");
@@ -9,24 +9,14 @@ const checkWinnerHandler   = require("./checkWinner");
 const playerLeaveHandler   = require("./playerLeave");
 const disconnectHandler    = require("./disconnect");
 
-// ─── FIX P0: Import Redis adapter for multi-process Socket.io room broadcasts
-// Install first:  npm install @socket.io/redis-adapter
-// Without this, io.to(room).emit() only reaches sockets on the SAME Node process.
-const { createAdapter } = require("@socket.io/redis-adapter");
+// ─── FIX P0: REMOVED duplicate Redis adapter import + registration ─────────────
+// The adapter is already correctly attached in index.js with proper pub/sub clients.
+// Re-registering it here using the same client for both pub AND sub was illegal:
+// a client in subscribe mode cannot issue commands, causing silent message drops
+// and ghost rooms under multi-process load.
+// ──────────────────────────────────────────────────────────────────────────────
 
 module.exports = function registerGameSocket(io, redis) {
-
-  // ─── FIX P0: Attach Redis adapter so all processes share rooms
-  // pubClient = your existing redis client (already connected)
-  // subClient2 = a fresh duplicate used exclusively for the adapter's subscription channel
-  const adapterSubClient = redis.duplicate();
-  adapterSubClient.connect().then(() => {
-    io.adapter(createAdapter(redis, adapterSubClient));
-    console.log("✅ Socket.io Redis adapter attached — multi-process room broadcasts enabled");
-  }).catch(err => {
-    console.error("❌ Failed to attach Socket.io Redis adapter:", err);
-    // Non-fatal in single-process mode but will break multi-process; alert your team
-  });
 
   // ─── NOTE on state object ─────────────────────────────────────────────────
   // countdownIntervals and drawIntervals are intentionally kept here for
@@ -43,7 +33,7 @@ module.exports = function registerGameSocket(io, redis) {
     activeDrawLocks:     {},
     gameDraws:           {},
     gameSessionIds:      {},
-    gameIsActive:        {},   // FIX P1: back these with Redis keys via isGameLockedOrActive util
+    gameIsActive:        {},
     gameReadyToStart:    {},
   };
 
@@ -77,7 +67,7 @@ module.exports = function registerGameSocket(io, redis) {
             delete state.drawIntervals[targetRoom];
           }
 
-          // 2. Emit to all processes via Redis adapter (now correctly broadcast)
+          // 2. Emit to all processes via Redis adapter
           io.to(targetRoom).emit("force_game_end", {
             message: "The game session has been terminated by an administrator.",
           });
@@ -85,7 +75,6 @@ module.exports = function registerGameSocket(io, redis) {
           // 3. Delay cleanup so frontend can receive the message first
           setTimeout(async () => {
             try {
-              // ─── FIX P0: fullGameCleanup is now imported at the top ───────
               await fullGameCleanup(targetRoom, redis, state);
               io.in(targetRoom).socketsLeave(targetRoom);
               console.log(`🧹 Cleanup complete for ${targetRoom}`);
@@ -105,15 +94,15 @@ module.exports = function registerGameSocket(io, redis) {
   }
   connectSubClient();
 
-  // ─── FIX P1: Tune Socket.io heartbeat for mobile / Telegram WebApp ────────
-  // Default pingInterval=25000 is too slow to detect dead mobile sockets.
-  // Set these in the io() constructor options for best effect; this is a
-  // runtime override as a fallback if you cannot change the server init.
-  // RECOMMENDED: move pingInterval + pingTimeout to your io() constructor:
-  //   const io = new Server(httpServer, { pingInterval: 10000, pingTimeout: 5000 })
-  // ──────────────────────────────────────────────────────────────────────────
-
   io.on("connection", (socket) => {
+    // ─── FIX P0: AUTH MIDDLEWARE PER SOCKET ───────────────────────────────
+    // socket.data.telegramId is set by JoinedLobbyHandler after Telegram
+    // initData verification. All subsequent handlers READ from socket.data
+    // instead of trusting the client-provided telegramId payload.
+    // This prevents any player from spoofing another player's identity
+    // on cardSelected, checkWinner, gameCount, playerLeave, joinGame events.
+    // ──────────────────────────────────────────────────────────────────────
+
     JoinedLobbyHandler (socket, io, redis);
     cardSelectionHandler(socket, io, redis);
     JoinedGameHandler  (socket, io, redis);

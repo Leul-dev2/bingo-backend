@@ -1,48 +1,51 @@
 const { pendingDisconnectTimeouts, ACTIVE_SOCKET_TTL_SECONDS } = require("../utils/timeUtils");
 const { verifyTelegramWithCache } = require("../utils/verifyWithCache");
-const { checkRateLimit } = require("../utils/rateLimiter");
-
-
+const { checkRateLimit }          = require("../utils/rateLimiter");
 
 module.exports = function JoinedLobbyHandler(socket, io, redis) {
-     socket.on("userJoinedGame", async ({ initData, gameId }) => {
+    socket.on("userJoinedGame", async ({ initData, gameId }) => {
         console.log("userJoined invoked");
+
         const verifiedUser = await verifyTelegramWithCache(
             initData,
             process.env.TELEGRAM_BOT_TOKEN,
             redis
         );
 
-    if (!verifiedUser) {
-        socket.emit("joinError", {
-            message: "Unauthorized user"
-        });
-        return;
-    }
+        if (!verifiedUser) {
+            socket.emit("joinError", { message: "Unauthorized user" });
+            return;
+        }
 
-   
-    const rateKey = `rate:join:${verifiedUser.telegramId}`;
+        // ─── FIX P0: Store verified identity server-side ──────────────────────
+        // All subsequent socket handlers (cardSelected, checkWinner, gameCount,
+        // playerLeave, joinGame) must read telegramId from socket.data — NEVER
+        // from the client event payload, which is trivially spoofable.
+        socket.data.telegramId = String(verifiedUser.telegramId);
+        socket.data.gameId     = String(gameId);
+        console.log(`✅ Verified and stored socket.data for ${socket.data.telegramId}`);
+        // ─────────────────────────────────────────────────────────────────────
 
-    const allowed = await checkRateLimit(redis, rateKey, 3, 10);
+        const rateKey = `rate:join:${verifiedUser.telegramId}`;
+        const allowed = await checkRateLimit(redis, rateKey, 3, 10);
+        if (!allowed) {
+            socket.emit("joinError", { message: "Too many requests. Slow down." });
+            return;
+        }
 
-    if (!allowed) {
-        socket.emit("joinError", { message: "Too many requests. Slow down." });
-        return;
-    }
+        const strTelegramId = String(verifiedUser.telegramId);
+        const strGameId     = String(gameId);
+        const multi         = redis.multi();
 
-    const strTelegramId = verifiedUser.telegramId;
-    const strGameId = String(gameId);
-    const multi = redis.multi();
-
-    console.log("✅ Verified Telegram user:", strTelegramId);
+        console.log("✅ Verified Telegram user:", strTelegramId);
 
         try {
-            const userSelectionKey = `userSelections`; // Stores selection per socket.id
-            const userOverallSelectionKey = `userSelectionsByTelegramId`; // Stores the user's *overall* selected card by telegramId
-            const gameCardsKey = `gameCards:${strGameId}`;
-            const userHeldCardsKey = `userHeldCards:${strGameId}:${strTelegramId}`;
-            const sessionKey = `gameSessions:${strGameId}`; // Card selection lobby (unique players)
-            const gamePlayersKey = `gamePlayers:${strGameId}`; // Overall game players (unique players across all game states)
+            const userSelectionKey        = `userSelections`;
+            const userOverallSelectionKey = `userSelectionsByTelegramId`;
+            const gameCardsKey            = `gameCards:${strGameId}`;
+            const userHeldCardsKey        = `userHeldCards:${strGameId}:${strTelegramId}`;
+            const sessionKey              = `gameSessions:${strGameId}`;
+            const gamePlayersKey          = `gamePlayers:${strGameId}`;
 
             console.log(`Backend: Processing userJoinedGame for Telegram ID: ${strTelegramId}, Game ID: ${strGameId}`);
 
@@ -51,18 +54,16 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
             if (await redis.del(graceKey)) {
                 console.log(`✅ User ${strTelegramId} reconnected within Redis grace period`);
             } else {
-                console.log(`🆕 User ${strTelegramId} joining game ${strGameId}. No pending disconnect timeout found (or it already expired).`);
+                console.log(`🆕 User ${strTelegramId} joining game ${strGameId}. No pending disconnect timeout found.`);
             }
 
-            // --- IMPORTANT: Clean up any residual 'joinGame' phase info for this socket ---
-            // This handles the transition from 'joinGame' phase to 'lobby' phase for the same socket
+            // --- Clean up residual 'joinGame' phase info ---
             await redis.hDel(`joinGameSocketsInfo`, socket.id);
-            console.log(`🧹 Cleaned up residual 'joinGameSocketsInfo' for socket ${socket.id} as it's now in 'lobby' phase.`);
-
+            console.log(`🧹 Cleaned up residual 'joinGameSocketsInfo' for socket ${socket.id}.`);
 
             // --- Step 2: Determine Current Card State for Reconnecting Player ---
             let currentHeldCardId = null;
-            let currentHeldCard = null;
+            let currentHeldCard   = null;
 
             const userOverallSelectionRaw = await redis.hGet(userOverallSelectionKey, strTelegramId);
             if (userOverallSelectionRaw) {
@@ -71,83 +72,64 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
                     const cardOwner = await redis.sIsMember(userHeldCardsKey, String(overallSelection.cardId));
                     if (cardOwner === strTelegramId) {
                         currentHeldCardId = overallSelection.cardId;
-                        currentHeldCard = overallSelection.card;
-                        console.log(`✅ User ${strTelegramId} reconnected with previously held card ${currentHeldCardId} for game ${strGameId}.`);
+                        currentHeldCard   = overallSelection.card;
+                        console.log(`✅ User ${strTelegramId} reconnected with previously held card ${currentHeldCardId}.`);
                     } else {
-                        console.log(`⚠️ User ${strTelegramId} overall selection for card ${overallSelection.cardId} in game ${strGameId} is no longer valid (card not taken by them in gameCards). Cleaning up stale entry.`);
+                        console.log(`⚠️ User ${strTelegramId} stale card entry. Cleaning up.`);
                         await redis.hDel(userOverallSelectionKey, strTelegramId);
                     }
                 } else {
-                    console.log(`ℹ️ User ${strTelegramId} had overall selection, but for a different game or no card. No card restored for game ${strGameId}.`);
+                    console.log(`ℹ️ User ${strTelegramId} had overall selection for a different game or no card.`);
                 }
             } else {
-                console.log(`ℹ️ No overall persisted selection found for ${strTelegramId}. User will join without a pre-selected card.`);
+                console.log(`ℹ️ No overall persisted selection found for ${strTelegramId}.`);
             }
 
-            // --- Step 3: Set up new socket and persist its specific selection state ---
+            // --- Step 3: Set up socket and persist selection state ---
             await redis.set(`activeSocket:${strTelegramId}:${socket.id}`, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
             socket.join(strGameId);
 
             multi.hSet(userSelectionKey, socket.id, JSON.stringify({
                 telegramId: strTelegramId,
-                gameId: strGameId,
-                cardId: currentHeldCardId,
-                card: currentHeldCard,
-                phase: 'lobby' // Indicate this socket belongs to the 'lobby' phase
+                gameId:     strGameId,
+                cardId:     currentHeldCardId,
+                card:       currentHeldCard,
+                phase:      'lobby'
             }));
             console.log(`Backend: Socket ${socket.id} for ${strTelegramId} set up with cardId: ${currentHeldCardId || 'null'} in 'lobby' phase.`);
 
-            // --- Step 4: Add user to Redis Sets (Lobby and Overall Game Players) ---
-            multi.sAdd(sessionKey, strTelegramId);
+            // --- Step 4: Add user to Redis Sets ---
+            multi.sAdd(sessionKey,     strTelegramId);
             multi.sAdd(gamePlayersKey, strTelegramId);
-            multi.sCard(sessionKey);   // <-- This will be index 3 in results
-            //multi.hGetAll(gameCardsKey); // <-- This will be index 4 in results
-            console.log(`Backend: Added ${strTelegramId} to Redis SETs: ${sessionKey} and ${gamePlayersKey}.`);
+            multi.sCard(sessionKey);
 
             const results = await multi.exec();
 
-            // --- Step 5: Broadcast Current Lobby State to All Players in the Game ---
-            const numberOfPlayersInLobby = results[3]; // The result of sCard(sessionKey)
-            console.log(`Backend: Calculated numberOfPlayers for ${sessionKey} (card selection lobby): ${numberOfPlayersInLobby}`);
+            // --- Step 5: Broadcast Current Lobby State ---
+            const numberOfPlayersInLobby = results[3];
+            console.log(`Backend: Calculated numberOfPlayers for ${sessionKey}: ${numberOfPlayersInLobby}`);
 
             io.to(strGameId).emit("gameid", {
-                gameId: strGameId,
+                gameId:          strGameId,
                 numberOfPlayers: numberOfPlayersInLobby,
             });
-            console.log(`Backend: Emitted 'gameid' to room ${strGameId} with numberOfPlayers: ${numberOfPlayersInLobby}`);
 
-            // 🔥 BEST FOR 10K+ SPECTATORS — Cached Snapshot (1 GET only)
-                const snapshotKey = `cardStateSnapshot:${strGameId}`;
-                const snapshotRaw = await redis.get(snapshotKey);
+            // --- Step 6: Send cached card-state snapshot ---
+            const snapshotKey = `cardStateSnapshot:${strGameId}`;
+            const snapshotRaw = await redis.get(snapshotKey);
 
-                if (snapshotRaw) {
-                    const initialCardsState = JSON.parse(snapshotRaw);
-                    socket.emit("initialCardStates", { takenCards: initialCardsState });
-                    console.log(`✅ Sent cached snapshot (${Object.keys(initialCardsState).length} cards) to ${strTelegramId}`);
-                } else {
-                    socket.emit("initialCardStates", { takenCards: {} });
-                    console.log(`✅ Sent empty snapshot to ${strTelegramId}`);
-                }
-
-            // --- Step 6: Send Initial Card States to the *Joining Client Only* ---
-            // const allTakenCardsData = results[4]; 
-            // const initialCardsState = {};
-            // for (const cardId in allTakenCardsData) {
-            //     initialCardsState[cardId] = {
-            //         cardId: Number(cardId),
-            //         takenBy: allTakenCardsData[cardId],
-            //         isTaken: true
-            //     };
-            // }
-            // socket.emit("initialCardStates", { takenCards: initialCardsState });
-            // console.log(`Backend: Sent 'initialCardStates' to ${strTelegramId} for game ${strGameId}. Total taken cards: ${Object.keys(initialCardsState).length}`);
+            if (snapshotRaw) {
+                const initialCardsState = JSON.parse(snapshotRaw);
+                socket.emit("initialCardStates", { takenCards: initialCardsState });
+                console.log(`✅ Sent cached snapshot (${Object.keys(initialCardsState).length} cards) to ${strTelegramId}`);
+            } else {
+                socket.emit("initialCardStates", { takenCards: {} });
+                console.log(`✅ Sent empty snapshot to ${strTelegramId}`);
+            }
 
         } catch (err) {
             console.error("❌ Error in userJoinedGame:", err);
-            socket.emit("joinError", {
-                message: "Failed to join game. Please refresh or retry.",
-            });
+            socket.emit("joinError", { message: "Failed to join game. Please refresh or retry." });
         }
     });
-}
- 
+};

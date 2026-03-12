@@ -4,7 +4,7 @@ const { queueUserUpdate, cleanupBatchQueue } = require("../utils/emitBatcher");
 const { dbQueue, defaultJobOptions }  = require("../utils/dbQueue");
 const { updateCardSnapshot }          = require("../utils/updateCardSnapshot");
 
-// ─── FIX P1: RELEASE_ALL_LUA — already correct, kept as-is ──────────────────
+// ─── Lua: release all cards for a user ───────────────────────────────────────
 const RELEASE_ALL_LUA = `
 local takenKey    = KEYS[1]
 local userHeldKey = KEYS[2]
@@ -20,11 +20,9 @@ redis.call("DEL", userHeldKey)
 return cards
 `;
 
-// ─── FIX P1: SELECT_CARDS_LUA rollback now also HDELs gameCardsKey ───────────
-// Original rollback only called SREM on takenKey but left stale entries in
-// gameCardsKey (the ownership hash).  This meant a card could appear "free"
-// in the SET but still show an old owner in the HASH, causing ghost ownership
-// bugs visible to other players.
+// ─── Lua: atomic card selection with rollback ─────────────────────────────────
+// Rollback removes entries from BOTH takenKey AND gameCardsKey to prevent
+// ghost ownership (card appears free in SET but has stale owner in HASH).
 const SELECT_CARDS_LUA = `
 local userHeldKey  = KEYS[1]
 local takenKey     = KEYS[2]
@@ -76,18 +74,15 @@ if finalCount > maxAllowed then
     end
 end
 
--- Try to claim new cards atomically
 local successfullyAdded = {}
 for _, id in ipairs(toAdd) do
     if redis.call("SADD", takenKey, id) == 1 then
         table.insert(successfullyAdded, id)
     else
-        -- ─── FIX P1: Rollback BOTH takenKey AND gameCardsKey ────────────
-        -- Original only rolled back takenKey (SREM), leaving stale HSET
-        -- entries in gameCardsKey that showed wrong ownership to other players.
+        -- Rollback BOTH takenKey AND gameCardsKey on conflict
         for _, c in ipairs(successfullyAdded) do
             redis.call("SREM", takenKey,     c)
-            redis.call("HDEL", gameCardsKey, c)  -- ← NEW: clean ownership hash
+            redis.call("HDEL", gameCardsKey, c)
         end
         return {"CARD_TAKEN", id}
     end
@@ -103,8 +98,8 @@ for _, id in ipairs(toRelease) do
 end
 
 for _, id in ipairs(toAdd) do
-    redis.call("RPUSH", userHeldKey,    id)
-    redis.call("HSET",  gameCardsKey,   id, telegramId)
+    redis.call("RPUSH", userHeldKey,  id)
+    redis.call("HSET",  gameCardsKey, id, telegramId)
 end
 
 table.sort(toRelease, function(a, b) return tonumber(a) < tonumber(b) end)
@@ -119,21 +114,26 @@ module.exports = function cardSelectionHandler(socket, io, redis) {
 
   // ─── Card selection ────────────────────────────────────────────────────────
   socket.on("cardSelected", async (data) => {
-    const { telegramId, gameId, cardIds, requestId } = data;
+    // ─── FIX P0: Use server-verified identity — never trust client payload ──
+    const strTelegramId = socket.data.telegramId;
+    if (!strTelegramId) {
+      return socket.emit("cardError", { message: "Not authenticated.", requestId: data.requestId });
+    }
 
-    const rateKey = `rate:select:${telegramId}:${gameId}`;
+    const { gameId, cardIds, requestId } = data;
+
+    const rateKey = `rate:select:${strTelegramId}:${gameId}`;
     const allowed = await checkRateLimit(redis, rateKey, 10, 5);
     if (!allowed) {
       socket.emit("rateLimit", { message: "Too fast selecting cards" });
       return;
     }
 
-    const strTelegramId  = String(telegramId);
-    const strGameId      = String(gameId);
-    const lockKey        = `lock:userAction:${strGameId}:${strTelegramId}`;
+    const strGameId        = String(gameId);
+    const lockKey          = `lock:userAction:${strGameId}:${strTelegramId}`;
     const userHeldCardsKey = `userHeldCards:${strGameId}:${strTelegramId}`;
-    const takenCardsKey  = `takenCards:${strGameId}`;
-    const gameCardsKey   = `gameCards:${strGameId}`;
+    const takenCardsKey    = `takenCards:${strGameId}`;
+    const gameCardsKey     = `gameCards:${strGameId}`;
 
     const hasLock = await redis.set(lockKey, requestId, { NX: true, EX: 2 });
     if (!hasLock) {
@@ -175,7 +175,7 @@ module.exports = function cardSelectionHandler(socket, io, redis) {
       });
 
       if (added.length > 0 || released.length > 0) {
-        queueUserUpdate(gameId, telegramId, added, released, io);
+        queueUserUpdate(gameId, strTelegramId, added, released, io);
         await updateCardSnapshot(strGameId, redis);
         console.log(`[SNAPSHOT] Updated after card selection by ${strTelegramId}`);
       }
@@ -185,7 +185,7 @@ module.exports = function cardSelectionHandler(socket, io, redis) {
         if (added.length > 0) {
           await dbQueue.add(
             "db-write",
-            { type: "SAVE_CARDS", payload: { gameId, telegramId, cardIds: added } },
+            { type: "SAVE_CARDS", payload: { gameId, telegramId: strTelegramId, cardIds: added } },
             { ...defaultJobOptions, priority: 1 }
           );
         }
@@ -197,7 +197,6 @@ module.exports = function cardSelectionHandler(socket, io, redis) {
           );
         }
       } catch (queueErr) {
-        // Log to your alerting system here (Slack / Telegram / Sentry)
         console.error("Critical: Failed to add job to BullMQ:", queueErr);
       }
 
@@ -214,25 +213,29 @@ module.exports = function cardSelectionHandler(socket, io, redis) {
   });
 
   // ─── Legacy single-card deselect ──────────────────────────────────────────
-  socket.on("cardDeselected", async ({ telegramId, cardId, gameId }) => {
-    // Uses RELEASE_ALL_LUA scoped to the single card via the held-list
-    // (kept for backward compatibility)
+  socket.on("cardDeselected", async ({ cardId, gameId }) => {
+    // ─── FIX P0: Use server-verified identity ──
+    const strTelegramId = socket.data.telegramId;
+    if (!strTelegramId) return;
+
     const result = await redis.eval(RELEASE_ALL_LUA, {
       keys: [
         `takenCards:${gameId}`,
-        `userHeldCards:${gameId}:${telegramId}`,
+        `userHeldCards:${gameId}:${strTelegramId}`,
         `gameCards:${gameId}`,
       ],
     });
     if (Array.isArray(result) && result.length > 0) {
-      socket.to(gameId).emit("cardReleased", { cardId, telegramId });
+      socket.to(gameId).emit("cardReleased", { cardId, telegramId: strTelegramId });
     }
   });
 
   // ─── Unselect all on leave ─────────────────────────────────────────────────
-  socket.on("unselectCardOnLeave", async ({ gameId, telegramId }) => {
-    const strTelegramId = String(telegramId);
+  socket.on("unselectCardOnLeave", async ({ gameId }) => {
+    // ─── FIX P0: Use server-verified identity ──
+    const strTelegramId = socket.data.telegramId;
     const strGameId     = String(gameId);
+    if (!strTelegramId) return;
 
     try {
       console.log(`[UNSELECT ON LEAVE] Processing full release for ${strTelegramId} in game ${strGameId}`);
