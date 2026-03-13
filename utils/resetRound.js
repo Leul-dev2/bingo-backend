@@ -55,6 +55,11 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
 
         // 5. Notify ALL clients (matches your frontend handleGameReset)
         io.to(strGameId).emit("gameReset", { gameId: strGameId });
+        // Small delay so clients reset before lobbyReady re-enables gameCount
+        setTimeout(() => {
+            io.to(strGameId).emit("lobbyReady", { gameId: strGameId });
+        }, 3000); // 3 seconds — enough for winner screen to show
+
         console.log(`📢 Emitted gameReset to room ${strGameId} — lobby is now ready for next gameCount`);
 
     } catch (error) {
