@@ -13,7 +13,7 @@
 //           (they are harmless and cover the edge case where this cleanup runs
 //           on the same process as timerWorker in a single-process dev setup).
 
-const { getActiveDrawLockKey } = require("./redisKeys");
+const { getActiveDrawLockKey, getActiveDrawLockKey, getGameActiveKey } = require("./redisKeys");
 const { syncGameIsActive }     = require("./syncGameIsActive");
 const { timerQueue }           = require("./timerQueue");
 
@@ -73,6 +73,7 @@ async function fullGameCleanup(gameId, redis, state = {}) {
             redis.del(`lock:reset:${strGameId}`),
             redis.del(`lock:resetGame:${strGameId}`),
             redis.del(getActiveDrawLockKey(strGameId)),
+            redis.del(getGameActiveKey(strGameId)),
         ]);
     } catch (redisErr) {
         console.error(`Redis cleanup failed for ${strGameId}:`, redisErr);

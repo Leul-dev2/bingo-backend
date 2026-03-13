@@ -1,6 +1,6 @@
 // resetRound.js  ← FULL PRODUCTION-READY VERSIONn
 
-const { getGameDrawStateKey, getGameDrawsKey } = require("./redisKeys");
+const { getGameDrawStateKey, getGameDrawsKey, getActiveDrawLockKey, getGameActiveKey } = require("./redisKeys");
 const { fullGameCleanup } = require("./fullGameCleanup");
 const GameControl = require("../models/GameControl");
 const { pushHistoryForAllPlayers } = require("./pushHistoryForAllPlayers");
@@ -34,6 +34,8 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
         await Promise.all([
             redis.del(getGameDrawStateKey(strGameSessionId)),
             redis.del(getGameDrawsKey(strGameSessionId)),
+            redis.del(getActiveDrawLockKey(strGameId)),
+            redis.del(getGameActiveKey(strGameId)),
         ]);
         console.log(`🧹 Cleared draw state and draws for game ${strGameId}`);
 
