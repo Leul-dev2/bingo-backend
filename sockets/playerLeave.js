@@ -99,7 +99,7 @@ module.exports = function playerLeaveHandler(socket, io, redis, state) {
                 redis.hDel("userSelectionsByTelegramId", strTelegramId),
                 redis.sRem(getGameRoomsKey(gameId),     strTelegramId),
                 redis.del(`activeSocket:${strTelegramId}:${socket.id}`),
-                redis.del(`countdown:${strGameId}`),
+                //redis.del(`countdown:${strGameId}`),
             ]);
 
             // Emit updated player count
