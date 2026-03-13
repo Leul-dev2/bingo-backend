@@ -13,7 +13,7 @@
 //           (they are harmless and cover the edge case where this cleanup runs
 //           on the same process as timerWorker in a single-process dev setup).
 
-const { getActiveDrawLockKey, getActiveDrawLockKey, getGameActiveKey } = require("./redisKeys");
+const { getActiveDrawLockKey, getGameActiveKey } = require("./redisKeys");
 const { syncGameIsActive }     = require("./syncGameIsActive");
 const { timerQueue }           = require("./timerQueue");
 
