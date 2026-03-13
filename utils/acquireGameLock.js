@@ -9,7 +9,7 @@
 
         if (lockAcquired) {
             // Only update in-memory state if Redis lock was successfully acquired
-            state.activeDrawLocks[gameId] = true;
+          //  state.activeDrawLocks[gameId] = true;
             return true; // Lock secured
         }
         
