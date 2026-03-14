@@ -1,6 +1,6 @@
 const GameControl     = require("../models/GameControl");
 const PlayerSession   = require("../models/PlayerSession");
-const { getGameDrawsKey } = require("../utils/redisKeys");
+const { getGameDrawsKey, getCountdownKey } = require("../utils/redisKeys");
 
 module.exports = function JoinedGameHandler(socket, io, redis) {
     socket.on("joinGame", async ({ gameId, GameSessionId, userHeldCardId }) => {
@@ -121,6 +121,22 @@ module.exports = function JoinedGameHandler(socket, io, redis) {
                 });
                 console.log(`[joinGame] Sent historical drawn numbers to ${strTelegramId}.`);
             }
+
+            // ── Resync countdown for reconnecting player ──────────────────────────────
+                const [gameIsActiveRaw, countdownRaw] = await Promise.all([
+                    redis.get(`gameIsActive:${strGameId}`),
+                    redis.get(getCountdownKey(strGameId)),
+                ]);
+
+                if (gameIsActiveRaw === "true") {
+                    socket.emit("gameStatusChanged", { status: "active", playerCount: null });
+                } else if (countdownRaw !== null && Number(countdownRaw) > 0) {
+                    socket.emit("gameStatusChanged", {
+                        status:    "starting",
+                        playerCount: null,
+                        countdown: Number(countdownRaw),
+                    });
+                }
 
         } catch (err) {
             console.error("❌ Database or Redis error in joinGame:", err);
