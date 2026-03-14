@@ -233,6 +233,8 @@ async function processDeductionsAndStartGame(strGameId, strGameSessionId, io, re
             totalDrawingLength: 75,
             isHouseCutFree
         });
+
+        io.to(strGameId).emit("gameStatusChanged", { status: "active", playerCount: successfullyDeductedPlayers.length });
         io.to(strGameId).emit("gameStart", { gameId: strGameId });
         await startDrawing(strGameId, strGameSessionId, io, state, redis);
 

@@ -127,6 +127,24 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
                 console.log(`✅ Sent empty snapshot to ${strTelegramId}`);
             }
 
+                const [gameIsActive, gameStarting, countdownRaw, roomCount] = await Promise.all([
+                    redis.get(`gameIsActive:${strGameId}`),
+                    redis.get(`gameStarting:${strGameId}`),
+                    redis.get(getCountdownKey(strGameId)),
+                    redis.sCard(`gameRooms:${strGameId}`),
+                ]);
+
+                const playerCount = Number(roomCount) || 0;
+                let status = "open";
+                if (gameIsActive === "true") status = "active";
+                else if (gameStarting || (countdownRaw !== null && Number(countdownRaw) > 0)) status = "starting";
+
+                socket.emit("gameStatusChanged", { 
+                    status, 
+                    playerCount,
+                    countdown: countdownRaw !== null ? Number(countdownRaw) : null,
+                });
+
         } catch (err) {
             console.error("❌ Error in userJoinedGame:", err);
             socket.emit("joinError", { message: "Failed to join game. Please refresh or retry." });

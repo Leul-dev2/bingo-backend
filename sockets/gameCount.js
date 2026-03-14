@@ -114,6 +114,7 @@ module.exports = function GameCountHandler(socket, io, redis, state) {
                     removeOnFail:     10,
                 }
             );
+            io.to(strGameId).emit("gameStatusChanged", { status: "starting", playerCount: connectedPlayersCount });
 
             console.log(`✅ Countdown enqueued for game ${strGameId} (${COUNTDOWN_SECONDS}s)`);
 
