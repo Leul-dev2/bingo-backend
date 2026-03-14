@@ -1,6 +1,7 @@
 const { pendingDisconnectTimeouts, ACTIVE_SOCKET_TTL_SECONDS } = require("../utils/timeUtils");
 const { verifyTelegramWithCache } = require("../utils/verifyWithCache");
 const { checkRateLimit }          = require("../utils/rateLimiter");
+const { getCountdownKey }         = require("../utils/redisKeys");
 
 module.exports = function JoinedLobbyHandler(socket, io, redis) {
     socket.on("userJoinedGame", async ({ initData, gameId }) => {
