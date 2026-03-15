@@ -35,7 +35,16 @@ module.exports = function GameCountHandler(socket, io, redis, state) {
         }
 
         const strGameId        = String(gameId);
-        const strGameSessionId = String(GameSessionId);
+        const currentLobby = await require("../models/GameControl")
+            .findOne({ gameId: strGameId, endedAt: null })
+            .select("GameSessionId")
+            .lean();
+
+        if (!currentLobby) {
+            socket.emit("gameNotStarted", { message: "No active lobby found." });
+            return;
+        }
+        const strGameSessionId = currentLobby.GameSessionId;
 
         // Rate-limit: 3 triggers per 10 seconds per player per game
         const rateKey = `rate:gameCount:${verifiedTelegramId}:${strGameId}`;
