@@ -36,6 +36,7 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
             redis.del(getGameDrawsKey(strGameSessionId)),
             redis.del(getActiveDrawLockKey(strGameId)),
             redis.del(getGameActiveKey(strGameId)),
+            redis.del(`connectedCount:${strGameSessionId}`),
         ]);
         console.log(`🧹 Cleared draw state and draws for game ${strGameId}`);
 

@@ -60,6 +60,7 @@ async function fullGameCleanup(gameId, redis, state = {}) {
             redis.del(`lock:countdownOwner:${strGameId}`),
             redis.del(`countdown:${strGameId}`),           // FIX BUG 1: was missing
             redis.del(`gameStarting:${strGameId}`),        // FIX BUG 2: was missing
+            redis.del(`lock:countdownDedup:${strGameId}`), // ← ADD THIS (future-proof) 
             redis.del(`lock:drawing:${strGameId}`),
             redis.del(`lock:reset:${strGameId}`),
             redis.del(`lock:resetGame:${strGameId}`),
