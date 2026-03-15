@@ -76,7 +76,7 @@ module.exports = function playerLeaveHandler(socket, io, redis, state) {
             if (Array.isArray(released) && released.length > 0) {
                 console.log(`🧹 Released ${released.length} cards atomically for ${strTelegramId}:`, released);
 
-                queueUserUpdate(strGameId, strTelegramId, [], released, io);
+                queueUserUpdate(strGameId, strTelegramId, [], released, io, redis);
                 console.log(`✅ Queued batched release of ${released.length} cards via emitBatcher`);
 
                 await updateCardSnapshot(strGameId, redis);

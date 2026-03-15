@@ -12,12 +12,14 @@ const updateCardSnapshot = async (gameId, redis) => {
     const snapshot = {};
 
     takenCardIds.forEach((cardId, i) => {
+    if (owners[i] !== null) {
         snapshot[cardId] = {
-            cardId: Number(cardId),
+            cardId:  Number(cardId),
             takenBy: owners[i],
-            isTaken: true
+            isTaken: true,
         };
-    });
+    }
+});
 
     await redis.set(`cardStateSnapshot:${gameId}`, JSON.stringify(snapshot));
 };

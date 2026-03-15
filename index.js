@@ -150,6 +150,10 @@ mongoose.connection.on("connected", async () => {
                 io.to(strGameId).emit("gameNotStarted", { message: data.message });
                 break;
 
+            case "batchCardsUpdated":
+                io.to(strGameId).emit("batchCardsUpdated", { updates: data.updates });
+                break;
+
             case "gameEnd":
                 io.to(strGameId).emit("gameEnd", { gameId: strGameId });
                 try {
@@ -198,7 +202,7 @@ mongoose.connection.on("connected", async () => {
                     : [Number(data.cardId || data.cardIds)].filter(id => !isNaN(id));
 
                 if (releasedIds.length > 0) {
-                    queueUserUpdate(strGameId, ownerId, [], releasedIds, io);
+                    queueUserUpdate(strGameId, ownerId, [], releasedIds, io, redisClient);
                     console.log(`✅ Batched release of ${releasedIds.length} card(s) by ${ownerId} in game ${strGameId}`);
                 }
                 break;

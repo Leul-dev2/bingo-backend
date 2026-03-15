@@ -157,7 +157,11 @@ module.exports = function cardSelectionHandler(socket, io, redis) {
       }
 
       if (result[0] === "CARD_TAKEN") {
-        throw new Error(`CARD_TAKEN:${result[1]}`);
+        const current = await redis.lRange(userHeldCardsKey, 0, -1);
+        return socket.emit("cardUnavailable", {
+          cardId:             Number(result[1]),
+          currentHeldCardIds: current.map(Number),
+        });
       }
 
       if (!result || result[0] !== "OK") {
@@ -175,7 +179,7 @@ module.exports = function cardSelectionHandler(socket, io, redis) {
       });
 
       if (added.length > 0 || released.length > 0) {
-        queueUserUpdate(gameId, strTelegramId, added, released, io);
+        queueUserUpdate(gameId, strTelegramId, added, released, io, redis);
         await updateCardSnapshot(strGameId, redis);
         console.log(`[SNAPSHOT] Updated after card selection by ${strTelegramId}`);
       }
@@ -249,7 +253,7 @@ module.exports = function cardSelectionHandler(socket, io, redis) {
       });
 
       if (Array.isArray(released) && released.length > 0) {
-        queueUserUpdate(strGameId, strTelegramId, [], released, io);
+        queueUserUpdate(strGameId, strTelegramId, [], released, io, redis);
         console.log(`✅ Queued batched release of ${released.length} cards (unselectCardOnLeave)`);
 
         await dbQueue.add(

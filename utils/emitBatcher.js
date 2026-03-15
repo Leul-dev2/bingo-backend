@@ -10,7 +10,7 @@ function getOrCreateQueue(gameId) {
   return batchQueues.get(gameId);
 }
 
-function queueUserUpdate(gameId, ownerId, added, released, io) {
+function queueUserUpdate(gameId, ownerId, added, released, io, redis) {
   const queue = getOrCreateQueue(gameId);
   const strOwnerId = String(ownerId);
 
@@ -38,10 +38,10 @@ function queueUserUpdate(gameId, ownerId, added, released, io) {
 
   // Reset timer
   if (queue.timer) clearTimeout(queue.timer);
-  queue.timer = setTimeout(() => flushBatchUpdates(gameId, io), 60);
+  queue.timer = setTimeout(() => flushBatchUpdates(gameId, io, redis), 60);
 }
 
-function flushBatchUpdates(gameId, io) {
+function flushBatchUpdates(gameId, io, redis) {
   const queue = batchQueues.get(gameId);
   if (!queue || queue.updates.size === 0) return;
 
@@ -55,7 +55,11 @@ function flushBatchUpdates(gameId, io) {
     });
   });
 
-  io.to(gameId).emit("batchCardsUpdated", batchPayload);
+    redis.publish("game-events", JSON.stringify({
+      event:   "batchCardsUpdated",
+      gameId,
+      updates: batchPayload.updates,
+    }));
 
   // Clean up
   if (queue.timer) {
