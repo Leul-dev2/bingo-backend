@@ -43,6 +43,13 @@ const DEFAULT_CREATED_BY = 'System';
 
         const session = await mongoose.startSession();
 
+        
+        const startLockKey = `lock:start:${strGameId}:${telegramId}`;
+        const gotLock = await redisClient.set(startLockKey, "1", { NX: true, EX: 10 });
+        if (!gotLock) {
+            return res.status(429).json({ error: "Request already in progress." });
+        }
+
         try {
             // ── FIX 6A: Three-layer active-game guard ─────────────────────────
             //
@@ -162,7 +169,7 @@ const DEFAULT_CREATED_BY = 'System';
             await Promise.all([
                 redisClient.sAdd(`gameRooms:${strGameId}`, String(telegramId)),
                 // FIX: Increment connectedCount so gameCount.js sees the right number
-                redisClient.incr(`connectedCount:${lobbyDoc.GameSessionId}`),
+                //redisClient.incr(`connectedCount:${lobbyDoc.GameSessionId}`),
             ]);
 
             return res.status(200).json({
@@ -176,6 +183,7 @@ const DEFAULT_CREATED_BY = 'System';
             console.error("Start game error:", error);
             return res.status(400).json({ error: error.message || "An internal error occurred." });
         } finally {
+            await redisClient.del(startLockKey);
             await session.endSession();
         }
     });
