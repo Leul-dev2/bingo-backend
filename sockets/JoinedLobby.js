@@ -52,10 +52,17 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
 
             // --- Step 1: Handle Disconnect Grace Period Timer Cancellation ---
             const graceKey = `pendingDisconnect:${strTelegramId}:${strGameId}:lobby`;
-            if (await redis.del(graceKey)) {
-                console.log(`✅ User ${strTelegramId} reconnected within Redis grace period`);
+            const wasGraceActive = await redis.get(graceKey);
+            if (wasGraceActive) {
+                await redis.del(graceKey);
+                // Also remove the BullMQ job so cleanup never fires for this reconnect
+                const { dbQueue } = require("../utils/dbQueue");
+                const jobId = `disconnect-${strTelegramId}-${strGameId}-lobby`;
+                const job = await dbQueue.getJob(jobId);
+                if (job) await job.remove().catch(() => {});
+                console.log(`✅ User ${strTelegramId} reconnected within grace period — cleanup cancelled`);
             } else {
-                console.log(`🆕 User ${strTelegramId} joining game ${strGameId}. No pending disconnect timeout found.`);
+                console.log(`🆕 User ${strTelegramId} fresh join for game ${strGameId}`);
             }
 
             // --- Clean up residual 'joinGame' phase info ---
