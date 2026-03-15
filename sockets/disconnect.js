@@ -1,7 +1,7 @@
 const { safeJsonParse }              = require("../utils/safeJsonParse");
 const { dbQueue, defaultJobOptions } = require("../utils/dbQueue");
 
-const GRACE_SECONDS  = 20;
+const GRACE_SECONDS  = 10;
 const GRACE_DELAY_MS = GRACE_SECONDS * 1000 + 600;
 
 module.exports = function disconnectHandler(socket, io, redis) {
