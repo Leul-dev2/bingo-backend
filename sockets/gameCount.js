@@ -108,7 +108,7 @@ module.exports = function GameCountHandler(socket, io, redis, state) {
                 { gameId: strGameId, gameSessionId: strGameSessionId },
                 {
                     delay:            1000,
-                    jobId:            `countdown:${strGameId}:${COUNTDOWN_SECONDS - 1}`,
+                    jobId: `countdown:${strGameId}:${Date.now()}`,
                     attempts:         1,
                     removeOnComplete: 1,
                     removeOnFail:     10,
