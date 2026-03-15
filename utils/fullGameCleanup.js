@@ -68,6 +68,17 @@ async function fullGameCleanup(gameId, redis, state = {}) {
             redis.del(getActiveDrawLockKey(strGameId)),
             redis.del(getGameActiveKey(strGameId)),
         ]);
+
+        // ADD after the Promise.all in fullGameCleanup:
+            try {
+                const rateKeys = await redis.keys(`rate:gameCount:*:${strGameId}`);
+                if (rateKeys.length > 0) {
+                    await redis.del(rateKeys);
+                    console.log(`[fullGameCleanup] Cleared ${rateKeys.length} rate limit keys for game ${strGameId}`);
+                }
+            } catch (err) {
+                console.warn(`[fullGameCleanup] Rate key cleanup failed:`, err);
+            }
     } catch (redisErr) {
         console.error(`Redis cleanup failed for ${strGameId}:`, redisErr);
     }
