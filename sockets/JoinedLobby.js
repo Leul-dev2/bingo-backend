@@ -71,6 +71,7 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
                 const overallSelection = JSON.parse(userOverallSelectionRaw);
                 if (String(overallSelection.gameId) === strGameId && overallSelection.cardId !== null) {
                     const cardOwner = await redis.sIsMember(userHeldCardsKey, String(overallSelection.cardId));
+                    console.log(`cardOwner check for ➖➖🛑 ${strTelegramId}:`, cardOwner);
                     if (cardOwner === strTelegramId) {
                         currentHeldCardId = overallSelection.cardId;
                         currentHeldCard   = overallSelection.card;
