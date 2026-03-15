@@ -168,6 +168,8 @@ const DEFAULT_CREATED_BY = 'System';
             // Post-commit Redis updates
             await Promise.all([
                 redisClient.sAdd(`gameRooms:${strGameId}`, String(telegramId)),
+                // In gameRoutes.js post-commit Promise.all, ADD:
+                redisClient.set(`gameSessionId:${strGameId}`, lobbyDoc.GameSessionId, { EX: 7200 }),
                 // FIX: Increment connectedCount so gameCount.js sees the right number
                 //redisClient.incr(`connectedCount:${lobbyDoc.GameSessionId}`),
             ]);
