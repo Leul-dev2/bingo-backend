@@ -51,7 +51,7 @@ module.exports = function disconnectHandler(socket, io, redis) {
             await redis.del(`activeSocket:${telegramId}:${socket.id}`);
 
             const graceKey = `pendingDisconnect:${telegramId}:${gameId}:${resolvedPhase}`;
-            await redis.set(graceKey, "1", { NX: true, EX: GRACE_SECONDS });
+            await redis.set(graceKey, "1", { NX: true, EX: GRACE_SECONDS + 5 });
             console.log(`[GRACE] Set ${graceKey} → ${GRACE_SECONDS}s TTL`);
 
             // Enqueue cleanup job in BullMQ — runs in dbWorker after grace period
