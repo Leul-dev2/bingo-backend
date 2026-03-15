@@ -189,6 +189,18 @@ mongoose.connection.on("connected", async () => {
                 io.in(strGameId).socketsLeave(strGameId);
                 break;
 
+            case "checkAndReset": {
+                const sessionId = data.gameSessionId || await redisClient.get(`gameSessionId:${strGameId}`);
+                if (sessionId) {
+                    const remaining = await redisClient.sCard(`gameRooms:${strGameId}`);
+                    if (remaining === 0) {
+                        console.log(`[checkAndReset] Room empty — resetting game ${strGameId}`);
+                        await resetRound(strGameId, sessionId, null, io, gameState, redisClient);
+                    }
+                }
+                break;
+            }
+
             // ── Existing worker events (unchanged) ────────────────────────────
 
             case "gameReset":
