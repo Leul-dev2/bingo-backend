@@ -104,14 +104,9 @@ async function processWinnerAtomicCommit(winnerData, winnerUser, io, redis, stat
         }
         
     } catch (error) {
-        // Abort on any failure (financial, state update, or critical error)
-        //await session.abortTransaction();
-        if (error.message.includes("GAME_SESSION_NOT_ACTIVE_FOR_COMMIT")) {
-            console.warn(`⚠️ Atomic commit failed: Game session ${strGameSessionId} was already ended.`);
-        } else {
-            console.error(`🔥 CRITICAL WINNER COMMIT FAILURE for ${strGameId}:`, error);
-        }
-        
+        console.error(`🔥 CRITICAL WINNER COMMIT FAILURE for ${strGameId}:`, error);
+        if (session.inTransaction()) await session.abortTransaction();  // ← UNCOMMENT + ADD THIS
+        await redis.del(winnerLockKey);  // safety
     } finally {
         await session.endSession();
     }
