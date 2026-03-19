@@ -21,8 +21,6 @@ module.exports = function CheckWinnerHandler(socket, io, redis, state) {
   socket.on("checkWinner", async ({
     gameId, GameSessionId, cartelaId, selectedNumbers
   }) => {
-
-  
     // ─── FIX P0: Use server-verified identity — never trust client payload ──
     const telegramId = socket.data.telegramId;
     if (!telegramId) {
@@ -74,28 +72,18 @@ module.exports = function CheckWinnerHandler(socket, io, redis, state) {
         return socket.emit("winnerError", { message: "No winning pattern." });
       }
 
-    // 1. Get the last two numbers as actual Numbers (Redis returns strings)
-    const lastTwo = Array.from(drawnNumbers).slice(-2).map(Number);
-    const flatCard = cardData.card.flat();
-
-    // 2. Perform the validation check
-    const validRecent = lastTwo.some(
-      (num) => flatCard.some((n, i) => winnerPattern[i] && n === num)
-    );
-
-    if (!validRecent) {
-      return socket.emit("bingoClaimFailed", {
-        message: "Claim rejected: last drawn number not on your winning line.",
-        reason: "The last drawn numbers were not part of your completed Bingo line.",
-        telegramId,
-        gameId: gameId,
-        cardId: cartelaId,
-        // CRITICAL: These three fields prevent the "Oops" error on frontend
-        card: cardData.card,          
-        lastTwoNumbers: lastTwo,      
-        selectedNumbers: Array.from(selectedSet) 
-      });
-    }
+      const lastTwo  = Array.from(drawnNumbers).slice(-2);
+      const flatCard = cardData.card.flat();
+      const validRecent = lastTwo.some(
+        (num) => flatCard.some((n, i) => pattern[i] && n === num)
+      );
+         if (!validRecent) {
+      // Provides debugging info back to the client/logs on failure
+      return socket.emit("bingoClaimFailed", {
+        message: "Winning pattern not completed by recent numbers.",
+        telegramId, gameId, cardId: cartelaId, card: cardData.card, lastTwoNumbers: lastTwoDrawnNumbers, selectedNumbers
+      });
+    }
 
       // 5. Atomic winner lock — only one player reaches ProcessWinner
       // ─── FIX P0: TTL increased from 5s to 30s ────────────────────────────
