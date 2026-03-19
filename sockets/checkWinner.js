@@ -71,17 +71,29 @@ module.exports = function CheckWinnerHandler(socket, io, redis, state) {
       if (!pattern.some(Boolean)) {
         return socket.emit("winnerError", { message: "No winning pattern." });
       }
+      
+    // 1. Get the last two numbers as actual Numbers (Redis returns strings)
+    const lastTwo = Array.from(drawnNumbersRaw).slice(-2).map(Number);
+    const flatCard = cardData.card.flat();
 
-      const lastTwo  = Array.from(drawnNumbers).slice(-2);
-      const flatCard = cardData.card.flat();
-      const validRecent = lastTwo.some(
-        (num) => flatCard.some((n, i) => pattern[i] && n === num)
-      );
-      if (!validRecent) {
-        return socket.emit("bingoClaimFailed", {
-          message: "Claim rejected: last drawn number not on your winning line.",
-        });
-      }
+    // 2. Perform the validation check
+    const validRecent = lastTwo.some(
+      (num) => flatCard.some((n, i) => winnerPattern[i] && n === num)
+    );
+
+    if (!validRecent) {
+      return socket.emit("bingoClaimFailed", {
+        message: "Claim rejected: last drawn number not on your winning line.",
+        reason: "The last drawn numbers were not part of your completed Bingo line.",
+        telegramId,
+        gameId: strGameId,
+        cardId: cartelaId,
+        // CRITICAL: These three fields prevent the "Oops" error on frontend
+        card: cardData.card,          
+        lastTwoNumbers: lastTwo,      
+        selectedNumbers: Array.from(selectedSet) 
+      });
+    }
 
       // 5. Atomic winner lock — only one player reaches ProcessWinner
       // ─── FIX P0: TTL increased from 5s to 30s ────────────────────────────
