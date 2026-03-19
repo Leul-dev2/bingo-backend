@@ -81,7 +81,7 @@ module.exports = function CheckWinnerHandler(socket, io, redis, state) {
       // Provides debugging info back to the client/logs on failure
       return socket.emit("bingoClaimFailed", {
         message: "Winning pattern not completed by recent numbers.",
-        telegramId, gameId, cardId: cartelaId, card: cardData.card, lastTwoNumbers: lastTwoDrawnNumbers, selectedNumbers
+        telegramId, gameId, cardId: cartelaId, card: cardData.card, lastTwoNumbers: lastTwo, selectedNumbers
       });
     }
 
