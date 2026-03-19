@@ -19,14 +19,17 @@ const gameHistorySchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
+
 // ✅ Indexes
+gameHistorySchema.index({ stake: 1, eventType: 1, createdAt: -1 });     // Recent Games (public wins)
+gameHistorySchema.index({ telegramId: 1, stake: 1, createdAt: -1 });   // My Games (per user)
 // For quickly finding all events in a session
 gameHistorySchema.index({ sessionId: 1 });
 
 // For quickly finding all history of a player
 gameHistorySchema.index({ telegramId: 1 });
 
-// For queries like: "get a player's history in a given session"
-gameHistorySchema.index({ sessionId: 1, telegramId: 1 });
+// // For queries like: "get a player's history in a given session"
+// gameHistorySchema.index({ sessionId: 1, telegramId: 1 });
 
 module.exports = mongoose.model("GameHistory", gameHistorySchema);
