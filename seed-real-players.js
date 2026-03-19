@@ -3,10 +3,12 @@ require("dotenv").config();
 const mongoose = require("mongoose");
 const User = require("./models/user");
 const GameCard = require("./models/GameCard");
+const PlayerSession = require("./models/PlayerSession");
 
 const GAME_ID = "10";
 const TOTAL_USERS = 200;
 const START_TELEGRAM = 900000;
+const GAME_SESSION_ID = "TEST_SESSION_10";
 
 async function seedTestData() {
     try {
@@ -48,6 +50,21 @@ async function seedTestData() {
                     { upsert: true }
                 );
             }
+
+            await PlayerSession.findOneAndUpdate(
+        { 
+            telegramId: String(telegramId), 
+            GameSessionId: GAME_SESSION_ID 
+        },
+        {
+            gameId: GAME_ID,
+            status: 'disconnected', // Will be updated to 'connected' by joinGame
+            joinedAt: new Date()
+        },
+        { upsert: true }
+    );
+
+console.log(`✅ PlayerSessions created for ${TOTAL_USERS} users.`);
         }
 
         console.log(`🎉 SUCCESS! ${TOTAL_USERS} users + cards created for gameId ${GAME_ID}`);
