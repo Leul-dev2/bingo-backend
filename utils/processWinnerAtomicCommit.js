@@ -18,6 +18,7 @@ async function processWinnerAtomicCommit(winnerData, winnerUser, io, redis, stat
     const strTelegramId = String(telegramId);
     // Start the transaction session
     const session = await mongoose.startSession();
+    console.log(`callNumberLength in processWinnerAtomicCommit 📲📞🤙: ${callNumberLength}`); // Debug log for callNumberLength
     
     try {
         await session.withTransaction(async () => {
