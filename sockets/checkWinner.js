@@ -21,6 +21,8 @@ module.exports = function CheckWinnerHandler(socket, io, redis, state) {
   socket.on("checkWinner", async ({
     gameId, GameSessionId, cartelaId, selectedNumbers
   }) => {
+
+  
     // ─── FIX P0: Use server-verified identity — never trust client payload ──
     const telegramId = socket.data.telegramId;
     if (!telegramId) {
@@ -71,9 +73,9 @@ module.exports = function CheckWinnerHandler(socket, io, redis, state) {
       if (!pattern.some(Boolean)) {
         return socket.emit("winnerError", { message: "No winning pattern." });
       }
-      
+
     // 1. Get the last two numbers as actual Numbers (Redis returns strings)
-    const lastTwo = Array.from(drawnNumbersRaw).slice(-2).map(Number);
+    const lastTwo = Array.from(drawnNumbers).slice(-2).map(Number);
     const flatCard = cardData.card.flat();
 
     // 2. Perform the validation check
@@ -86,7 +88,7 @@ module.exports = function CheckWinnerHandler(socket, io, redis, state) {
         message: "Claim rejected: last drawn number not on your winning line.",
         reason: "The last drawn numbers were not part of your completed Bingo line.",
         telegramId,
-        gameId: strGameId,
+        gameId: gameId,
         cardId: cartelaId,
         // CRITICAL: These three fields prevent the "Oops" error on frontend
         card: cardData.card,          
