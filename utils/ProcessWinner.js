@@ -50,6 +50,7 @@ async function ProcessWinner({ telegramId, gameId, GameSessionId, cartelaId, io,
   if (commitSuccess) {
     // 1. Save winner info so late clickers also see it
     await redis.set(`winnerInfo:${strGameSessionId}`, JSON.stringify(winnerData), "EX", 300);
+    await redis.set(`finalCalls:${strGameSessionId}`, callNumberLength.toString(), { EX: 60 });
 
     // 2. Broadcast to everyone
     io.to(strGameId).emit("winnerConfirmed", winnerData);

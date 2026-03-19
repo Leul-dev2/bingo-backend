@@ -46,9 +46,9 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
     const ledgerMap = new Map(allLedgerData.map(item => [String(item._id), item]));
 
     console.log("Ledger Map Keys:", [...ledgerMap.keys()]);
-    const data = await redis.get(`winnerInfo:${strGameSessionId}`);
-    const parsed = JSON.parse(data);
-    const callNumberLength = parsed.callNumberLength;
+    // 4. Final call count from Redis (set in ProcessWinner) – same value for all players
+    const finalCallLengthStr = await redis.get(`finalCalls:${strGameSessionId}`);
+    const finalCallLength = finalCallLengthStr ? parseInt(finalCallLengthStr, 10) : 0;
 
     const jobs = [];
 
@@ -77,7 +77,7 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
             prizeAmount: totalWin || 0,
             stakeAmount: Math.abs(totalStake),
             cartelaIds: player.cardIds || [],
-            callNumberLength:callNumberLength || 0,
+            callNumberLength:finalCallLength|| 0,
             firedAt: new Date()
         });
     }
