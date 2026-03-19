@@ -30,6 +30,6 @@ gameHistorySchema.index({ sessionId: 1 });
 gameHistorySchema.index({ telegramId: 1 });
 
 // // For queries like: "get a player's history in a given session"
-// gameHistorySchema.index({ sessionId: 1, telegramId: 1 });
+gameHistorySchema.index({ sessionId: 1, telegramId: 1 }, { unique: true });
 
 module.exports = mongoose.model("GameHistory", gameHistorySchema);

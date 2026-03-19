@@ -38,9 +38,8 @@ async function ProcessWinner({ telegramId, gameId, GameSessionId, cartelaId, io,
   try {
     await processWinnerAtomicCommit(
       { telegramId: Number(telegramId), strGameId, strGameSessionId, prizeAmount, houseProfit, stakeAmount, cartelaId, callNumberLength },
-      winnerUser, io, redis, state
-    );
-    await pushHistoryForAllPlayers(strGameSessionId, strGameId, redis);
+      winnerUser, io, redis, state);
+   // await pushHistoryForAllPlayers(strGameSessionId, strGameId, redis);
     commitSuccess = true;
   } catch (e) {
     console.error("Commit failed:", e);
