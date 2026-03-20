@@ -74,9 +74,9 @@ module.exports = function CheckWinnerHandler(socket, io, redis, state) {
 
       const lastTwo  = Array.from(drawnNumbers).slice(-2);
       const flatCard = cardData.card.flat();
-      const validRecent = lastTwo.some(
-        (num) => flatCard.some((n, i) => pattern[i] && n === num)
-      );
+      const winningNumbers = flatCard.filter((n, i) => pattern[i] && n !== 0); // 0 = FREE space
+      const validRecent = lastTwo.some(num => winningNumbers.includes(num));
+      
          if (!validRecent) {
       // Provides debugging info back to the client/logs on failure
       return socket.emit("bingoClaimFailed", {
