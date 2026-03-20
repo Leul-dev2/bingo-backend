@@ -26,7 +26,7 @@ async function startDrawing(gameId, gameSessionId, io, state, redis) {
     console.log(`[startDrawing] Enqueuing first DRAW_TICK for game ${strGameId}`);
 
     // Remove any leftover draw jobs for this game (safety on restart/retry)
-    await timerQueue.remove(`draw:${strGameId}:0`).catch(() => {});
+    await timerQueue.remove(`draw-${strGameId}-${strGameSessionId}-0`).catch(() => {});
 
     // Enqueue first draw tick — timerWorker chains the rest automatically
     await timerQueue.add(
@@ -34,7 +34,7 @@ async function startDrawing(gameId, gameSessionId, io, state, redis) {
         { gameId: strGameId, gameSessionId: strGameSessionId },
         {
             delay:            2000,          // 2 seconds after game start
-            jobId:            `draw:${strGameId}:0`,
+            jobId:            `draw-${strGameId}-${strGameSessionId}-0`,            
             attempts:         1,
             removeOnComplete: 1,
             removeOnFail:     10,
