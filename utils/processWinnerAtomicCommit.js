@@ -93,8 +93,12 @@ async function processWinnerAtomicCommit(winnerData, winnerUser, io, redis, stat
         // --- Post-Commit: Redis updates and Broadcast (Fast I/O) ---
         
         // A. Update winner's balance in Redis cache
-        await redis.incrByFloat(`userBalance:${strTelegramId}`, prizeAmount); 
-        
+            const updatedUser = await User.findOne({ telegramId: strTelegramId })
+                .select("balance").lean();
+            if (updatedUser) {
+                await redis.set(`userBalance:${strTelegramId}`, String(updatedUser.balance), { EX: 300 });
+            }        
+            
         // B. Perform all Redis/State cleanup
         await postCommitCleanup(strGameId, strGameSessionId, io, redis, state);
         

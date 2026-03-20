@@ -1,5 +1,14 @@
 require("dotenv").config();
 
+
+const REQUIRED_ENV = ["REDIS_URL", "MONGODB_URI", "TELEGRAM_BOT_TOKEN"];
+for (const key of REQUIRED_ENV) {
+    if (!process.env[key]) {
+        console.error(`❌ Missing required environment variable: ${key}`);
+        process.exit(1);
+    }
+}
+
 // ─── P2: Global error handlers — prevent silent crashes ──────────────────────
 process.on("uncaughtException",  (err) => { console.error("💥 uncaughtException:",  err); });
 process.on("unhandledRejection", (err) => { console.error("💥 unhandledRejection:", err); });
@@ -84,10 +93,18 @@ mongoose.connection.on("connected", async () => {
     // create its own subClient for ADMIN_COMMANDS.  That is still correct —
     // each subscriber channel needs its own dedicated client.
 
-    const pubClient       = createClient({ url: redisUrl });
-    const subClient       = pubClient.duplicate();
-    const redisClient     = createClient({ url: redisUrl });
-    const eventSubscriber = pubClient.duplicate();
+        const redisOptions = {
+            url: redisUrl,
+            socket: {
+                tls:               redisUrl.startsWith("rediss://"),
+                reconnectStrategy: (retries) => Math.min(retries * 200, 3000),
+                keepAlive:         30000,
+            },
+        };
+         pubClient       = createClient(redisOptions);
+         subClient       = pubClient.duplicate();
+         redisClient     = createClient(redisOptions);
+         eventSubscriber = pubClient.duplicate();
 
     try {
         await Promise.all([
@@ -100,6 +117,11 @@ mongoose.connection.on("connected", async () => {
 
         // Expose redisClient to the lazy health-check reference
         lazyRedis = redisClient;
+
+        let pubClient       = null;
+        let subClient       = null;
+        let redisClient     = null;
+        let eventSubscriber = null;
 
         // ── Socket.io server ──────────────────────────────────────────────────
         const io = new Server(server, {
@@ -221,9 +243,13 @@ mongoose.connection.on("connected", async () => {
             }
 
             case "fullGameReset":
-                cleanupBatchQueue(strGameId);
-                resetGame(strGameId, data.gameSessionId, io, gameState, redisClient);
-                console.log(`✅ Full reset executed for game ${strGameId}`);
+                try {
+                    cleanupBatchQueue(strGameId);
+                    await resetGame(strGameId, data.gameSessionId, io, gameState, redisClient);
+                    console.log(`✅ Full reset executed for game ${strGameId}`);
+                } catch (err) {
+                    console.error(`❌ fullGameReset failed for game ${strGameId}:`, err);
+                }
                 break;
 
             default:
@@ -267,3 +293,25 @@ mongoose.connection.on("connected", async () => {
 mongoose.connection.on("error", (err) => {
     console.error("❌ Mongoose connection error:", err);
 });
+
+async function gracefulShutdown(signal) {
+    console.log(`[index] ${signal} — shutting down gracefully`);
+    server.close(async () => {
+        await Promise.all([
+            pubClient?.quit().catch(() => {}),
+            redisClient?.quit().catch(() => {}),
+            eventSubscriber?.quit().catch(() => {}),
+        ]);
+        await mongoose.connection.close().catch(() => {});
+        console.log("[index] All connections closed");
+        process.exit(0);
+    });
+    // Force exit after 15s if server.close() hangs
+    setTimeout(() => {
+        console.error("[index] Graceful shutdown timed out — forcing exit");
+        process.exit(1);
+    }, 15000);
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT",  () => gracefulShutdown("SIGINT"));

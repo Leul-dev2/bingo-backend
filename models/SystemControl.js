@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const systemControlSchema = new mongoose.Schema({
   allowNewGames: { type: Boolean, default: true },
+  announcementMessage: { type: String,  default: "" },
   updatedAt: { type: Date, default: Date.now },
 }, { versionKey: false });
 

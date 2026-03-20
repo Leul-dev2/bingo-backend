@@ -51,7 +51,7 @@ async function postCommitCleanup(gameId, GameSessionId, io, redis, state) {
     
 
     
-    io.to(strGameId).emit("roundEnded", { gameId: strGameId });
+    //io.to(strGameId).emit("roundEnded", { gameId: strGameId });
     console.log(`Round reset complete and next lobby created for game: ${strGameId}`);
 }
 

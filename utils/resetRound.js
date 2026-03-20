@@ -37,8 +37,21 @@ async function resetRound(gameId, GameSessionId, socket, io, state, redis) {
             redis.del(getActiveDrawLockKey(strGameId)),
             redis.del(getGameActiveKey(strGameId)),
             redis.del(`connectedCount:${strGameSessionId}`),
+            redis.del(`winnerInfo:${strGameSessionId}`),
+            redis.del(`winnerDeclared:${strGameSessionId}`),
+            redis.del(`finalCalls:${strGameSessionId}`),
+            redis.del(`cardStateSnapshot:${strGameId}`),
+            redis.del(`takenCards:${strGameId}`),
+            redis.del(`gameCards:${strGameId}`),
+            redis.del(`gamePlayers:${strGameId}`),
+            redis.del(`gameRooms:${strGameId}`),
+            redis.del(`gameSessions:${strGameId}`),
+            redis.del(`gameSessionId:${strGameId}`),
         ]);
         console.log(`🧹 Cleared draw state and draws for game ${strGameId}`);
+
+        const heldKeys = await redis.keys(`userHeldCards:${strGameId}:*`);
+        if (heldKeys.length > 0) await redis.del(heldKeys);
 
         // 3. Clear any remaining drawing interval (defense in depth)
        if (state?.drawIntervals?.[strGameId]) {

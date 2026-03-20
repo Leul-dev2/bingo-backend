@@ -73,15 +73,20 @@ module.exports = function registerGameSocket(io, redis) {
           });
 
           // 3. Delay cleanup so frontend can receive the message first
-          setTimeout(async () => {
+        setTimeout(async () => {
             try {
-              await fullGameCleanup(targetRoom, redis, state);
-              io.in(targetRoom).socketsLeave(targetRoom);
-              console.log(`🧹 Cleanup complete for ${targetRoom}`);
+                const sessionId = await redis.get(`gameSessionId:${targetRoom}`);
+                if (sessionId) {
+                    await resetRound(targetRoom, sessionId, null, io, state, redis);
+                } else {
+                    await fullGameCleanup(targetRoom, redis, state);
+                }
+                io.in(targetRoom).socketsLeave(targetRoom);
+                console.log(`🧹 Cleanup complete for ${targetRoom}`);
             } catch (cleanupErr) {
-              console.error(`❌ Cleanup error for ${targetRoom}:`, cleanupErr);
+                console.error(`❌ Cleanup error for ${targetRoom}:`, cleanupErr);
             }
-          }, 1000);
+        }, 1000);
         }
       });
     } catch (err) {

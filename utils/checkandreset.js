@@ -32,7 +32,7 @@ async function checkAndResetIfEmpty(gameId, GameSessionId, telegramId, socket, i
     }
 
     // Scenario 2: No players left in the entire game instance (full game abandonment)
-    if (totalPlayersOverall === 0) {
+    else if  (totalPlayersOverall === 0) {
         console.log(`🧹 No players left in game instance ${strGameId}. Resetting full game...`);
         // Reset DB first (isActive, totalCards, prizeAmount, players array)
         try {

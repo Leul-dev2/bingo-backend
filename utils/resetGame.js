@@ -83,7 +83,7 @@ async function resetGame(gameId, GameSessionId, io, state = {}, redis) {
 
         // 5. Redis cleanup ── fixed duplicates, consistent keys
         await Promise.all([
-            redis.set(`gameIsActive:${strGameId}`, "false", "EX", 60),
+            redis.del(`gameIsActive:${strGameId}`),
             redis.del(getGameDrawsKey(strGameSessionId)),
             redis.del(getGameDrawStateKey(strGameSessionId)),
             redis.del(getActiveDrawLockKey(strGameId)),

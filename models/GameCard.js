@@ -35,4 +35,6 @@ GameCardSchema.index({ takenBy: 1 });
 // ✅ Optional: speed up queries like "all cards taken by X in game Y"
 GameCardSchema.index({ gameId: 1, takenBy: 1 });
 
+GameCardSchema.index({ gameId: 1, isTaken: 1, takenBy: 1 });
+
 module.exports = mongoose.model("GameCard", GameCardSchema);

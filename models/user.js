@@ -22,7 +22,7 @@ const userSchema = new mongoose.Schema({
     reservedForGameId: { type: String, default: null }
 });
 
-userSchema.index({ telegramId: 1 }, { unique: true }); // Ensure telegramId is unique
+//userSchema.index({ telegramId: 1 }, { unique: true }); // Ensure telegramId is unique
 
 //userSchema.index({ telegramId: 1 }); 
 module.exports = mongoose.model("User", userSchema);
