@@ -54,7 +54,7 @@ async function ProcessWinner({ telegramId, gameId, GameSessionId, cartelaId, io,
 
     // 2. Broadcast to everyone
     io.to(strGameId).emit("winnerConfirmed", winnerData);
-    io.to(strGameId).emit("gameEnded", { message: "Winner found!" });
+    //io.to(strGameId).emit("gameEnded", { message: "Winner found!" });
 
     // 3. Stop drawing
     await redis.del(`lock:drawing:${strGameId}`);
