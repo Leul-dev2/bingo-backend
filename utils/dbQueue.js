@@ -21,10 +21,10 @@ queueEvents.on('failed', ({ jobId, failedReason }) => {
 
 // 3. Centralized Job Config
 const defaultJobOptions = {
-  attempts: 5,
   backoff: { type: 'exponential', delay: 2000 },
-  removeOnComplete: { age: 86400, count: 5000 }, // Keep for 24h / last 5k jobs
-  removeOnFail: { age: 86400 * 7 },               // Keep failed for 7 days
+  removeOnComplete: 5,   // keep only last 5 completed jobs
+  removeOnFail:     50,  // keep last 50 failed for debugging
+  attempts:         3,
 };
 
 module.exports = { dbQueue, connection, defaultJobOptions };
