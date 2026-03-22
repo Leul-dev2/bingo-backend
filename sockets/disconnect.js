@@ -54,6 +54,32 @@ module.exports = function disconnectHandler(socket, io, redis) {
             await redis.set(graceKey, "1", { NX: true, EX: GRACE_SECONDS + 5 });
             console.log(`[GRACE] Set ${graceKey} → ${GRACE_SECONDS}s TTL`);
 
+            // ADD immediately after setting grace key, before enqueuing BullMQ job:
+
+// Immediate lightweight cleanup — runs NOW, not after grace period
+            await Promise.all([
+                redis.sRem(`gameRooms:${gameId}`,    telegramId),  // remove from room count immediately
+                redis.sRem(`gameSessions:${gameId}`, telegramId),  // remove from session set
+            ]);
+
+            // Decrement connectedCount immediately so gameCount sees correct count
+            if (gameSessionId && gameSessionId !== "NO_SESSION_ID") {
+                await redis.decr(`connectedCount:${gameSessionId}`);
+            }
+
+            // Update PlayerSession to disconnected immediately
+            const PlayerSession = require("../models/PlayerSession");
+            await PlayerSession.updateOne(
+                { GameSessionId: gameSessionId, telegramId },
+                { $set: { status: "disconnected" } }
+            ).catch(() => {}); // non-blocking, best effort
+
+            // Broadcast updated player count
+            const remainingCount = await redis.sCard(`gameRooms:${gameId}`);
+            io.to(gameId).emit("playerCountUpdate", { gameId, playerCount: remainingCount });
+
+            console.log(`[IMMEDIATE] Removed ${telegramId} from room — ${remainingCount} remaining`);
+
             // Enqueue cleanup job in BullMQ — runs in dbWorker after grace period
             const jobId = `disconnect-${telegramId}-${gameId}-${resolvedPhase}`;
             await dbQueue.add(

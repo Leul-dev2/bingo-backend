@@ -52,11 +52,7 @@ module.exports = function playerLeaveHandler(socket, io, redis, state) {
             );
             console.log(`✅ PlayerSession for ${strTelegramId} updated to disconnected.`);
 
-            // Remove from Redis sets
-            await Promise.all([
-                redis.sRem(`gameSessions:${gameId}`, strTelegramId),
-                redis.sRem(`gameRooms:${gameId}`,    strTelegramId),
-            ]);
+          
 
             // ─── FIX P0: Decrement Redis connectedCount ───────────────────────
             // This counter is read by gameCount.js instead of doing a MongoDB
@@ -99,6 +95,9 @@ module.exports = function playerLeaveHandler(socket, io, redis, state) {
                 redis.hDel("userSelectionsByTelegramId", strTelegramId),
                 redis.sRem(getGameRoomsKey(gameId),     strTelegramId),
                 redis.del(`activeSocket:${strTelegramId}:${socket.id}`),
+                redis.sRem(`gameSessions:${gameId}`, strTelegramId),
+                redis.sRem(`gameRooms:${gameId}`,    strTelegramId),
+                redis.hDel("joinGameSocketsInfo",        socket.id),
                 //redis.del(`countdown:${strGameId}`),
             ]);
 

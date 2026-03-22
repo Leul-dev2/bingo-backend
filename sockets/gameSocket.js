@@ -1,5 +1,6 @@
 // ─── FIX P0: Added missing fullGameCleanup import (was causing runtime crash on admin terminate)
 const { fullGameCleanup } = require("../utils/fullGameCleanup");
+const { resetRound } = require("../utils/resetRound");
 
 const JoinedLobbyHandler   = require("./JoinedLobby");
 const cardSelectionHandler = require("./cardSelection");
