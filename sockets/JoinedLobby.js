@@ -149,7 +149,7 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
                     redis.get(`gameIsActive:${strGameId}`),
                     redis.get(`gameStarting:${strGameId}`),
                     redis.get(getCountdownKey(strGameId)),
-                    redis.sCard(`gameRooms:${strGameId}`),
+                    redis.sCard(`gameSessions:${strGameId}`),
                 ]);
 
                 const playerCount = Number(roomCount) || 0;
