@@ -94,6 +94,11 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
                 console.log(`ℹ️ No overall persisted selection found for ${strTelegramId}.`);
             }
 
+            const oldSocketKeys = await redis.keys(`activeSocket:${strTelegramId}:*`);
+                if (oldSocketKeys.length > 0) {
+                    await redis.del(oldSocketKeys);
+                }
+
             // --- Step 3: Set up socket and persist selection state ---
             await redis.set(`activeSocket:${strTelegramId}:${socket.id}`, '1', 'EX', ACTIVE_SOCKET_TTL_SECONDS);
             socket.join(strGameId);
