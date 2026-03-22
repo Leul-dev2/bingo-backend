@@ -136,14 +136,14 @@ module.exports = function JoinedLobbyHandler(socket, io, redis) {
                 console.log(`✅ Sent empty snapshot to ${strTelegramId}`);
             }
 
-             // Send announcement if new games are disabled
-                const systemControl = await require("../models/SystemControl").getSingleton();
-                if (!systemControl.allowNewGames) {
-                    socket.emit("announcement", {
-                        type:    "warning",
-                        message: systemControl.announcementMessage || "New games are temporarily suspended. Please check back later.",
-                    });
-                }
+                 // Send announcement if new games are disabled
+            const systemControl = await require("../models/SystemControl").getSingleton();
+            if (!systemControl.allowNewGames) {
+                socket.emit("announcement", {
+                    type:    "warning",
+                    message: systemControl.announcementMessage || "New games are temporarily suspended. Please check back later.",
+                });
+            }
 
                 const [gameIsActive, gameStarting, countdownRaw, roomCount] = await Promise.all([
                     redis.get(`gameIsActive:${strGameId}`),
