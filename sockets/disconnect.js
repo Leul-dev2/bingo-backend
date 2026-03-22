@@ -60,6 +60,7 @@ module.exports = function disconnectHandler(socket, io, redis) {
             await Promise.all([
                 redis.sRem(`gameRooms:${gameId}`,    telegramId),  // remove from room count immediately
                 redis.sRem(`gameSessions:${gameId}`, telegramId),  // remove from session set
+                redis.hDel("userSelections",         telegramId), 
             ]);
 
             // Decrement connectedCount immediately so gameCount sees correct count

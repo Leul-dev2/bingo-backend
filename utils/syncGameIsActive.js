@@ -51,17 +51,8 @@ async function syncGameIsActive(gameId, isActive, redis) {
         // ── Deactivation path (simple & safe) ──
         try {
             console.log(`🔄 Deactivating game ${strGameId}`);
-
-            await GameControl.updateOne(
-                { gameId: strGameId, endedAt: null },
-                { isActive: false }
-            );
-
-            // Short TTL when inactive
-            await redis.set(`gameIsActive:${strGameId}`, "false", "EX", 60);
-
+            await redis.del(`gameIsActive:${strGameId}`);
             console.log(`✅ Game ${strGameId} deactivated.`);
-
         } catch (err) {
             console.error(`❌ syncGameIsActive (deactivate) error for ${strGameId}:`, err.message);
         }
