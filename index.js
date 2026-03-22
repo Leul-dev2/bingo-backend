@@ -207,14 +207,20 @@ mongoose.connection.on("connected", async () => {
             case "checkAndReset": {
                 const sessionId = data.gameSessionId || await redisClient.get(`gameSessionId:${strGameId}`);
                 if (sessionId) {
-                    const remaining = await redisClient.sCard(`gameRooms:${strGameId}`);
-                    if (remaining === 0) {
-                        console.log(`[checkAndReset] Room empty — resetting game ${strGameId}`);
+                    const [roomCount, sessionCount] = await Promise.all([
+                        redisClient.sCard(`gameRooms:${strGameId}`),
+                        redisClient.sCard(`gameSessions:${strGameId}`),
+                    ]);
+                    if (roomCount === 0 && sessionCount === 0) {
+                        console.log(`[checkAndReset] Both sets empty — resetting game ${strGameId}`);
                         await resetRound(strGameId, sessionId, null, io, gameState, redisClient);
+                    } else {
+                        console.log(`[checkAndReset] Game ${strGameId} still has players — gameRooms: ${roomCount}, gameSessions: ${sessionCount}`);
                     }
                 }
                 break;
             }
+
 
             // ── Existing worker events (unchanged) ────────────────────────────
 
