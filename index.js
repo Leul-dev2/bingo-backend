@@ -196,6 +196,13 @@ mongoose.connection.on("connected", async () => {
             case "socketsLeave":
                 io.in(strGameId).socketsLeave(strGameId);
                 break;
+       
+            case "playerCountUpdate":
+                io.to(strGameId).emit("playerCountUpdate", {
+                    gameId:      strGameId,
+                    playerCount: data.playerCount,
+                });
+                break;   
 
             case "checkAndReset": {
                 const sessionId = data.gameSessionId || await redisClient.get(`gameSessionId:${strGameId}`);
