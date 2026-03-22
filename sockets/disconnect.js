@@ -54,8 +54,8 @@ module.exports = function disconnectHandler(socket, io, redis) {
             await redis.set(graceKey, "1", { NX: true, EX: GRACE_SECONDS + 5 });
             console.log(`[GRACE] Set ${graceKey} → ${GRACE_SECONDS}s TTL`);
 
-            const baseJobId = `disconnect-${telegramId}-${gameId}-${resolvedPhase}`;
-            const jobId = `${baseJobId}-${Date.now()}`;
+            // Enqueue cleanup job in BullMQ — runs in dbWorker after grace period
+            const jobId = `disconnect-${telegramId}-${gameId}-${resolvedPhase}`;
             await dbQueue.add(
                 "disconnect-cleanup",
                 {
@@ -72,7 +72,9 @@ module.exports = function disconnectHandler(socket, io, redis) {
                     jobId,
                     attempts: 2,
                     priority: 3,
-                }
+                    removeOnComplete: true,
+                    removeOnFail: 100,
+                },
             );
 
             console.log(`[GRACE] BullMQ disconnect-cleanup enqueued: ${jobId}`);
