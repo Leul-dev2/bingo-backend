@@ -1,6 +1,5 @@
 const PlayerSession = require("../models/PlayerSession");
-const Ledger = require("../models/Ledger");
-
+const Ledger        = require("../models/Ledger");
 
 async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
     console.log(`🔍🚀 Fetching players for session ${strGameSessionId}...`);
@@ -9,13 +8,11 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
     const sessions = await PlayerSession.find({ GameSessionId: strGameSessionId }).lean();
 
     if (!sessions.length) {
-        console.log("⚠️ No players found.");
+        console.log("⚠️ No players found for session — skipping history");
         return;
     }
 
-  
-
-    // 2. Optimization: Fetch ALL ledger entries for this session in ONE go
+    // 2. Fetch all ledger entries for this session in one aggregate
     const allLedgerData = await Ledger.aggregate([
         { $match: { gameSessionId: strGameSessionId } },
         {
@@ -30,62 +27,52 @@ async function pushHistoryForAllPlayers(strGameSessionId, strGameId, redis) {
             }
         }
     ]);
-    
 
-    console.log("ALL LEDGER DATA:", allLedgerData);
+    // 3. Find winner from ledger
+    const winnerLedger = await Ledger.findOne({
+        gameSessionId:   strGameSessionId,
+        transactionType: "player_winnings"
+    }).lean();
 
+    const winnerTelegramId = winnerLedger ? winnerLedger.telegramId : null;
 
-  const winnerLedger = await Ledger.findOne({
-    gameSessionId: strGameSessionId,
-    transactionType: "player_winnings"
-  }).lean();
-
- const winnerTelegramId = winnerLedger ? winnerLedger.telegramId : null;
-
-    // Create a map for O(1) lookup: { "12345": { totalStake: 10, totalWin: 50 } }
-    const ledgerMap = new Map(allLedgerData.map(item => [String(item._id), item]));
-
-    console.log("Ledger Map Keys:", [...ledgerMap.keys()]);
-    // 4. Final call count from Redis (set in ProcessWinner) – same value for all players
+    // 4. Final call count from Redis
     const finalCallLengthStr = await redis.get(`finalCalls:${strGameSessionId}`);
-    const finalCallLength = finalCallLengthStr ? parseInt(finalCallLengthStr, 10) : 0;
+    const finalCallLength    = finalCallLengthStr ? parseInt(finalCallLengthStr, 10) : 0;
 
-    const jobs = [];
-
-    for (const player of sessions) {
-        // SAFETY: Check both lowercase and uppercase just in case
-        const tId = player.telegramId || player.TelegramId;
-
-        if (!tId) {
-            console.error(`❌ Found a session record without a telegramId! ID: ${player._id}`);
-            continue; 
-        }
-        console.log(`📞📞📞📞Processing player ${tId} with session ID ${player._id}`);
-        const playerLedger = ledgerMap.get(String(tId)) || { totalStake: 0, totalWin: 0 };
-        const totalStake = playerLedger.totalStake || 0;
-        const totalWin = playerLedger.totalWin || 0;
-      
-      
-
-        console.log(`Player ${tId} - Total Stake: ${totalStake}, Total Win: ${totalWin}, Winner-ID: ${winnerTelegramId}`);
-        jobs.push({
-            type: "PROCESS_GAME_HISTORY",
-            strGameSessionId,
-            strGameId,
-            telegramId: tId,
-            winnerId: winnerTelegramId || null, // Mark the winner
-            prizeAmount: totalWin || 0,
-            stakeAmount: Math.abs(totalStake),
-            cartelaIds: player.cardIds || [],
-            callNumberLength:finalCallLength|| 0,
-            firedAt: new Date()
+    // 5. Build player list for the job — filter out any without telegramId
+    const players = sessions
+        .map(p => ({
+            telegramId: p.telegramId || p.TelegramId,
+            cardIds:    p.cardIds || [],
+        }))
+        .filter(p => {
+            if (!p.telegramId) {
+                console.error(`❌ Session record missing telegramId — skipping`);
+                return false;
+            }
+            return true;
         });
+
+    if (!players.length) {
+        console.log("⚠️ No valid players after filter — skipping history");
+        return;
     }
 
-    if (jobs.length > 0) {
-        await redis.lPush("game-task-queue", jobs.map(j => JSON.stringify(j)));
-        console.log(`✅ Queued history for ${jobs.length} players`);
-    }
+    // 6. Push ONE job for the entire session
+    const job = JSON.stringify({
+        type:            "PROCESS_GAME_HISTORY",
+        strGameSessionId,
+        strGameId,
+        winnerId:        winnerTelegramId || null,
+        finalCallLength: finalCallLength  || 0,
+        players,
+        ledgerData:      allLedgerData,   // pass already-fetched data — no re-fetch in worker
+        firedAt:         new Date(),
+    });
+
+    await redis.lPush("game-task-queue", job);
+    console.log(`✅ Queued 1 history job for session ${strGameSessionId} covering ${players.length} players`);
 }
 
 module.exports = { pushHistoryForAllPlayers };
